@@ -1,0 +1,6 @@
+{
+  "name": "Busca Ativa Escolar",
+  "description": "Sistema de busca ativa escolar integrado a banco de dados para monitorar frequência em tempo real, emitir alertas automáticos aos responsáveis e gerar relatórios pedagógicos de combate à evasão.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
