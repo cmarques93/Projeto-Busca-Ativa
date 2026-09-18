@@ -14,6 +14,7 @@ import {
   Activity
 } from 'lucide-react';
 import { Student, AttendanceRecord, ParentAlert, InterventionCase } from '../types';
+import { storageService } from '../data/storageService';
 
 interface StudentDetailModalProps {
   studentId: string | null;
@@ -38,21 +39,80 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   useEffect(() => {
     if (!studentId) return;
 
+    let isMounted = true;
     setLoading(true);
     setError(null);
-    fetch(`/api/students/${studentId}`)
-      .then(res => {
-        if (!res.ok) throw new Error('Estudante não encontrado');
-        return res.json();
-      })
-      .then(json => {
-        setData(json);
+
+    const loadStudentData = async () => {
+      let fetchedData: {
+        student: Student;
+        attendanceHistory: AttendanceRecord[];
+        alerts: ParentAlert[];
+        intervention?: InterventionCase;
+      } | null = null;
+
+      try {
+        const res = await fetch(`/api/students/${studentId}`);
+        const contentType = res.headers.get('content-type');
+        if (res.ok && contentType && contentType.includes('application/json')) {
+          fetchedData = await res.json();
+        }
+      } catch (err) {
+        console.warn('Backend indisponível ao buscar estudante, consultando banco local:', err);
+      }
+
+      if (fetchedData && fetchedData.student) {
+        if (isMounted) {
+          setData(fetchedData);
+          setLoading(false);
+        }
+        return;
+      }
+
+      // Fallback 1: Buscar do storageService (detalhes completos com histórico e alertas)
+      const localData = storageService.getStudentDetails(studentId);
+      if (localData && localData.student) {
+        if (isMounted) {
+          setData(localData);
+          setLoading(false);
+        }
+        return;
+      }
+
+      // Fallback 2: Buscar pelo ID direto no catálogo de estudantes
+      const studentObj = storageService.getStudentById(studentId);
+      if (studentObj) {
+        const history = storageService.getAttendanceRecords()
+          .filter(r => r.studentId === studentId)
+          .sort((a, b) => b.date.localeCompare(a.date));
+        const studentAlerts = storageService.getAlerts()
+          .filter(a => a.studentId === studentId)
+          .sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+        const studentIntervention = storageService.getInterventions().find(i => i.studentId === studentId);
+
+        if (isMounted) {
+          setData({
+            student: studentObj,
+            attendanceHistory: history,
+            alerts: studentAlerts,
+            intervention: studentIntervention,
+          });
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (isMounted) {
+        setError('Estudante não localizado no cadastro escolar.');
         setLoading(false);
-      })
-      .catch(err => {
-        setError(err.message);
-        setLoading(false);
-      });
+      }
+    };
+
+    loadStudentData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [studentId]);
 
   if (!studentId) return null;

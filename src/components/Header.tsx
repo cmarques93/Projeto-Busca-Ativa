@@ -16,7 +16,8 @@ import {
   FileText,
   ShieldCheck,
   Users,
-  LogOut
+  LogOut,
+  Smartphone
 } from 'lucide-react';
 import { UserRole, UserSession } from '../types';
 
@@ -304,20 +305,21 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {/* GESTÃO e ADMIN: Alertas aos Responsáveis */}
+        {/* GESTÃO e ADMIN: Ausências do Dia & Alertas WhatsApp aos Pais */}
         {(isGestao || isAdmin) && (
           <button
             onClick={() => setActiveTab('alerts')}
-            className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+            className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'alerts'
-                ? 'border-indigo-600 text-indigo-600'
+                ? 'border-emerald-600 text-emerald-700 bg-emerald-50/40'
                 : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
             }`}
+            title="Painel para Gestão e Administrador visualizar as ausências do dia e enviar alertas aos pais por WhatsApp"
           >
-            <BellRing className="w-4 h-4" />
-            <span>Alertas aos Responsáveis</span>
+            <Smartphone className="w-4 h-4 text-emerald-600" />
+            <span>Ausências do Dia & WhatsApp</span>
             {todayAlertsCount > 0 && (
-              <span className="bg-amber-100 text-amber-800 text-[11px] font-bold px-1.5 py-0.2 rounded-full">
+              <span className="bg-emerald-100 text-emerald-800 text-[11px] font-bold px-1.5 py-0.2 rounded-full">
                 {todayAlertsCount}
               </span>
             )}

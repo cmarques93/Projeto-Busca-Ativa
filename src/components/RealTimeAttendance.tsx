@@ -14,10 +14,15 @@ import {
   Eye,
   Calendar,
   Stethoscope,
-  Info
+  Info,
+  Database,
+  Smartphone,
+  Check,
+  ArrowRight
 } from 'lucide-react';
-import { Student, SchoolClass, AttendanceStatus, ParentAlert } from '../types';
+import { Student, SchoolClass, AttendanceStatus, ParentAlert, AttendanceRecord } from '../types';
 import { InfoTooltip } from './InfoTooltip';
+import { storageService } from '../data/storageService';
 
 interface RealTimeAttendanceProps {
   classes: SchoolClass[];
@@ -39,6 +44,7 @@ interface RealTimeAttendanceProps {
   ) => Promise<{ newAlerts: ParentAlert[] } | void>;
   onOpenStudentDetail: (studentId: string) => void;
   onManualAlert: (student: Student) => void;
+  onGoToAlerts?: () => void;
 }
 
 export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
@@ -49,6 +55,7 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
   onSaveAttendance,
   onOpenStudentDetail,
   onManualAlert,
+  onGoToAlerts,
 }) => {
   const todayStr = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
@@ -69,31 +76,98 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
   const [teacherName, setTeacherName] = useState('AOE / Equipe Escolar');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [existingRecordSummary, setExistingRecordSummary] = useState<{
+    recordedBy: string;
+    recordedAt: string;
+    count: number;
+    absentCount: number;
+  } | null>(null);
 
   const currentClass = classes.find(c => c.id === selectedClassId) || classes[0];
 
-  // Initialize or reset attendance state when students change
+  // Initialize and automatically load any previously saved attendance records for this class and date
   useEffect(() => {
-    const initialState: Record<
-      string,
-      {
-        status: AttendanceStatus;
-        durationDays?: number;
-        justification?: string;
-        medicalDays?: number;
-        medicalCertificate?: string;
+    let isCancelled = false;
+
+    const loadDateAttendance = async () => {
+      // 1. Initial baseline from students list
+      const initialState: Record<
+        string,
+        {
+          status: AttendanceStatus;
+          durationDays?: number;
+          justification?: string;
+          medicalDays?: number;
+          medicalCertificate?: string;
+        }
+      > = {};
+
+      students.forEach(s => {
+        if (s.consecutiveAbsences >= 3) {
+          initialState[s.id] = { status: 'falta_injustificada', durationDays: 1 };
+        } else {
+          initialState[s.id] = { status: 'presente', durationDays: 1 };
+        }
+      });
+
+      // 2. Query previously recorded attendance records for this specific class and date
+      let records: AttendanceRecord[] = [];
+
+      try {
+        const res = await fetch(`/api/attendance-records?classId=${selectedClassId}&date=${selectedDate}`);
+        const contentType = res.headers.get('content-type');
+        if (res.ok && contentType && contentType.includes('application/json')) {
+          const json = await res.json();
+          if (Array.isArray(json) && json.length > 0) {
+            records = json;
+          }
+        }
+      } catch (err) {
+        console.warn('API de histórico não respondeu, consultando storageService:', err);
       }
-    > = {};
-    students.forEach(s => {
-      // Default to present, or keep current state if already marked
-      if (s.consecutiveAbsences >= 3) {
-        initialState[s.id] = { status: 'falta_injustificada', durationDays: 1 };
+
+      // Fallback: carregar do storageService se backend não retornou registros
+      if (records.length === 0) {
+        records = storageService.getAttendanceRecords(selectedClassId, selectedDate);
+      }
+
+      if (isCancelled) return;
+
+      if (records && records.length > 0) {
+        let absentCount = 0;
+        records.forEach(r => {
+          initialState[r.studentId] = {
+            status: r.status,
+            durationDays: r.durationDays || 1,
+            justification: r.justification || '',
+            medicalDays: r.medicalDays,
+            medicalCertificate: r.medicalCertificate,
+          };
+          if (r.status !== 'presente') {
+            absentCount++;
+          }
+        });
+
+        const latestRecord = records[0];
+        setExistingRecordSummary({
+          recordedBy: latestRecord.recordedBy || 'Equipe Escolar',
+          recordedAt: latestRecord.recordedAt || latestRecord.createdAt || selectedDate,
+          count: records.length,
+          absentCount,
+        });
       } else {
-        initialState[s.id] = { status: 'presente', durationDays: 1 };
+        setExistingRecordSummary(null);
       }
-    });
-    setAttendanceState(initialState);
-  }, [students, selectedDate]);
+
+      setAttendanceState(initialState);
+    };
+
+    loadDateAttendance();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [students, selectedClassId, selectedDate]);
 
   const handleStatusChange = (studentId: string, status: AttendanceStatus) => {
     setAttendanceState(prev => ({
@@ -209,10 +283,17 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
       }));
 
       await onSaveAttendance(items, selectedClassId, teacherName, selectedDate);
+      const absentCount = items.filter(i => i.status !== 'presente').length;
+      setExistingRecordSummary({
+        recordedBy: teacherName,
+        recordedAt: new Date().toISOString(),
+        count: items.length,
+        absentCount,
+      });
       setSaveSuccessMsg(
-        `Frequência da data ${new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR')} registrada com sucesso no banco de dados!`
+        `Frequência da data ${new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR')} registrada com sucesso no banco de dados! (${absentCount} ausências/atestados salvos)`
       );
-      setTimeout(() => setSaveSuccessMsg(null), 6000);
+      setTimeout(() => setSaveSuccessMsg(null), 8000);
     } catch (err: any) {
       console.error(err);
     } finally {
@@ -340,13 +421,56 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
         </div>
       </div>
 
+      {/* Info Banner if attendance was already recorded for this date */}
+      {existingRecordSummary && !saveSuccessMsg && (
+        <div className="bg-indigo-50 border border-indigo-200 text-indigo-950 px-4 py-3 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <Database className="w-5 h-5 text-indigo-600 shrink-0" />
+            <div className="text-xs sm:text-sm">
+              <span className="font-bold text-indigo-900">Chamada carregada do banco de dados para esta data!</span>
+              <span className="text-indigo-800 ml-1">
+                Registrada por <strong>{existingRecordSummary.recordedBy}</strong> em{' '}
+                {new Date(existingRecordSummary.recordedAt).toLocaleString('pt-BR')}.{' '}
+                {existingRecordSummary.absentCount > 0 ? (
+                  <span className="text-rose-700 font-bold">({existingRecordSummary.absentCount} ausência(s)/atestado(s) registrados)</span>
+                ) : (
+                  <span className="text-emerald-700 font-bold">(100% de presença)</span>
+                )}
+              </span>
+            </div>
+          </div>
+          {onGoToAlerts && (
+            <button
+              type="button"
+              onClick={onGoToAlerts}
+              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer shadow-xs transition-all"
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>Painel de Ausências & WhatsApp</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Success Notification Alert if saved */}
       {saveSuccessMsg && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-3 rounded-xl flex items-center justify-between shadow-xs">
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-in fade-in">
           <div className="flex items-center gap-2.5">
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-            <span className="text-sm font-medium">{saveSuccessMsg}</span>
+            <span className="text-sm font-semibold">{saveSuccessMsg}</span>
           </div>
+          {onGoToAlerts && (
+            <button
+              type="button"
+              onClick={onGoToAlerts}
+              className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer shadow-xs transition-all"
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>Ver Ausências & Enviar WhatsApp aos Pais</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       )}
 
@@ -709,6 +833,37 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Bottom Action Bar */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="text-xs text-slate-600">
+          Turma <strong>{currentClass.name}</strong> ({currentClass.shift}) • <strong>{students.length}</strong> estudantes listados.
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          {onGoToAlerts && (
+            <button
+              type="button"
+              onClick={onGoToAlerts}
+              className="px-3.5 py-2 rounded-lg border border-emerald-300 bg-emerald-50/60 hover:bg-emerald-100 text-emerald-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Painel de Ausências & WhatsApp</span>
+              <ArrowRight className="w-3.5 h-3.5 text-emerald-600" />
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-2 transition-all shadow-xs cursor-pointer disabled:opacity-50"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span>{isSubmitting ? 'Gravando Diário...' : 'Gravar Frequência da Turma no Banco'}</span>
+          </button>
         </div>
       </div>
     </div>

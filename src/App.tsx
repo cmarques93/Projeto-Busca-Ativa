@@ -494,6 +494,7 @@ export default function App() {
             onSaveAttendance={handleSaveAttendance}
             onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
             onManualAlert={handleOpenAlertForStudent}
+            onGoToAlerts={() => setActiveTab('alerts')}
           />
         )}
 
@@ -506,7 +507,7 @@ export default function App() {
           />
         )}
 
-        {/* Gestão/PAAC & Admin: WhatsApp Alerts Manager */}
+        {/* Gestão/PAAC & Admin: Painel de Ausências do Dia & Alertas WhatsApp */}
         {activeTab === 'alerts' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin') && (
           <AlertsManager
             alerts={alerts}
@@ -516,6 +517,13 @@ export default function App() {
               setIsNewAlertModalOpen(true);
             }}
             onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
+            students={students}
+            classes={classes}
+            currentUser={currentUser}
+            onSendAlertDirect={async (alertData) => {
+              await handleSendManualAlert(alertData);
+            }}
+            onRefresh={fetchData}
           />
         )}
 

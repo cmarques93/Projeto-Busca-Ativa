@@ -344,6 +344,33 @@ export const storageService = {
     return this.getStudents().find(s => s.id === id);
   },
 
+  getStudentDetails(id: string): {
+    student: Student;
+    attendanceHistory: AttendanceRecord[];
+    alerts: ParentAlert[];
+    intervention?: InterventionCase;
+  } | null {
+    const student = this.getStudentById(id);
+    if (!student) return null;
+
+    const attendanceHistory = this.getAttendanceRecords()
+      .filter(r => r.studentId === id)
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    const alerts = this.getAlerts()
+      .filter(a => a.studentId === id)
+      .sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+
+    const intervention = this.getInterventions().find(i => i.studentId === id);
+
+    return {
+      student,
+      attendanceHistory,
+      alerts,
+      intervention,
+    };
+  },
+
   saveStudents(students: Student[]) {
     try {
       localStorage.setItem('school_students', JSON.stringify(students));
@@ -526,9 +553,12 @@ export const storageService = {
         className: student.className,
         date: currentDate,
         status: item.status,
+        durationDays: item.durationDays || 1,
         justification: item.justification,
         medicalCertificate: item.medicalCertificate,
+        medicalDays: item.medicalDays,
         recordedBy: recordedBy || 'AOE / Equipe Escolar',
+        recordedAt: new Date().toISOString(),
         createdAt: new Date().toISOString(),
       };
       if (recIndex !== -1) {
@@ -628,6 +658,10 @@ export const storageService = {
       console.error(e);
     }
     return alert;
+  },
+
+  createAlert(alert: ParentAlert): ParentAlert {
+    return this.addAlert(alert);
   },
 
   updateAlertStatus(alertId: string, status: string, notes?: string): ParentAlert | null {
