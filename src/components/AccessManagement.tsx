@@ -47,6 +47,10 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
   const [selectedUserForPin, setSelectedUserForPin] = useState<UserAccount | null>(null);
   const [newPinValue, setNewPinValue] = useState('');
 
+  // User deletion state for in-app confirmation modal (works reliably inside iframes)
+  const [userToDelete, setUserToDelete] = useState<UserAccount | null>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
+
   // Form for new user
   const [newUserName, setNewUserName] = useState('');
   const [newUserRole, setNewUserRole] = useState<UserRole>('professor');
@@ -134,22 +138,29 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
     setUsers(prev => prev.map(u => u.id === user.id ? { ...u, active: newStatus } : u));
   };
 
-  // Delete user
-  const handleDeleteUser = async (user: UserAccount) => {
-    if (!window.confirm(`Tem certeza que deseja remover o acesso de "${user.name}"?`)) {
-      return;
-    }
+  // Delete user trigger - opens in-app confirmation modal
+  const handleDeleteUser = (user: UserAccount) => {
+    setUserToDelete(user);
+  };
+
+  // Confirm deletion of user (idempotent across backend & local storage)
+  const confirmDeleteUser = async () => {
+    if (!userToDelete) return;
+    setIsDeletingUser(true);
+    const targetUser = userToDelete;
 
     try {
-      await fetch(`/api/users/${user.id}`, { method: 'DELETE' });
+      await fetch(`/api/users/${targetUser.id}`, { method: 'DELETE' });
     } catch (err: any) {
       console.warn('API backend indisponível, removendo localmente:', err);
     }
 
-    storageService.deleteUser(user.id);
-    setUsers(prev => prev.filter(u => u.id !== user.id));
-    setSuccessMessage(`Usuário "${user.name}" removido com sucesso.`);
+    storageService.deleteUser(targetUser.id);
+    setUsers(prev => prev.filter(u => u.id !== targetUser.id));
+    setSuccessMessage(`Usuário "${targetUser.name}" removido com sucesso.`);
     setTimeout(() => setSuccessMessage(null), 4000);
+    setUserToDelete(null);
+    setIsDeletingUser(false);
     if (onRefresh) onRefresh();
   };
 
@@ -792,6 +803,55 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação para Excluir Usuário (In-App, imune a bloqueios de iframes) */}
+      {userToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4 shadow-xs">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 text-center">
+              Excluir Usuário do Sistema
+            </h3>
+            <p className="text-xs text-slate-600 text-center mt-2 leading-relaxed">
+              Tem certeza que deseja excluir o cadastro e revogar o acesso de{' '}
+              <strong className="text-slate-900">{userToDelete.name}</strong>?
+            </p>
+            <div className="mt-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center text-[11px] text-slate-500">
+              Cargo: <span className="font-semibold text-slate-800">{userToDelete.roleLabel}</span> • Identificador: <span className="font-mono text-slate-700">{userToDelete.id}</span>
+            </div>
+            <p className="text-[11px] text-rose-600 text-center mt-2 font-medium">
+              Esta ação revogará permanentemente as permissões de acesso deste colaborador.
+            </p>
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setUserToDelete(null)}
+                disabled={isDeletingUser}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteUser}
+                disabled={isDeletingUser}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {isDeletingUser ? (
+                  <span>Excluindo...</span>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Sim, Excluir Usuário</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

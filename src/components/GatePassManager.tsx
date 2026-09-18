@@ -48,6 +48,8 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
   const [guardianPhone, setGuardianPhone] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [recordToDelete, setRecordToDelete] = useState<GateRecord | null>(null);
+  const [isDeletingRecord, setIsDeletingRecord] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const fetchRecords = async () => {
@@ -140,19 +142,19 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
     setIsSubmitting(false);
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Deseja realmente remover este registro de portaria?')) return;
+  const confirmDeleteRecord = async () => {
+    if (!recordToDelete) return;
+    setIsDeletingRecord(true);
+    const id = recordToDelete.id;
     try {
-      const res = await fetch(`/api/gate-records/${id}`, { method: 'DELETE' });
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
-      }
+      await fetch(`/api/gate-records/${id}`, { method: 'DELETE' });
     } catch (e) {
       console.warn('API indisponível:', e);
     }
     storageService.deleteGateRecord(id);
     setRecords(prev => prev.filter(r => r.id !== id));
+    setRecordToDelete(null);
+    setIsDeletingRecord(false);
   };
 
   const filteredRecords = records.filter(r => {
@@ -538,7 +540,8 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
                     </td>
                     <td className="py-3.5 px-4 text-right">
                       <button
-                        onClick={() => handleDelete(record.id)}
+                        type="button"
+                        onClick={() => setRecordToDelete(record)}
                         className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
                         title="Excluir registro"
                       >
@@ -552,6 +555,52 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
           </div>
         )}
       </div>
+
+      {/* Modal de Confirmação para Excluir Registro de Portaria */}
+      {recordToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4 shadow-xs">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 text-center">
+              Excluir Registro de Portaria
+            </h3>
+            <p className="text-xs text-slate-600 text-center mt-2 leading-relaxed">
+              Deseja realmente remover o registro de movimentação de{' '}
+              <strong className="text-slate-900">{recordToDelete.studentName}</strong> ({recordToDelete.className})?
+            </p>
+            <div className="mt-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center text-[11px] text-slate-500">
+              Tipo: <span className="font-semibold text-slate-800">{recordToDelete.type === 'entrada_tardia' ? 'Entrada Tardia' : 'Saída Antecipada'}</span> • Horário: <span className="font-semibold text-slate-800">{recordToDelete.time}</span>
+            </div>
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setRecordToDelete(null)}
+                disabled={isDeletingRecord}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteRecord}
+                disabled={isDeletingRecord}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {isDeletingRecord ? (
+                  <span>Excluindo...</span>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Sim, Excluir</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

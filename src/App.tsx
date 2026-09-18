@@ -16,6 +16,7 @@ import { SeducContingencyReportModal } from './components/SeducContingencyReport
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
 import { AccessManagement } from './components/AccessManagement';
 import { LoginScreen } from './components/LoginScreen';
+import { RotateCcw, ShieldCheck } from 'lucide-react';
 import { storageService } from './data/storageService';
 import {
   Student,
@@ -64,6 +65,9 @@ export default function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isSeducReportModalOpen, setIsSeducReportModalOpen] = useState(false);
   const [isGoogleSheetsModalOpen, setIsGoogleSheetsModalOpen] = useState(false);
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [roleRestrictionNotice, setRoleRestrictionNotice] = useState<string | null>(null);
   const [preSelectedStudentForAlert, setPreSelectedStudentForAlert] = useState<Student | null>(null);
   const [automatedAlertsTriggered, setAutomatedAlertsTriggered] = useState<ParentAlert[]>([]);
 
@@ -410,22 +414,28 @@ export default function App() {
     }
   };
 
-  // Reset database to demo data
-  const handleResetData = async () => {
-    if (window.confirm('Deseja restaurar a base de dados da EE Professor Arlindo Silvestre com os dados padrão?')) {
-      try {
-        await fetch('/api/reset-data', { method: 'POST' });
-        await fetchData();
-      } catch (e) {
-        console.error(e);
-      }
+  // Reset database to demo data (opens in-app confirmation modal)
+  const handleResetData = () => {
+    setIsResetConfirmOpen(true);
+  };
+
+  const confirmResetData = async () => {
+    setIsResetting(true);
+    try {
+      await fetch('/api/reset-data', { method: 'POST' });
+      await fetchData();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsResetting(false);
+      setIsResetConfirmOpen(false);
     }
   };
 
   // Open alert modal for specific student
   const handleOpenAlertForStudent = (student: Student) => {
     if (currentUser?.role === 'professor') {
-      alert('Seu perfil de Professor tem acesso restrito e não possui permissão para disparar alertas externos.');
+      setRoleRestrictionNotice('O perfil de Professor tem acesso restrito para lançamentos de chamada e não possui autorização para emitir alertas aos pais.');
       return;
     }
     setPreSelectedStudentForAlert(student);
@@ -613,6 +623,74 @@ export default function App() {
         onClose={() => setIsGoogleSheetsModalOpen(false)}
         onDataRefreshed={fetchData}
       />
+
+      {/* Modal de Confirmação para Restaurar Base Padrão */}
+      {isResetConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-4 shadow-xs">
+              <RotateCcw className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 text-center">
+              Restaurar Base de Dados Padrão
+            </h3>
+            <p className="text-xs text-slate-600 text-center mt-2 leading-relaxed">
+              Deseja restaurar a base de dados da <strong>EE Professor Arlindo Silvestre</strong> para os dados padrão iniciais da escola?
+            </p>
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setIsResetConfirmOpen(false)}
+                disabled={isResetting}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmResetData}
+                disabled={isResetting}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {isResetting ? (
+                  <span>Restaurando...</span>
+                ) : (
+                  <>
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Sim, Restaurar</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Aviso de Restrição de Perfil */}
+      {roleRestrictionNotice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-600 flex items-center justify-center mx-auto mb-4 shadow-xs">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 text-center">
+              Acesso Restrito
+            </h3>
+            <p className="text-xs text-slate-600 text-center mt-2 leading-relaxed">
+              {roleRestrictionNotice}
+            </p>
+            <div className="mt-6 flex justify-center">
+              <button
+                type="button"
+                onClick={() => setRoleRestrictionNotice(null)}
+                className="py-2 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-all cursor-pointer shadow-xs"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Institutional Footer */}
       <footer className="bg-white border-t border-slate-200 mt-12 py-6 text-xs text-slate-500">

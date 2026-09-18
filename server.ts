@@ -163,8 +163,8 @@ async function startServer() {
   // Delete class
   app.delete('/api/classes/:id', (req, res) => {
     try {
-      const success = db.deleteClass(req.params.id);
-      if (!success) return res.status(404).json({ error: 'Turma não encontrada' });
+      const classId = decodeURIComponent(req.params.id);
+      db.deleteClass(classId);
       res.json({ success: true, message: 'Turma removida com sucesso' });
     } catch (e: any) {
       res.status(500).json({ error: e.message });

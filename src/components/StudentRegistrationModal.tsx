@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   UserPlus,
@@ -55,6 +55,15 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
   const [newClassName, setNewClassName] = useState('');
   const [newClassGrade, setNewClassGrade] = useState('Ensino Fundamental II');
   const [newClassShift, setNewClassShift] = useState('Manhã');
+
+  // Local class list & in-app deletion confirmation (immune to iframe confirm blocking)
+  const [classList, setClassList] = useState<SchoolClass[]>(classes);
+  const [classToDelete, setClassToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [isDeletingClass, setIsDeletingClass] = useState(false);
+
+  useEffect(() => {
+    setClassList(classes);
+  }, [classes]);
 
   if (!isOpen) return null;
 
@@ -281,6 +290,7 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
     }
 
     storageService.createClass(classData);
+    setClassList(prev => [...prev.filter(c => c.id.toLowerCase() !== cleanId.toLowerCase()), classData]);
     await onStudentRegistered();
     setSuccessMessage(`Turma "${cleanName}" (${cleanId}) salva com sucesso no banco de dados!`);
     setNewClassId('');
@@ -288,30 +298,43 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
     setIsSubmitting(false);
   };
 
-  const handleDeleteClass = async (clsId: string, clsName: string) => {
-    if (!confirm(`Deseja realmente excluir a turma "${clsName}" (${clsId})?\nATENÇÃO: Alunos matriculados nesta turma também serão desvinculados.`)) {
-      return;
-    }
-    setIsSubmitting(true);
+  // Open in-app deletion confirmation modal
+  const handleDeleteClass = (clsId: string, clsName: string) => {
+    setClassToDelete({ id: clsId, name: clsName });
+  };
+
+  // Confirm delete class (immune to iframe restrictions)
+  const confirmDeleteClass = async () => {
+    if (!classToDelete) return;
+    const { id: clsId, name: clsName } = classToDelete;
+    setIsDeletingClass(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
-      const res = await fetch(`/api/classes/${clsId}`, {
+      await fetch(`/api/classes/${encodeURIComponent(clsId)}`, {
         method: 'DELETE',
       });
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
-      }
     } catch (err: any) {
       console.warn('API backend indisponível, excluindo turma localmente:', err);
     }
 
     storageService.deleteClass(clsId);
+    setClassList(prev => prev.filter(c => c.id.toLowerCase() !== clsId.toLowerCase()));
+
+    // Adjust selected class if it was the deleted one
+    const remaining = classList.filter(c => c.id.toLowerCase() !== clsId.toLowerCase());
+    if (classId.toLowerCase() === clsId.toLowerCase() && remaining.length > 0) {
+      setClassId(remaining[0].id);
+    }
+    if (batchTargetClass.toLowerCase() === clsId.toLowerCase() && remaining.length > 0) {
+      setBatchTargetClass(remaining[0].id);
+    }
+
     await onStudentRegistered();
-    setSuccessMessage(`Turma ${clsName} excluída com sucesso!`);
-    setIsSubmitting(false);
+    setSuccessMessage(`Turma "${clsName}" (${clsId}) excluída com sucesso!`);
+    setClassToDelete(null);
+    setIsDeletingClass(false);
   };
 
   return (
@@ -715,7 +738,7 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
                 <div className="flex items-center justify-between mb-3">
                   <div className="font-bold text-slate-800 text-xs flex items-center gap-2">
                     <Users className="w-4 h-4 text-indigo-600" />
-                    <span>Turmas Cadastradas Atualmente ({classes.length}):</span>
+                    <span>Turmas Cadastradas Atualmente ({classList.length}):</span>
                   </div>
                   <InfoTooltip
                     title="Gerenciar Turmas"
@@ -724,7 +747,7 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
                 </div>
 
                 <div className="max-h-52 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-slate-50/50">
-                  {classes.map(cls => (
+                  {classList.map(cls => (
                     <div
                       key={cls.id}
                       className="p-3 flex items-center justify-between hover:bg-white transition-colors"
@@ -750,7 +773,7 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
                       <button
                         type="button"
                         onClick={() => handleDeleteClass(cls.id, cls.name)}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || isDeletingClass}
                         className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-colors"
                         title={`Excluir turma ${cls.name}`}
                       >
@@ -765,6 +788,55 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
           )}
         </div>
       </div>
+
+      {/* Modal de Confirmação para Excluir Turma (In-App, imune a bloqueios de iframes) */}
+      {classToDelete && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4 shadow-xs">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 text-center">
+              Excluir Turma da Escola
+            </h3>
+            <p className="text-xs text-slate-600 text-center mt-2 leading-relaxed">
+              Deseja realmente excluir a turma{' '}
+              <strong className="text-slate-900">{classToDelete.name}</strong>?
+            </p>
+            <div className="mt-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-center text-[11px] text-slate-500">
+              Código / ID: <span className="font-mono font-bold text-slate-800">{classToDelete.id}</span>
+            </div>
+            <p className="text-[11px] text-rose-600 text-center mt-2 font-medium leading-normal">
+              Atenção: Estudantes matriculados nesta turma serão desvinculados do quadro escolar.
+            </p>
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setClassToDelete(null)}
+                disabled={isDeletingClass}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteClass}
+                disabled={isDeletingClass}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {isDeletingClass ? (
+                  <span>Excluindo...</span>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Sim, Excluir Turma</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

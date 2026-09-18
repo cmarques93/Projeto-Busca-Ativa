@@ -887,18 +887,16 @@ export class SchoolDatabase {
 
   public deleteUser(id: string): boolean {
     const users = this.getUsers();
-    const index = users.findIndex(u => u.id === id);
-    if (index === -1) {
-      throw new Error('Usuário não encontrado.');
-    }
-
     if (id === 'usr-admin') {
       throw new Error('O Administrador Master principal não pode ser excluído.');
     }
 
-    users.splice(index, 1);
-    this.data.lastUpdated = new Date().toISOString();
-    this.saveToDisk();
+    const index = users.findIndex(u => u.id === id);
+    if (index !== -1) {
+      users.splice(index, 1);
+      this.data.lastUpdated = new Date().toISOString();
+      this.saveToDisk();
+    }
     return true;
   }
 
@@ -1736,16 +1734,16 @@ export class SchoolDatabase {
   }
 
   public deleteClass(classId: string): boolean {
-    const initialLen = this.data.classes.length;
-    this.data.classes = this.data.classes.filter(c => c.id !== classId);
-    if (this.data.classes.length === initialLen) return false;
+    const cleanId = String(classId).trim().toLowerCase();
+    this.data.classes = this.data.classes.filter(c => c.id.trim().toLowerCase() !== cleanId);
 
     // Clean up or reassign students associated with this class, or remove their records
-    const studentsInClass = this.data.students.filter(s => s.classId === classId);
+    const studentsInClass = this.data.students.filter(s => (s.classId || '').trim().toLowerCase() === cleanId);
     studentsInClass.forEach(s => {
       this.deleteStudent(s.id);
     });
 
+    this.data.lastUpdated = new Date().toISOString();
     this.saveToDisk();
     return true;
   }
