@@ -15,6 +15,7 @@ import { TeacherAbsenceView } from './components/TeacherAbsenceView';
 import { SeducContingencyReportModal } from './components/SeducContingencyReportModal';
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
 import { AccessManagement } from './components/AccessManagement';
+import { LoginScreen } from './components/LoginScreen';
 import {
   Student,
   SchoolClass,
@@ -30,15 +31,10 @@ import {
 } from './types';
 
 export default function App() {
-  // Current logged in user session (Default: Administrador Master para carregar e gerenciar acessos)
-  const [currentUser, setCurrentUser] = useState<UserSession>({
-    username: 'admin',
-    name: 'Administrador Geral',
-    role: 'admin',
-    roleLabel: 'Administrador (Master)'
-  });
+  // Current logged in user session (Inicia nulo para exibir a tela de Login como página inicial)
+  const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
 
-  const [activeTab, setActiveTab] = useState<MainTabType>('access_management');
+  const [activeTab, setActiveTab] = useState<MainTabType>('attendance');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Core data states
@@ -154,6 +150,11 @@ export default function App() {
     };
 
     handleLoginSuccess(session);
+  };
+
+  // Logout handler returning to the login page
+  const handleLogout = () => {
+    setCurrentUser(null);
   };
 
   // Handle class selection change
@@ -328,13 +329,18 @@ export default function App() {
 
   // Open alert modal for specific student
   const handleOpenAlertForStudent = (student: Student) => {
-    if (currentUser.role === 'professor') {
+    if (currentUser?.role === 'professor') {
       alert('Seu perfil de Professor tem acesso restrito e não possui permissão para disparar alertas externos.');
       return;
     }
     setPreSelectedStudentForAlert(student);
     setIsNewAlertModalOpen(true);
   };
+
+  // Se nenhum usuário estiver logado, exibe a tela de Login como página inicial
+  if (!currentUser) {
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+  }
 
   // Calculate high-level summary metrics
   const criticalStudentsTotal = students.filter(s => s.riskLevel === 'critico').length;
@@ -354,6 +360,7 @@ export default function App() {
         setActiveTab={setActiveTab}
         currentUser={currentUser}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
+        onLogout={handleLogout}
         onOpenSeducReport={() => setIsSeducReportModalOpen(true)}
         onRefresh={fetchData}
         isRefreshing={isRefreshing}

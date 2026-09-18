@@ -15,7 +15,8 @@ import {
   Shield,
   FileText,
   ShieldCheck,
-  Users
+  Users,
+  LogOut
 } from 'lucide-react';
 import { UserRole, UserSession } from '../types';
 
@@ -39,6 +40,7 @@ interface HeaderProps {
   setActiveTab: (tab: MainTabType) => void;
   currentUser: UserSession;
   onOpenLoginModal: () => void;
+  onLogout?: () => void;
   onOpenSeducReport: () => void;
   onRefresh: () => void;
   isRefreshing: boolean;
@@ -59,6 +61,7 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveTab,
   currentUser,
   onOpenLoginModal,
+  onLogout,
   onOpenSeducReport,
   onRefresh,
   isRefreshing,
@@ -107,12 +110,23 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={onOpenLoginModal}
-            className="flex items-center gap-1 text-[11px] bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 py-0.5 rounded font-semibold cursor-pointer transition-colors shadow-2xs"
-            title="Selecionar usuário e digitar senha de 4 dígitos"
+            className="flex items-center gap-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-0.5 rounded font-semibold cursor-pointer transition-colors border border-slate-700"
+            title="Selecionar outro usuário e digitar senha de 4 dígitos"
           >
-            <KeyRound className="w-3 h-3" />
+            <KeyRound className="w-3 h-3 text-indigo-400" />
             <span>Alternar Usuário</span>
           </button>
+
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-1 text-[11px] bg-rose-950/60 hover:bg-rose-900 text-rose-200 px-2.5 py-0.5 rounded font-semibold cursor-pointer transition-colors border border-rose-800/80"
+              title="Sair do sistema e retornar à tela inicial de Login"
+            >
+              <LogOut className="w-3 h-3" />
+              <span>Sair</span>
+            </button>
+          )}
 
           <button
             onClick={onResetData}
