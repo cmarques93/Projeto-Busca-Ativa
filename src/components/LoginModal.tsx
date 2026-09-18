@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { KeyRound, User, Lock, X, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { UserRole, UserSession } from '../types';
+import { storageService } from '../data/storageService';
 
 interface PublicUserItem {
   id: string;
@@ -44,26 +45,31 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       setPin('');
       try {
         const res = await fetch('/api/users/public');
-        if (res.ok) {
+        const contentType = res.headers.get('content-type');
+        if (res.ok && contentType && contentType.includes('application/json')) {
           const list: PublicUserItem[] = await res.json();
           const activeList = list.filter(u => u.active !== false);
-          setUsers(activeList);
-
-          // Default select current user or first user in list
-          const matching = activeList.find(
-            u => u.username === currentUser.username || u.name === currentUser.name
-          );
-          if (matching) {
-            setSelectedUserId(matching.id);
-          } else if (activeList.length > 0) {
-            setSelectedUserId(activeList[0].id);
+          if (activeList.length > 0) {
+            setUsers(activeList);
+            const matching = activeList.find(
+              u => u.username === currentUser.username || u.name === currentUser.name
+            );
+            setSelectedUserId(matching ? matching.id : activeList[0].id);
+            setLoadingUsers(false);
+            return;
           }
         }
       } catch (e) {
-        console.error('Erro ao carregar usuários:', e);
-      } finally {
-        setLoadingUsers(false);
+        console.warn('Backend API /api/users/public indisponível no modal, usando storageService:', e);
       }
+
+      const fallbackList = storageService.getUsers().filter(u => u.active !== false);
+      setUsers(fallbackList);
+      const matching = fallbackList.find(
+        u => u.username === currentUser.username || u.name === currentUser.name
+      );
+      setSelectedUserId(matching ? matching.id : (fallbackList[0]?.id || ''));
+      setLoadingUsers(false);
     };
 
     fetchUsers();
@@ -96,21 +102,41 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Senha incorreta.');
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        onLoginSuccess(data.user);
+        if (onSelectRole) {
+          onSelectRole(data.user.role, data.user.name);
+        }
+        onClose();
+        setAuthenticating(false);
+        return;
       }
 
-      onLoginSuccess(data.user);
+      if (contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.error) {
+          setErrorMessage(data.error);
+          setAuthenticating(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('API indisponível, validando credencial localmente:', err);
+    }
+
+    const verification = storageService.verifyPin(selectedUserId, pin.trim());
+    if (verification.success && verification.user) {
+      onLoginSuccess(verification.user);
       if (onSelectRole) {
-        onSelectRole(data.user.role, data.user.name);
+        onSelectRole(verification.user.role, verification.user.name);
       }
       onClose();
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Erro ao realizar login.');
-    } finally {
-      setAuthenticating(false);
+    } else {
+      setErrorMessage(verification.error || 'Senha de 4 dígitos incorreta.');
     }
+    setAuthenticating(false);
   };
 
   return (

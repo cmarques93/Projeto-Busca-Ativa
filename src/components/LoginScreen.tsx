@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { School, KeyRound, User, Lock, Eye, EyeOff, AlertCircle, Shield, ArrowRight } from 'lucide-react';
 import { UserRole, UserSession } from '../types';
+import { storageService } from '../data/storageService';
 
 interface PublicUserItem {
   id: string;
@@ -30,22 +31,28 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       setErrorMessage(null);
       try {
         const res = await fetch('/api/users/public');
-        if (res.ok) {
+        const contentType = res.headers.get('content-type');
+        if (res.ok && contentType && contentType.includes('application/json')) {
           const list: PublicUserItem[] = await res.json();
           const activeList = list.filter(u => u.active !== false);
-          setUsers(activeList);
           if (activeList.length > 0) {
+            setUsers(activeList);
             setSelectedUserId(activeList[0].id);
+            setLoadingUsers(false);
+            return;
           }
-        } else {
-          setErrorMessage('Não foi possível carregar a lista de usuários.');
         }
       } catch (err) {
-        console.error('Erro ao buscar usuários:', err);
-        setErrorMessage('Falha ao conectar com o servidor da escola.');
-      } finally {
-        setLoadingUsers(false);
+        console.warn('API backend /api/users/public indisponível, ativando banco local resiliente:', err);
       }
+
+      // Fallback resiliente: Carrega usuários locais (Vercel / GitHub Pages / Modo Offline)
+      const fallbackList = storageService.getUsers().filter(u => u.active !== false);
+      setUsers(fallbackList);
+      if (fallbackList.length > 0) {
+        setSelectedUserId(fallbackList[0].id);
+      }
+      setLoadingUsers(false);
     };
 
     fetchUsers();
@@ -76,17 +83,34 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         }),
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Senha incorreta.');
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        onLoginSuccess(data.user);
+        setAuthenticating(false);
+        return;
       }
 
-      onLoginSuccess(data.user);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Erro ao realizar login.');
-    } finally {
-      setAuthenticating(false);
+      if (contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data.error) {
+          setErrorMessage(data.error);
+          setAuthenticating(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Falha na requisição de login à API, validando credencial localmente:', err);
     }
+
+    // Validação local via storageService (para Vercel ou caso o backend esteja off-line)
+    const verification = storageService.verifyPin(selectedUserId, pin.trim());
+    if (verification.success && verification.user) {
+      onLoginSuccess(verification.user);
+    } else {
+      setErrorMessage(verification.error || 'Senha numérica de 4 dígitos incorreta.');
+    }
+    setAuthenticating(false);
   };
 
   return (

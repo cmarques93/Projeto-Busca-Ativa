@@ -20,6 +20,7 @@ import {
   Info
 } from 'lucide-react';
 import { UserAccount, UserRole } from '../types';
+import { storageService } from '../data/storageService';
 
 interface AccessManagementProps {
   onRefresh?: () => void;
@@ -56,14 +57,22 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
     setErrorMessage(null);
     try {
       const res = await fetch('/api/users');
-      if (!res.ok) throw new Error('Falha ao carregar banco de dados de acessos');
-      const data = await res.json();
-      setUsers(data);
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setUsers(data);
+          setLoading(false);
+          return;
+        }
+      }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Erro ao carregar usuários');
-    } finally {
-      setLoading(false);
+      console.warn('API /api/users indisponível, usando lista local:', err);
     }
+
+    const localList = storageService.getUsers() as UserAccount[];
+    setUsers(localList);
+    setLoading(false);
   };
 
   useEffect(() => {

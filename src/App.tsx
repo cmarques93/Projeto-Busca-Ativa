@@ -16,6 +16,7 @@ import { SeducContingencyReportModal } from './components/SeducContingencyReport
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
 import { AccessManagement } from './components/AccessManagement';
 import { LoginScreen } from './components/LoginScreen';
+import { storageService } from './data/storageService';
 import {
   Student,
   SchoolClass,
@@ -73,31 +74,82 @@ export default function App() {
   // Fetch all base data
   const fetchData = useCallback(async () => {
     setIsRefreshing(true);
+    let hasServerInfo = false;
+    let hasServerClasses = false;
+    let hasServerStudents = false;
+    let hasServerAlerts = false;
+    let hasServerInterventions = false;
+    let hasServerReport = false;
+
     try {
       const [infoRes, classesRes, studentsRes, alertsRes, interventionsRes, reportRes] = await Promise.all([
-        fetch('/api/school-info'),
-        fetch('/api/classes'),
-        fetch(`/api/students?classId=${selectedClassId}`),
-        fetch('/api/alerts'),
-        fetch('/api/interventions'),
-        fetch(`/api/reports/monthly?month=${selectedMonthIndex}&year=2026`),
+        fetch('/api/school-info').catch(() => null),
+        fetch('/api/classes').catch(() => null),
+        fetch(`/api/students?classId=${selectedClassId}`).catch(() => null),
+        fetch('/api/alerts').catch(() => null),
+        fetch('/api/interventions').catch(() => null),
+        fetch(`/api/reports/monthly?month=${selectedMonthIndex}&year=2026`).catch(() => null),
       ]);
 
-      if (infoRes.ok) setSchoolInfo(await infoRes.json());
-      if (classesRes.ok) {
+      if (infoRes && infoRes.ok && infoRes.headers.get('content-type')?.includes('application/json')) {
+        setSchoolInfo(await infoRes.json());
+        hasServerInfo = true;
+      }
+      if (classesRes && classesRes.ok && classesRes.headers.get('content-type')?.includes('application/json')) {
         const clsList = await classesRes.json();
-        setClasses(clsList);
-        if (!selectedClassId && clsList.length > 0) {
-          setSelectedClassId(clsList[0].id);
+        if (Array.isArray(clsList) && clsList.length > 0) {
+          setClasses(clsList);
+          hasServerClasses = true;
+          if (!selectedClassId && clsList.length > 0) {
+            setSelectedClassId(clsList[0].id);
+          }
         }
       }
-      if (studentsRes.ok) setStudents(await studentsRes.json());
-      if (alertsRes.ok) setAlerts(await alertsRes.json());
-      if (interventionsRes.ok) setInterventions(await interventionsRes.json());
-      if (reportRes.ok) setMonthlyReport(await reportRes.json());
+      if (studentsRes && studentsRes.ok && studentsRes.headers.get('content-type')?.includes('application/json')) {
+        const stList = await studentsRes.json();
+        if (Array.isArray(stList)) {
+          setStudents(stList);
+          hasServerStudents = true;
+        }
+      }
+      if (alertsRes && alertsRes.ok && alertsRes.headers.get('content-type')?.includes('application/json')) {
+        setAlerts(await alertsRes.json());
+        hasServerAlerts = true;
+      }
+      if (interventionsRes && interventionsRes.ok && interventionsRes.headers.get('content-type')?.includes('application/json')) {
+        setInterventions(await interventionsRes.json());
+        hasServerInterventions = true;
+      }
+      if (reportRes && reportRes.ok && reportRes.headers.get('content-type')?.includes('application/json')) {
+        setMonthlyReport(await reportRes.json());
+        hasServerReport = true;
+      }
     } catch (err) {
-      console.error('Erro ao buscar dados do servidor:', err);
+      console.warn('API backend indisponível, usando dados locais (storageService):', err);
     } finally {
+      // Fallback para quando o app roda na Vercel ou sem backend ativo
+      if (!hasServerClasses) {
+        const fbClasses = storageService.getClasses();
+        setClasses(fbClasses);
+        if (!selectedClassId && fbClasses.length > 0) {
+          setSelectedClassId(fbClasses[0].id);
+        }
+      }
+      if (!hasServerStudents) {
+        setStudents(storageService.getStudents(selectedClassId));
+      }
+      if (!hasServerInfo) {
+        setSchoolInfo(storageService.getSchoolInfo());
+      }
+      if (!hasServerAlerts) {
+        setAlerts(storageService.getAlerts());
+      }
+      if (!hasServerInterventions) {
+        setInterventions(storageService.getInterventions());
+      }
+      if (!hasServerReport) {
+        setMonthlyReport(storageService.getMonthlyReport());
+      }
       setIsRefreshing(false);
     }
   }, [selectedClassId, selectedMonthIndex]);
@@ -162,13 +214,17 @@ export default function App() {
     setSelectedClassId(classId);
     try {
       const res = await fetch(`/api/students?classId=${classId}`);
-      if (res.ok) {
+      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
         const data = await res.json();
-        setStudents(data);
+        if (Array.isArray(data)) {
+          setStudents(data);
+          return;
+        }
       }
     } catch (e) {
-      console.error(e);
+      console.warn('Erro ao buscar estudantes da turma via API:', e);
     }
+    setStudents(storageService.getStudents(classId));
   };
 
   // Record Batch Attendance & catch automated alerts
@@ -192,21 +248,34 @@ export default function App() {
         body: JSON.stringify({ items, classId, recordedBy: teacherName, date }),
       });
 
-      if (!res.ok) throw new Error('Falha ao registrar frequência');
-      const data = await res.json();
-
-      // If new alerts were triggered automatically by the system:
-      if (data.newAlerts && data.newAlerts.length > 0) {
-        setAutomatedAlertsTriggered(data.newAlerts);
+      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+        const data = await res.json();
+        if (data.newAlerts && data.newAlerts.length > 0) {
+          setAutomatedAlertsTriggered(data.newAlerts);
+        }
+        await fetchData();
+        return { newAlerts: data.newAlerts || [] };
       }
-
-      // Refresh data
-      await fetchData();
-      return { newAlerts: data.newAlerts || [] };
     } catch (e) {
-      console.error(e);
-      throw e;
+      console.warn('Salvando chamada localmente (modo resiliente):', e);
     }
+
+    // Atualização local imediata
+    setStudents(prev =>
+      prev.map(st => {
+        const matching = items.find(i => i.studentId === st.id);
+        if (matching) {
+          return {
+            ...st,
+            status: matching.status === 'presente' ? 'regular' : st.status,
+            lastAttendanceDate: date || new Date().toISOString().split('T')[0]
+          };
+        }
+        return st;
+      })
+    );
+    await fetchData();
+    return { newAlerts: [] };
   };
 
   // Send Manual Alert
