@@ -1400,11 +1400,24 @@ export class SchoolDatabase {
   }
 
   public getInterventions(): InterventionCase[] {
-    return [...this.data.interventions].sort((a, b) => b.lastUpdatedAt.localeCompare(a.lastUpdatedAt));
+    const studentIds = new Set(this.data.students.map(s => (s.id || '').trim().toLowerCase()));
+    return this.data.interventions
+      .filter(i => studentIds.has((i.studentId || '').trim().toLowerCase()))
+      .sort((a, b) => b.lastUpdatedAt.localeCompare(a.lastUpdatedAt));
   }
 
   public getInterventionById(id: string): InterventionCase | null {
     return this.data.interventions.find(i => i.id === id) || null;
+  }
+
+  public deleteIntervention(id: string): boolean {
+    const cleanId = String(id || '').trim().toLowerCase();
+    const initialLen = this.data.interventions.length;
+    this.data.interventions = this.data.interventions.filter(i => (i.id || '').trim().toLowerCase() !== cleanId);
+    if (this.data.interventions.length === initialLen) return false;
+    this.data.lastUpdated = new Date().toISOString();
+    this.saveToDisk();
+    return true;
   }
 
   public saveIntervention(intervention: Partial<InterventionCase> & { studentId: string }): InterventionCase {
