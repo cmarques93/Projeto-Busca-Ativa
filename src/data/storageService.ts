@@ -838,6 +838,16 @@ export const storageService = {
     return null;
   },
 
+  deleteOpenInterventions() {
+    const cases = this.getInterventions();
+    const filtered = cases.filter(c => c.stage === 'reintegrado' || c.stage === 'encerrado');
+    try {
+      localStorage.setItem('school_interventions', JSON.stringify(filtered));
+    } catch (e) {
+      console.error(e);
+    }
+  },
+
   // === INFORMAÇÕES ESCOLARES & RELATÓRIOS ===
   getSchoolInfo() {
     return DEFAULT_SCHOOL_INFO;

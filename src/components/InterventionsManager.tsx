@@ -15,6 +15,7 @@ import {
   Info,
   HelpCircle,
   HeartHandshake,
+  Trash2,
   RefreshCw
 } from 'lucide-react';
 import { InterventionCase, InterventionStage } from '../types';
@@ -31,6 +32,7 @@ interface InterventionsManagerProps {
   isGeneratingAI: boolean;
   aiPlanResult: { caseId: string; plan: any } | null;
   onRefresh: () => void;
+  onDeleteAllOpenCases: () => Promise<void>;
 }
 
 const STAGE_CONFIG: Record<
@@ -89,10 +91,13 @@ export const InterventionsManager: React.FC<InterventionsManagerProps> = ({
   isGeneratingAI,
   aiPlanResult,
   onRefresh,
+  onDeleteAllOpenCases,
 }) => {
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(cases[0]?.id || null);
   const [filterStage, setFilterStage] = useState<string>('todos');
   const [isAddingAction, setIsAddingAction] = useState(false);
+  const [isDeletingConfirmOpen, setIsDeletingConfirmOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // New action form state
   const [actionTitle, setActionTitle] = useState('Contato Telefônico / WhatsApp com Responsável');
@@ -158,6 +163,13 @@ export const InterventionsManager: React.FC<InterventionsManagerProps> = ({
 
           <div className="flex items-center gap-3">
             <button
+              onClick={() => setIsDeletingConfirmOpen(true)}
+              className="p-2 text-rose-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
+              title="Excluir casos em aberto"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+            <button
               onClick={onRefresh}
               className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
               title="Atualizar registros reais"
@@ -174,6 +186,38 @@ export const InterventionsManager: React.FC<InterventionsManagerProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Confirmation Modal */}
+        {isDeletingConfirmOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-rose-200">
+              <h3 className="text-base font-bold text-slate-900 text-center">Confirmar exclusão?</h3>
+              <p className="text-xs text-slate-600 text-center mt-2">
+                Você tem certeza que deseja excluir todos os {activeCases.length} casos em aberto? Esta ação é irreversível.
+              </p>
+              <div className="flex items-center justify-center gap-3 mt-6">
+                <button
+                  onClick={() => setIsDeletingConfirmOpen(false)}
+                  className="px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    setIsDeleting(true);
+                    await onDeleteAllOpenCases();
+                    setIsDeleting(false);
+                    setIsDeletingConfirmOpen(false);
+                  }}
+                  disabled={isDeleting}
+                  className="px-4 py-2 text-sm font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs transition-colors cursor-pointer"
+                >
+                  {isDeleting ? 'Excluindo...' : 'Confirmar Exclusão'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Stage Pills Bar */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mt-5 pt-5 border-t border-slate-100">

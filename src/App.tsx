@@ -478,6 +478,16 @@ export default function App() {
     }
   };
 
+  const handleDeleteAllOpenCases = async () => {
+    try {
+      await fetch('/api/interventions/delete-open', { method: 'POST' });
+      storageService.deleteOpenInterventions();
+      await fetchData();
+    } catch (e) {
+      console.error('Erro ao excluir casos abertos:', e);
+    }
+  };
+
   // Open alert modal for specific student
   const handleOpenAlertForStudent = (student: Student) => {
     if (currentUser?.role === 'professor') {
@@ -609,6 +619,7 @@ export default function App() {
             isGeneratingAI={isGeneratingAI}
             aiPlanResult={aiPlanResult}
             onRefresh={fetchData}
+            onDeleteAllOpenCases={handleDeleteAllOpenCases}
           />
         )}
 

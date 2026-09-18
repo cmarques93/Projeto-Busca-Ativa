@@ -460,6 +460,15 @@ async function startServer() {
     }
   });
 
+  app.post('/api/interventions/delete-open', (req, res) => {
+    try {
+      db.deleteOpenInterventions();
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Monthly pedagogical reports
   app.get('/api/reports/monthly', (req, res) => {
     try {

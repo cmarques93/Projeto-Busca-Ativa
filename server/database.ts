@@ -1420,6 +1420,17 @@ export class SchoolDatabase {
     return true;
   }
 
+  public deleteOpenInterventions(): boolean {
+    const initialLen = this.data.interventions.length;
+    this.data.interventions = this.data.interventions.filter(
+      i => i.stage === 'reintegrado' || i.stage === 'encerrado'
+    );
+    if (this.data.interventions.length === initialLen) return false;
+    this.data.lastUpdated = new Date().toISOString();
+    this.saveToDisk();
+    return true;
+  }
+
   public saveIntervention(intervention: Partial<InterventionCase> & { studentId: string }): InterventionCase {
     const existingIndex = this.data.interventions.findIndex(i => i.id === intervention.id || (intervention.studentId && i.studentId === intervention.studentId));
     const now = new Date().toISOString().split('T')[0];
