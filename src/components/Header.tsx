@@ -13,11 +13,20 @@ import {
   FileSpreadsheet,
   KeyRound,
   Shield,
-  FileText
+  FileText,
+  ShieldCheck,
+  Users
 } from 'lucide-react';
 import { UserRole, UserSession } from '../types';
 
-export type MainTabType = 'attendance' | 'gate' | 'alerts' | 'interventions' | 'reports' | 'teacher_absence';
+export type MainTabType =
+  | 'attendance'
+  | 'gate'
+  | 'alerts'
+  | 'interventions'
+  | 'reports'
+  | 'teacher_absence'
+  | 'access_management';
 
 interface HeaderProps {
   schoolName: string;
@@ -58,6 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenWhatsAppIntegration,
   onOpenGoogleSheets,
 }) => {
+  const isAdmin = currentUser.role === 'admin';
   const isGestao = currentUser.role === 'gestao_paac';
   const isAOE = currentUser.role === 'aoe';
   const isProfessor = currentUser.role === 'professor';
@@ -82,7 +92,9 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
             <span
               className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
-                isGestao
+                isAdmin
+                  ? 'bg-purple-900/90 text-purple-200 border-purple-400/60'
+                  : isGestao
                   ? 'bg-indigo-900/80 text-indigo-200 border-indigo-500/50'
                   : isAOE
                   ? 'bg-blue-900/80 text-blue-200 border-blue-500/50'
@@ -95,11 +107,11 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={onOpenLoginModal}
-            className="flex items-center gap-1 text-[11px] bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded font-semibold cursor-pointer transition-colors shadow-2xs"
-            title="Trocar perfil de acesso (AOE, Gestão/PAAC, Professor)"
+            className="flex items-center gap-1 text-[11px] bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 py-0.5 rounded font-semibold cursor-pointer transition-colors shadow-2xs"
+            title="Selecionar usuário e digitar senha de 4 dígitos"
           >
             <KeyRound className="w-3 h-3" />
-            <span>Alternar Perfil</span>
+            <span>Alternar Usuário</span>
           </button>
 
           <button
@@ -135,18 +147,20 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Global Action Buttons and Badges */}
         <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 text-xs">
-          {/* Google Sheets Database Button */}
-          <button
-            onClick={onOpenGoogleSheets}
-            className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
-            title="Conectar, criar e sincronizar a Planilha Oficial do Google Drive"
-          >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
-            <span>Planilha Google</span>
-          </button>
+          {/* Google Sheets Database Button - Removido de AOE e Professor; Exclusivo Gestão e Administrador */}
+          {(isGestao || isAdmin) && (
+            <button
+              onClick={onOpenGoogleSheets}
+              className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+              title="Conectar, criar e sincronizar a Planilha Oficial do Google Drive"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
+              <span>Planilha Google</span>
+            </button>
+          )}
 
-          {/* Contingency report button for management */}
-          {isGestao && (
+          {/* Contingency report button for management and admin */}
+          {(isGestao || isAdmin) && (
             <button
               onClick={onOpenSeducReport}
               className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
@@ -157,8 +171,8 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Quick Actions (Management only) */}
-          {isGestao && (
+          {/* Quick Actions (Management and Admin) */}
+          {(isGestao || isAdmin) && (
             <>
               <button
                 onClick={onOpenStudentRegistration}
@@ -194,7 +208,7 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="font-bold text-rose-800">{criticalStudentsCount}</span>
           </div>
 
-          {isGestao && (
+          {(isGestao || isAdmin) && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
               <BellRing className="w-3.5 h-3.5 text-amber-600" />
               <span className="text-amber-700">Alertas:</span>
@@ -216,8 +230,23 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Primary Navigation Tabs - Strictly Filtered by User Role */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-1 sm:space-x-2 border-t border-slate-100 overflow-x-auto">
+        {/* ADMINISTRADOR MASTER: Gestão de Acessos & Perfis */}
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab('access_management')}
+            className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'access_management'
+                ? 'border-purple-600 text-purple-700 bg-purple-50/40'
+                : 'border-transparent text-purple-950/80 hover:text-purple-900 hover:border-purple-300'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4 text-purple-600" />
+            <span>Gestão de Acessos & Perfis (Master)</span>
+          </button>
+        )}
+
         {/* PROFESSOR: Acesso restrito apenas ao motivo das ausências */}
-        {isProfessor && (
+        {(isProfessor || isAdmin) && (
           <button
             onClick={() => setActiveTab('teacher_absence')}
             className={`py-3 px-4 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
@@ -227,12 +256,12 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <FileText className="w-4 h-4 text-emerald-600" />
-            <span>Consulta de Ausências & Atestados da Turma</span>
+            <span>Consulta de Ausências & Atestados</span>
           </button>
         )}
 
-        {/* AOE e GESTÃO: Lançamento de Frequência Diária */}
-        {(isGestao || isAOE) && (
+        {/* AOE, GESTÃO e ADMIN: Lançamento de Frequência Diária */}
+        {(isGestao || isAOE || isAdmin) && (
           <button
             onClick={() => setActiveTab('attendance')}
             className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
@@ -246,8 +275,8 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {/* AOE e GESTÃO: Controle de Portaria / Entradas e Saídas fora do horário oficial */}
-        {(isGestao || isAOE) && (
+        {/* AOE, GESTÃO e ADMIN: Controle de Portaria */}
+        {(isGestao || isAOE || isAdmin) && (
           <button
             onClick={() => setActiveTab('gate')}
             className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
@@ -257,12 +286,12 @@ export const Header: React.FC<HeaderProps> = ({
             }`}
           >
             <DoorOpen className="w-4 h-4 text-blue-600" />
-            <span>Portaria (Entradas & Saídas Fora do Horário)</span>
+            <span>Portaria (Entradas & Saídas)</span>
           </button>
         )}
 
-        {/* GESTÃO / PAAC: Acesso total - Alertas aos Responsáveis */}
-        {isGestao && (
+        {/* GESTÃO e ADMIN: Alertas aos Responsáveis */}
+        {(isGestao || isAdmin) && (
           <button
             onClick={() => setActiveTab('alerts')}
             className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
@@ -281,8 +310,8 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {/* GESTÃO / PAAC: Casos de Busca Ativa */}
-        {isGestao && (
+        {/* GESTÃO e ADMIN: Casos de Busca Ativa */}
+        {(isGestao || isAdmin) && (
           <button
             onClick={() => setActiveTab('interventions')}
             className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
@@ -301,8 +330,8 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {/* GESTÃO / PAAC: Relatórios Mensais */}
-        {isGestao && (
+        {/* GESTÃO e ADMIN: Relatórios Mensais */}
+        {(isGestao || isAdmin) && (
           <button
             onClick={() => setActiveTab('reports')}
             className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
@@ -319,3 +348,4 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
+

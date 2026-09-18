@@ -9,7 +9,9 @@ import {
   MonthlyPedagogicalReport,
   AlertTrigger,
   GateRecord,
-  AttendanceStatus
+  AttendanceStatus,
+  UserAccount,
+  UserRole
 } from '../src/types.js';
 
 interface DatabaseSchema {
@@ -21,6 +23,7 @@ interface DatabaseSchema {
   alerts: ParentAlert[];
   interventions: InterventionCase[];
   gateRecords?: GateRecord[];
+  users?: UserAccount[];
   googleSheetsConfig?: {
     spreadsheetId?: string | null;
     spreadsheetUrl?: string | null;
@@ -604,6 +607,8 @@ function generateSeedData(): DatabaseSchema {
     }
   ];
 
+  const users = generateDefaultUsers();
+
   return {
     schoolName: 'EE Professor Arlindo Silvestre',
     lastUpdated: new Date().toISOString(),
@@ -613,7 +618,57 @@ function generateSeedData(): DatabaseSchema {
     alerts,
     interventions,
     gateRecords,
+    users,
   };
+}
+
+export function generateDefaultUsers(): UserAccount[] {
+  return [
+    {
+      id: 'usr-admin',
+      name: 'Administrador Geral',
+      username: 'admin',
+      role: 'admin',
+      roleLabel: 'Administrador (Master)',
+      pin: '1234',
+      createdAt: '2026-01-15T08:00:00.000Z',
+      active: true,
+      notes: 'Perfil Master exclusivo com autoridade para determinar o perfil de cada usuário e gerenciar o banco de acessos.',
+    },
+    {
+      id: 'usr-gestao',
+      name: 'Profª. Silvana Rocha',
+      username: 'silvana.rocha',
+      role: 'gestao_paac',
+      roleLabel: 'Gestão / PAAC',
+      pin: '2026',
+      createdAt: '2026-02-01T08:00:00.000Z',
+      active: true,
+      notes: 'Coordenação Pedagógica e PAAC. Acesso total a chamadas, relatórios pedagógicos, intervenções e Planilhas Google.',
+    },
+    {
+      id: 'usr-aoe',
+      name: 'Carlos Eduardo Mendes',
+      username: 'carlos.mendes',
+      role: 'aoe',
+      roleLabel: 'AOE - Secretaria & Portaria',
+      pin: '1010',
+      createdAt: '2026-02-10T08:00:00.000Z',
+      active: true,
+      notes: 'Agente de Organização Escolar. Apenas lançamento de frequências e controle de portaria.',
+    },
+    {
+      id: 'usr-professor',
+      name: 'Prof. Rogério Silva',
+      username: 'rogerio.silva',
+      role: 'professor',
+      roleLabel: 'Professor Regente',
+      pin: '3344',
+      createdAt: '2026-02-15T08:00:00.000Z',
+      active: true,
+      notes: 'Docente em sala de aula. Acesso estritamente restrito ao motivo das ausências e atestados da turma.',
+    },
+  ];
 }
 
 // Database helper functions
@@ -646,6 +701,9 @@ export class SchoolDatabase {
           if (!parsed.gateRecords) {
             parsed.gateRecords = [];
           }
+          if (!parsed.users || parsed.users.length === 0) {
+            parsed.users = generateDefaultUsers();
+          }
           return parsed;
         }
       }
@@ -677,6 +735,198 @@ export class SchoolDatabase {
       totalClasses: this.data.classes.length,
       activeAlertsCount: this.data.alerts.length,
       activeCasesCount: this.data.interventions.filter(i => i.stage !== 'reintegrado' && i.stage !== 'encerrado').length
+    };
+  }
+
+  // --- Gestão de Usuários & Perfis (Master Administrador) ---
+  public getUsers(): UserAccount[] {
+    if (!this.data.users || this.data.users.length === 0) {
+      this.data.users = generateDefaultUsers();
+      this.saveToDisk();
+    }
+    // Garantir que os nomes não contenham parênteses com perfis antigos
+    let changed = false;
+    this.data.users.forEach(u => {
+      const clean = u.name.replace(/\s*\([^)]*\)/g, '').trim();
+      if (clean !== u.name) {
+        u.name = clean;
+        changed = true;
+      }
+    });
+    if (changed) {
+      this.saveToDisk();
+    }
+    return this.data.users;
+  }
+
+  public getPublicUsers() {
+    return this.getUsers().map(u => ({
+      id: u.id,
+      name: u.name,
+      username: u.username,
+      role: u.role,
+      roleLabel: u.roleLabel,
+      active: u.active
+    }));
+  }
+
+  public getUserById(id: string): UserAccount | undefined {
+    return this.getUsers().find(u => u.id === id);
+  }
+
+  public createUser(userData: {
+    name: string;
+    username?: string;
+    role: UserRole;
+    pin: string;
+    notes?: string;
+  }): UserAccount {
+    const cleanPin = String(userData.pin || '').trim();
+    if (!/^\d{4}$/.test(cleanPin)) {
+      throw new Error('A senha de acesso deve conter exatamente 4 dígitos numéricos.');
+    }
+
+    const cleanName = String(userData.name || '').trim();
+    if (!cleanName) {
+      throw new Error('O nome do usuário é obrigatório.');
+    }
+
+    const roleLabels: Record<UserRole, string> = {
+      admin: 'Administrador (Master)',
+      gestao_paac: 'Gestão / PAAC',
+      aoe: 'AOE - Secretaria & Portaria',
+      professor: 'Professor Regente',
+    };
+
+    const role = userData.role || 'professor';
+    const id = `usr-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+    const username = userData.username?.trim() || cleanName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '.');
+
+    const newUser: UserAccount = {
+      id,
+      name: cleanName,
+      username,
+      role,
+      roleLabel: roleLabels[role] || role,
+      pin: cleanPin,
+      createdAt: new Date().toISOString(),
+      active: true,
+      notes: userData.notes?.trim() || '',
+    };
+
+    const users = this.getUsers();
+    users.push(newUser);
+    this.data.lastUpdated = new Date().toISOString();
+    this.saveToDisk();
+    return newUser;
+  }
+
+  public updateUser(
+    id: string,
+    updates: {
+      name?: string;
+      role?: UserRole;
+      pin?: string;
+      notes?: string;
+      active?: boolean;
+    }
+  ): UserAccount {
+    const users = this.getUsers();
+    const user = users.find(u => u.id === id);
+    if (!user) {
+      throw new Error('Usuário não encontrado.');
+    }
+
+    if (updates.name !== undefined) {
+      const cleanName = String(updates.name).trim();
+      if (!cleanName) throw new Error('O nome não pode ficar em branco.');
+      user.name = cleanName;
+    }
+
+    if (updates.role !== undefined) {
+      const roleLabels: Record<UserRole, string> = {
+        admin: 'Administrador (Master)',
+        gestao_paac: 'Gestão / PAAC',
+        aoe: 'AOE - Secretaria & Portaria',
+        professor: 'Professor Regente',
+      };
+      // Impedir remover perfil de admin do usr-admin se não houver outro admin ativo
+      if (user.id === 'usr-admin' && updates.role !== 'admin') {
+        const otherAdmins = users.filter(u => u.id !== user.id && u.role === 'admin' && u.active);
+        if (otherAdmins.length === 0) {
+          throw new Error('Não é permitido remover o perfil de Administrador do perfil master principal sem outro administrador ativo.');
+        }
+      }
+      user.role = updates.role;
+      user.roleLabel = roleLabels[updates.role] || updates.role;
+    }
+
+    if (updates.pin !== undefined) {
+      const cleanPin = String(updates.pin).trim();
+      if (!/^\d{4}$/.test(cleanPin)) {
+        throw new Error('A senha de acesso deve conter exatamente 4 dígitos numéricos.');
+      }
+      user.pin = cleanPin;
+    }
+
+    if (updates.notes !== undefined) {
+      user.notes = updates.notes;
+    }
+
+    if (updates.active !== undefined) {
+      if (user.id === 'usr-admin' && !updates.active) {
+        throw new Error('O Administrador Master principal não pode ser desativado.');
+      }
+      user.active = updates.active;
+    }
+
+    this.data.lastUpdated = new Date().toISOString();
+    this.saveToDisk();
+    return user;
+  }
+
+  public deleteUser(id: string): boolean {
+    const users = this.getUsers();
+    const index = users.findIndex(u => u.id === id);
+    if (index === -1) {
+      throw new Error('Usuário não encontrado.');
+    }
+
+    if (id === 'usr-admin') {
+      throw new Error('O Administrador Master principal não pode ser excluído.');
+    }
+
+    users.splice(index, 1);
+    this.data.lastUpdated = new Date().toISOString();
+    this.saveToDisk();
+    return true;
+  }
+
+  public verifyLoginPin(userId: string, pin: string) {
+    const users = this.getUsers();
+    const user = users.find(u => u.id === userId);
+    if (!user) {
+      throw new Error('Usuário não selecionado ou inexistente no banco de dados.');
+    }
+
+    if (user.active === false) {
+      throw new Error('Este usuário está desativado pelo Administrador.');
+    }
+
+    const cleanPin = String(pin || '').trim();
+    if (user.pin !== cleanPin) {
+      throw new Error('Senha numérica de 4 dígitos incorreta.');
+    }
+
+    user.lastLogin = new Date().toISOString();
+    this.saveToDisk();
+
+    return {
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      role: user.role,
+      roleLabel: user.roleLabel,
     };
   }
 
@@ -1743,12 +1993,17 @@ export class SchoolDatabase {
     ]);
 
     // 7. Usuários e Perfis de Acesso
-    const usuariosHeaders = ['Usuário', 'Nome do Profissional', 'Perfil de Acesso', 'Nível de Permissão', 'Descrição'];
-    const usuariosRows = [
-      ['gestao', 'Profª. Silvana Rocha', 'Gestão / PAAC', 'Acesso Total', 'Acesso total: chamadas, alertas WhatsApp, busca ativa, relatórios e contingência SEDUC'],
-      ['aoe', 'Carlos Eduardo Mendes', 'AOE - Secretaria & Portaria', 'Operacional', 'Lançamento de diário escolar diário e controle de portaria (entradas/saídas)'],
-      ['professor', 'Prof. Rogério Silva', 'Professor Regente', 'Consulta Restrita', 'Acesso exclusivo para consulta aos motivos de ausências e atestados médicos'],
-    ];
+    const usuariosHeaders = ['ID', 'Usuário / Identificador', 'Nome do Profissional', 'Perfil de Acesso (Role)', 'Nível de Permissão', 'Status', 'Último Acesso', 'Observações'];
+    const usuariosRows = this.getUsers().map(u => [
+      u.id,
+      u.username,
+      u.name,
+      u.role,
+      u.roleLabel,
+      u.active ? 'Ativo' : 'Inativo',
+      u.lastLogin ? new Date(u.lastLogin).toLocaleString('pt-BR') : 'Nunca acessou',
+      u.notes || ''
+    ]);
 
     return {
       Alunos: [alunosHeaders, ...alunosRows],

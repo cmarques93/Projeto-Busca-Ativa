@@ -14,6 +14,7 @@ import { GatePassManager } from './components/GatePassManager';
 import { TeacherAbsenceView } from './components/TeacherAbsenceView';
 import { SeducContingencyReportModal } from './components/SeducContingencyReportModal';
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
+import { AccessManagement } from './components/AccessManagement';
 import {
   Student,
   SchoolClass,
@@ -29,15 +30,15 @@ import {
 } from './types';
 
 export default function App() {
-  // Current logged in user session (Default: Gestão/PAAC com acesso total)
+  // Current logged in user session (Default: Administrador Master para carregar e gerenciar acessos)
   const [currentUser, setCurrentUser] = useState<UserSession>({
-    username: 'gestao',
-    name: 'Profª. Silvana Rocha (Coordenação / PAAC)',
-    role: 'gestao_paac',
-    roleLabel: 'Gestão / PAAC'
+    username: 'admin',
+    name: 'Administrador Geral',
+    role: 'admin',
+    roleLabel: 'Administrador (Master)'
   });
 
-  const [activeTab, setActiveTab] = useState<MainTabType>('attendance');
+  const [activeTab, setActiveTab] = useState<MainTabType>('access_management');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Core data states
@@ -110,39 +111,49 @@ export default function App() {
     fetchData();
   }, [fetchData]);
 
-  // Role selection handler
+  // Role selection & Login success handlers
+  const handleLoginSuccess = (session: UserSession) => {
+    setCurrentUser(session);
+
+    // Automatically route to the appropriate tab based on profile
+    if (session.role === 'admin') {
+      setActiveTab('access_management');
+    } else if (session.role === 'professor') {
+      setActiveTab('teacher_absence');
+    } else if (session.role === 'aoe') {
+      if (activeTab !== 'attendance' && activeTab !== 'gate') {
+        setActiveTab('attendance');
+      }
+    } else {
+      if (activeTab === 'teacher_absence' || activeTab === 'access_management') {
+        setActiveTab('attendance');
+      }
+    }
+  };
+
   const handleSelectRole = (role: UserRole, customName?: string) => {
     const roleLabels: Record<UserRole, string> = {
+      admin: 'Administrador (Master)',
       gestao_paac: 'Gestão / PAAC',
       aoe: 'AOE - Secretaria & Portaria',
       professor: 'Professor Regente',
     };
 
     const defaultNames: Record<UserRole, string> = {
-      gestao_paac: 'Profª. Silvana Rocha (Coordenação / PAAC)',
-      aoe: 'Carlos Eduardo Mendes (AOE - Secretaria & Portaria)',
-      professor: 'Prof. Rogério Silva (Língua Portuguesa / Matemática)',
+      admin: 'Administrador Geral',
+      gestao_paac: 'Profª. Silvana Rocha',
+      aoe: 'Carlos Eduardo Mendes',
+      professor: 'Prof. Rogério Silva',
     };
 
-    setCurrentUser({
+    const session: UserSession = {
       username: role,
       name: customName || defaultNames[role],
       role,
       roleLabel: roleLabels[role],
-    });
+    };
 
-    // Automatically route to the permitted tab for each profile
-    if (role === 'professor') {
-      setActiveTab('teacher_absence');
-    } else if (role === 'aoe') {
-      if (activeTab !== 'attendance' && activeTab !== 'gate') {
-        setActiveTab('attendance');
-      }
-    } else {
-      if (activeTab === 'teacher_absence') {
-        setActiveTab('attendance');
-      }
-    }
+    handleLoginSuccess(session);
   };
 
   // Handle class selection change
@@ -354,6 +365,14 @@ export default function App() {
 
       {/* Main Container Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Administrador Master only: Gerenciamento do Banco de Dados de Acessos & Determinação de Perfis */}
+        {activeTab === 'access_management' && currentUser.role === 'admin' && (
+          <AccessManagement
+            onRefresh={fetchData}
+            onOpenGoogleSheets={() => setIsGoogleSheetsModalOpen(true)}
+          />
+        )}
+
         {/* Professor View: Restricted strictly to absence reasons and medical certificates */}
         {activeTab === 'teacher_absence' && (
           <TeacherAbsenceView
@@ -363,7 +382,7 @@ export default function App() {
           />
         )}
 
-        {/* AOE & Gestão View: Daily Attendance with atestado medico & justificativa */}
+        {/* AOE, Gestão & Admin View: Daily Attendance with atestado medico & justificativa */}
         {activeTab === 'attendance' && (
           <RealTimeAttendance
             classes={classes}
@@ -376,7 +395,7 @@ export default function App() {
           />
         )}
 
-        {/* AOE & Gestão View: Gate tracking (entradas e saídas fora do horário) */}
+        {/* AOE, Gestão & Admin View: Gate tracking (entradas e saídas fora do horário) */}
         {activeTab === 'gate' && (
           <GatePassManager
             students={students}
@@ -385,8 +404,8 @@ export default function App() {
           />
         )}
 
-        {/* Gestão/PAAC only: WhatsApp Alerts Manager */}
-        {activeTab === 'alerts' && currentUser.role === 'gestao_paac' && (
+        {/* Gestão/PAAC & Admin: WhatsApp Alerts Manager */}
+        {activeTab === 'alerts' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin') && (
           <AlertsManager
             alerts={alerts}
             onUpdateAlertStatus={handleUpdateAlertStatus}
@@ -398,8 +417,8 @@ export default function App() {
           />
         )}
 
-        {/* Gestão/PAAC only: Active Search Cases & AI */}
-        {activeTab === 'interventions' && currentUser.role === 'gestao_paac' && (
+        {/* Gestão/PAAC & Admin: Active Search Cases & AI */}
+        {activeTab === 'interventions' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin') && (
           <InterventionsManager
             cases={interventions}
             onAddAction={handleAddInterventionAction}
@@ -410,8 +429,8 @@ export default function App() {
           />
         )}
 
-        {/* Gestão/PAAC only: Monthly Reports */}
-        {activeTab === 'reports' && currentUser.role === 'gestao_paac' && (
+        {/* Gestão/PAAC & Admin: Monthly Reports */}
+        {activeTab === 'reports' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin') && (
           <MonthlyReport
             report={monthlyReport}
             onSelectMonth={monthIndex => setSelectedMonthIndex(monthIndex)}
@@ -420,12 +439,13 @@ export default function App() {
         )}
       </main>
 
-      {/* Login & Role Selection Modal */}
+      {/* Login & Role Selection Modal with User Dropdown & 4-Digit PIN */}
       <LoginModal
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
         currentUser={currentUser}
         onSelectRole={handleSelectRole}
+        onLoginSuccess={handleLoginSuccess}
       />
 
       {/* SEDUC Contingency Daily Report Modal for Teachers */}

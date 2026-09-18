@@ -5,9 +5,23 @@ export type AttendanceStatus =
   | 'atestado_medico'
   | 'atraso';
 
-export type UserRole = 'gestao_paac' | 'aoe' | 'professor';
+export type UserRole = 'admin' | 'gestao_paac' | 'aoe' | 'professor';
+
+export interface UserAccount {
+  id: string;
+  name: string;
+  username: string;
+  role: UserRole;
+  roleLabel: string;
+  pin: string; // Senha numérica de 4 dígitos (ex: "1234")
+  createdAt: string;
+  lastLogin?: string;
+  active: boolean;
+  notes?: string;
+}
 
 export interface UserSession {
+  id?: string;
   username: string;
   name: string;
   role: UserRole;

@@ -8,6 +8,17 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Permite que o sistema seja incorporado (embedded) no Google Sites e em iframes
+  app.use((req, res, next) => {
+    res.removeHeader('X-Frame-Options');
+    res.setHeader(
+      'Content-Security-Policy',
+      "frame-ancestors 'self' https://sites.google.com https://*.google.com *"
+    );
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    next();
+  });
+
   app.use(express.json());
 
   const db = SchoolDatabase.getInstance();
@@ -229,19 +240,82 @@ async function startServer() {
     }
   });
 
-  // Login de Usuário / Perfis de Acesso
-  // AOE: apenas registro das frequências e entradas e saídas fora dos horários oficiais
-  // Gestão / PAAC: acesso total
-  // Professor: acesso restrito somente ao motivo das ausências e nada mais
+  // Gestão de Usuários & Banco de Acessos (Perfil Master Administrador)
+  app.get('/api/users', (req, res) => {
+    try {
+      res.json(db.getUsers());
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.get('/api/users/public', (req, res) => {
+    try {
+      res.json(db.getPublicUsers());
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/users', (req, res) => {
+    try {
+      const { name, username, role, pin, notes } = req.body;
+      const newUser = db.createUser({ name, username, role, pin, notes });
+      res.status(201).json(newUser);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.put('/api/users/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, role, pin, notes, active } = req.body;
+      const updatedUser = db.updateUser(id, { name, role, pin, notes, active });
+      res.json(updatedUser);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  app.delete('/api/users/:id', (req, res) => {
+    try {
+      const { id } = req.params;
+      db.deleteUser(id);
+      res.json({ success: true, message: 'Usuário removido com sucesso' });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  // Autenticação com Caixa de Seleção e Senha Numérica de 4 Dígitos
+  app.post('/api/auth/login-pin', (req, res) => {
+    try {
+      const { userId, pin } = req.body;
+      if (!userId || !pin) {
+        return res.status(400).json({ error: 'Selecione seu nome e digite a senha de 4 dígitos.' });
+      }
+      const userSession = db.verifyLoginPin(userId, String(pin));
+      res.json({ success: true, user: userSession });
+    } catch (e: any) {
+      res.status(401).json({ error: e.message });
+    }
+  });
+
+  // Login de Usuário / Perfis de Acesso (Compatibilidade)
   app.post('/api/auth/login', (req, res) => {
     try {
       const { role, username, password } = req.body;
       
-      let userRole: 'gestao_paac' | 'aoe' | 'professor' = 'gestao_paac';
+      let userRole: 'admin' | 'gestao_paac' | 'aoe' | 'professor' = 'gestao_paac';
       let name = 'Coordenação & Direção (PAAC)';
       let roleLabel = 'Gestão / PAAC (Acesso Total)';
 
-      if (role === 'aoe' || username?.toLowerCase()?.includes('aoe')) {
+      if (role === 'admin' || username?.toLowerCase()?.includes('admin')) {
+        userRole = 'admin';
+        name = 'Administrador Geral (Master)';
+        roleLabel = 'Administrador (Master)';
+      } else if (role === 'aoe' || username?.toLowerCase()?.includes('aoe')) {
         userRole = 'aoe';
         name = 'Carlos Eduardo (AOE - Secretaria & Portaria)';
         roleLabel = 'AOE - Agente de Organização Escolar';

@@ -742,5 +742,54 @@
         }
       ]
     }
+  ],
+  "gateRecords": [],
+  "users": [
+    {
+      "id": "usr-admin",
+      "name": "Administrador Geral",
+      "username": "admin",
+      "role": "admin",
+      "roleLabel": "Administrador (Master)",
+      "pin": "1234",
+      "createdAt": "2026-01-15T08:00:00.000Z",
+      "active": true,
+      "notes": "Perfil Master exclusivo com autoridade para determinar o perfil de cada usuário e gerenciar o banco de acessos.",
+      "lastLogin": "2026-09-18T11:24:52.389Z"
+    },
+    {
+      "id": "usr-gestao",
+      "name": "Profª. Silvana Rocha",
+      "username": "silvana.rocha",
+      "role": "gestao_paac",
+      "roleLabel": "Gestão / PAAC",
+      "pin": "2026",
+      "createdAt": "2026-02-01T08:00:00.000Z",
+      "active": true,
+      "notes": "Coordenação Pedagógica e PAAC. Acesso total a chamadas, relatórios pedagógicos, intervenções e Planilhas Google.",
+      "lastLogin": "2026-09-18T11:24:41.628Z"
+    },
+    {
+      "id": "usr-aoe",
+      "name": "Carlos Eduardo Mendes",
+      "username": "carlos.mendes",
+      "role": "aoe",
+      "roleLabel": "AOE - Secretaria & Portaria",
+      "pin": "1010",
+      "createdAt": "2026-02-10T08:00:00.000Z",
+      "active": true,
+      "notes": "Agente de Organização Escolar. Apenas lançamento de frequências e controle de portaria."
+    },
+    {
+      "id": "usr-professor",
+      "name": "Prof. Rogério Silva",
+      "username": "rogerio.silva",
+      "role": "professor",
+      "roleLabel": "Professor Regente",
+      "pin": "3344",
+      "createdAt": "2026-02-15T08:00:00.000Z",
+      "active": true,
+      "notes": "Docente em sala de aula. Acesso estritamente restrito ao motivo das ausências e atestados da turma."
+    }
   ]
 }
