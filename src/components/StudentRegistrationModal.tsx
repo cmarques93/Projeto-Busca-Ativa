@@ -60,25 +60,37 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
 
   const handleIndividualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
+    const cleanName = name.trim();
+    if (!cleanName) {
+      setErrorMessage('O nome completo do estudante é obrigatório.');
+      return;
+    }
+
+    if (!classId) {
+      setErrorMessage('Selecione uma turma para o estudante.');
+      return;
+    }
+
+    setIsSubmitting(true);
     const selectedClassObj = classes.find(c => c.id === classId);
     const newStudentData = {
-      name: name.trim(),
+      name: cleanName,
       ra: ra.trim() || undefined,
       classId,
       className: selectedClassObj ? selectedClassObj.name : classId,
-      guardianPhone: guardianPhone.trim(),
+      guardianPhone: guardianPhone.trim() || '(11) 90000-0000',
       guardianName: 'Responsável',
       guardianRelationship: 'Responsável',
       address: 'Conforme matrícula escolar',
       neighborhood: 'Bairro escolar',
       vulnerabilityFactors: [],
-      notes: 'Cadastrado no sistema.',
+      notes: 'Cadastrado no sistema escolar.',
     };
 
+    let createdStudent: Student | null = null;
     try {
       const res = await fetch('/api/students', {
         method: 'POST',
@@ -87,15 +99,22 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
       });
       const contentType = res.headers.get('content-type');
       if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
+        createdStudent = await res.json();
+      } else if (contentType && contentType.includes('application/json')) {
+        const errJson = await res.json().catch(() => ({}));
+        if (errJson.error) {
+          setErrorMessage(errJson.error);
+          setIsSubmitting(false);
+          return;
+        }
       }
     } catch (err: any) {
       console.warn('API backend indisponível, salvando estudante localmente:', err);
     }
 
-    storageService.createStudent(newStudentData);
+    storageService.createStudent(createdStudent || newStudentData);
     await onStudentRegistered();
-    setSuccessMessage(`Estudante ${name} cadastrado(a) com sucesso!`);
+    setSuccessMessage(`Estudante "${cleanName}" cadastrado(a) com sucesso no banco de dados!`);
     setName('');
     setRa('');
     setGuardianPhone('');
@@ -216,13 +235,20 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
 
   const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
+    const cleanId = newClassId.trim().toUpperCase();
+    const cleanName = newClassName.trim();
+    if (!cleanId || !cleanName) {
+      setErrorMessage('O código da turma e o nome de exibição são obrigatórios.');
+      return;
+    }
+
+    setIsSubmitting(true);
     const classData: SchoolClass = {
-      id: newClassId.trim().toUpperCase(),
-      name: newClassName.trim(),
+      id: cleanId,
+      name: cleanName,
       grade: newClassGrade,
       shift: newClassShift,
       totalStudents: 0,
@@ -232,6 +258,7 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
       studentsAtRiskCount: 0,
     };
 
+    let serverSuccess = false;
     try {
       const res = await fetch('/api/classes', {
         method: 'POST',
@@ -240,7 +267,14 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
       });
       const contentType = res.headers.get('content-type');
       if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
+        serverSuccess = true;
+      } else if (contentType && contentType.includes('application/json')) {
+        const errJson = await res.json().catch(() => ({}));
+        if (errJson.error) {
+          setErrorMessage(errJson.error);
+          setIsSubmitting(false);
+          return;
+        }
       }
     } catch (err: any) {
       console.warn('API backend indisponível, criando turma localmente:', err);
@@ -248,7 +282,7 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
 
     storageService.createClass(classData);
     await onStudentRegistered();
-    setSuccessMessage(`Turma ${newClassName} criada com sucesso!`);
+    setSuccessMessage(`Turma "${cleanName}" (${cleanId}) salva com sucesso no banco de dados!`);
     setNewClassId('');
     setNewClassName('');
     setIsSubmitting(false);
@@ -366,7 +400,7 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
         {/* Content area */}
         <div className="p-6 overflow-y-auto space-y-4 text-xs">
           {tab === 'individual' && (
-            <form onSubmit={handleIndividualSubmit} className="space-y-4">
+            <form onSubmit={handleIndividualSubmit} noValidate className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Nome */}
                 <div className="sm:col-span-2">
@@ -587,7 +621,7 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
           )}
 
           {tab === 'class' && (
-            <form onSubmit={handleCreateClass} className="space-y-4">
+            <form onSubmit={handleCreateClass} noValidate className="space-y-4">
               <div className="flex items-center justify-between font-bold text-slate-800 text-xs">
                 <span>Criar Nova Turma</span>
                 <InfoTooltip

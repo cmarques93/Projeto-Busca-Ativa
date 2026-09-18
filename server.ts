@@ -16,6 +16,11 @@ async function startServer() {
       "frame-ancestors 'self' https://sites.google.com https://*.google.com *"
     );
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
     next();
   });
 
@@ -112,6 +117,17 @@ async function startServer() {
     }
   });
 
+  // Update student
+  app.put('/api/students/:id', (req, res) => {
+    try {
+      const updated = db.updateStudent(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: 'Estudante não encontrado' });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
   // Delete student
   app.delete('/api/students/:id', (req, res) => {
     try {
@@ -133,6 +149,17 @@ async function startServer() {
     }
   });
 
+  // Update class
+  app.put('/api/classes/:id', (req, res) => {
+    try {
+      const updated = db.updateClass(req.params.id, req.body);
+      if (!updated) return res.status(404).json({ error: 'Turma não encontrada' });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
   // Delete class
   app.delete('/api/classes/:id', (req, res) => {
     try {
@@ -144,8 +171,8 @@ async function startServer() {
     }
   });
 
-  // Attendance history
-  app.get('/api/attendance', (req, res) => {
+  // Attendance history & alias for attendance-records
+  const handleGetAttendance = (req: express.Request, res: express.Response) => {
     try {
       const { classId, date, studentId } = req.query;
       const records = db.getAttendanceRecords({
@@ -157,7 +184,9 @@ async function startServer() {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
-  });
+  };
+  app.get('/api/attendance', handleGetAttendance);
+  app.get('/api/attendance-records', handleGetAttendance);
 
   // Batch attendance recording (chamada em tempo real / diário)
   // Automatically calculates absence streaks, fires alerts to guardians, and initiates Busca Ativa cases
@@ -267,7 +296,7 @@ async function startServer() {
     }
   });
 
-  app.put('/api/users/:id', (req, res) => {
+  const handleUserUpdate = (req: any, res: any) => {
     try {
       const { id } = req.params;
       const { name, role, pin, notes, active } = req.body;
@@ -276,7 +305,10 @@ async function startServer() {
     } catch (e: any) {
       res.status(400).json({ error: e.message });
     }
-  });
+  };
+
+  app.put('/api/users/:id', handleUserUpdate);
+  app.patch('/api/users/:id', handleUserUpdate);
 
   app.delete('/api/users/:id', (req, res) => {
     try {
@@ -374,10 +406,10 @@ async function startServer() {
   });
 
   // Update alert status (simulate delivery, read, or guardian response)
-  app.patch('/api/alerts/:id/status', (req, res) => {
+  const handleAlertStatus = (req: express.Request, res: express.Response) => {
     try {
-      const { status, feedback } = req.body;
-      const updated = db.updateAlertStatus(req.params.id, status, feedback);
+      const { status, feedback, notes } = req.body;
+      const updated = db.updateAlertStatus(req.params.id, status, feedback || notes);
       if (!updated) {
         return res.status(404).json({ error: 'Alerta não encontrado' });
       }
@@ -385,7 +417,9 @@ async function startServer() {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
-  });
+  };
+  app.patch('/api/alerts/:id/status', handleAlertStatus);
+  app.put('/api/alerts/:id/status', handleAlertStatus);
 
   // Interventions / Casos de Busca Ativa
   app.get('/api/interventions', (req, res) => {

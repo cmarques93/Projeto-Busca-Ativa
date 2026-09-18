@@ -87,6 +87,7 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
 
   // Change user role directly
   const handleRoleChange = async (user: UserAccount, newRole: UserRole) => {
+    let updatedUser: UserAccount | null = null;
     try {
       const res = await fetch(`/api/users/${user.id}`, {
         method: 'PUT',
@@ -95,20 +96,24 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
       });
       const contentType = res.headers.get('content-type');
       if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
+        updatedUser = await res.json();
       }
     } catch (err: any) {
       console.warn('API backend indisponível, aplicando alteração local permanente:', err);
     }
 
-    storageService.updateUser(user.id, {
+    const localUpdated = storageService.updateUser(user.id, {
       role: newRole,
       roleLabel: getRoleLabel(newRole),
     });
 
-    setSuccessMessage(`Perfil de "${user.name}" atualizado com sucesso para ${newRole.toUpperCase()}!`);
+    const finalUser = updatedUser || localUpdated;
+    if (finalUser) {
+      setUsers(prev => prev.map(u => u.id === user.id ? { ...u, ...finalUser } : u));
+    }
+
+    setSuccessMessage(`Perfil de "${user.name}" atualizado com sucesso para ${getRoleLabel(newRole)}!`);
     setTimeout(() => setSuccessMessage(null), 4000);
-    await fetchUsers();
     if (onRefresh) onRefresh();
   };
 
@@ -116,21 +121,17 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
   const handleToggleActive = async (user: UserAccount) => {
     const newStatus = !user.active;
     try {
-      const res = await fetch(`/api/users/${user.id}`, {
+      await fetch(`/api/users/${user.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ active: newStatus }),
       });
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
-      }
     } catch (err: any) {
       console.warn('API backend indisponível, alterando status localmente:', err);
     }
 
     storageService.updateUser(user.id, { active: newStatus });
-    await fetchUsers();
+    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, active: newStatus } : u));
   };
 
   // Delete user
@@ -140,19 +141,15 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
     }
 
     try {
-      const res = await fetch(`/api/users/${user.id}`, { method: 'DELETE' });
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
-      }
+      await fetch(`/api/users/${user.id}`, { method: 'DELETE' });
     } catch (err: any) {
       console.warn('API backend indisponível, removendo localmente:', err);
     }
 
     storageService.deleteUser(user.id);
+    setUsers(prev => prev.filter(u => u.id !== user.id));
     setSuccessMessage(`Usuário "${user.name}" removido com sucesso.`);
     setTimeout(() => setSuccessMessage(null), 4000);
-    await fetchUsers();
     if (onRefresh) onRefresh();
   };
 
@@ -161,7 +158,8 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
     e.preventDefault();
     if (!selectedUserForPin) return;
 
-    if (!/^\d{4}$/.test(newPinValue.trim())) {
+    const cleanPin = newPinValue.trim();
+    if (!/^\d{4}$/.test(cleanPin)) {
       setErrorMessage('A senha deve conter exatamente 4 números.');
       return;
     }
@@ -169,27 +167,23 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
     setSubmitting(true);
     setErrorMessage(null);
     try {
-      const res = await fetch(`/api/users/${selectedUserForPin.id}`, {
+      await fetch(`/api/users/${selectedUserForPin.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: newPinValue.trim() }),
+        body: JSON.stringify({ pin: cleanPin }),
       });
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
-      }
     } catch (err: any) {
       console.warn('API backend indisponível, salvando senha localmente:', err);
     }
 
-    storageService.updateUserPin(selectedUserForPin.id, newPinValue.trim());
+    storageService.updateUserPin(selectedUserForPin.id, cleanPin);
+    setUsers(prev => prev.map(u => u.id === selectedUserForPin.id ? { ...u, pin: cleanPin } : u));
 
     setSuccessMessage(`Senha de 4 dígitos de "${selectedUserForPin.name}" atualizada com sucesso!`);
     setTimeout(() => setSuccessMessage(null), 4000);
     setIsEditPinModalOpen(false);
     setSelectedUserForPin(null);
     setNewPinValue('');
-    await fetchUsers();
     setSubmitting(false);
   };
 
@@ -198,8 +192,9 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
     e.preventDefault();
     setCreateModalError(null);
 
-    if (!newUserName.trim()) {
-      setCreateModalError('O nome do servidor é obrigatório.');
+    const cleanName = newUserName.trim();
+    if (!cleanName) {
+      setCreateModalError('O nome completo do servidor é obrigatório.');
       return;
     }
 
@@ -210,12 +205,13 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
     }
 
     setSubmitting(true);
+    let createdUser: UserAccount | null = null;
     try {
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: newUserName.trim(),
+          name: cleanName,
           role: newUserRole,
           pin: pinToUse,
           notes: newUserNotes.trim(),
@@ -223,21 +219,31 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
       });
       const contentType = res.headers.get('content-type');
       if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
+        createdUser = await res.json();
+      } else if (contentType && contentType.includes('application/json')) {
+        const errJson = await res.json().catch(() => ({}));
+        if (errJson.error) {
+          setCreateModalError(errJson.error);
+          setSubmitting(false);
+          return;
+        }
       }
     } catch (err: any) {
       console.warn('API backend indisponível, gravando no banco permanente:', err);
     }
 
     // Grava de forma resiliente e durável no storageService
-    const created = storageService.createUser({
-      name: newUserName.trim(),
+    const localUser = storageService.createUser({
+      name: cleanName,
       role: newUserRole,
       pin: pinToUse,
       notes: newUserNotes.trim(),
     });
 
-    setSuccessMessage(`Novo usuário "${created.name}" cadastrado com sucesso com perfil ${created.roleLabel}!`);
+    const userToDisplay = createdUser || localUser;
+    setUsers(prev => [userToDisplay, ...prev.filter(u => u.id !== userToDisplay.id)]);
+
+    setSuccessMessage(`Novo usuário "${userToDisplay.name}" cadastrado com sucesso com perfil ${userToDisplay.roleLabel}!`);
     setTimeout(() => setSuccessMessage(null), 4000);
     setIsCreateModalOpen(false);
     setNewUserName('');
@@ -245,9 +251,8 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
     setNewUserPin('');
     setNewUserNotes('');
     setCreateModalError(null);
-    await fetchUsers();
-    if (onRefresh) onRefresh();
     setSubmitting(false);
+    if (onRefresh) onRefresh();
   };
 
   // Stats calculation
@@ -637,7 +642,7 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleCreateUser} className="p-6 space-y-4 text-xs">
+            <form onSubmit={handleCreateUser} noValidate className="p-6 space-y-4 text-xs">
               {createModalError && (
                 <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-3 flex items-start gap-2 animate-in fade-in">
                   <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -654,8 +659,7 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                   value={newUserName}
                   onChange={e => setNewUserName(e.target.value)}
                   placeholder="Ex: Prof. Marcos Silva"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500"
-                  required
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500 text-slate-900 bg-white"
                 />
               </div>
 
@@ -666,7 +670,7 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                 <select
                   value={newUserRole}
                   onChange={e => setNewUserRole(e.target.value as UserRole)}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-500 cursor-pointer"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-500 cursor-pointer text-slate-900"
                 >
                   <option value="professor">Professor Regente (Consulta Restrita)</option>
                   <option value="aoe">AOE - Agente de Organização Escolar (Frequência & Portaria)</option>
@@ -677,21 +681,19 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
 
               <div>
                 <label className="font-bold text-slate-700 block mb-1">
-                  Senha Numérica de 4 Dígitos: <span className="text-rose-500">*</span>
+                  Senha Numérica de 4 Dígitos:
                 </label>
                 <input
-                  type="password"
+                  type="text"
                   inputMode="numeric"
-                  pattern="[0-9]{4}"
                   maxLength={4}
                   value={newUserPin}
                   onChange={e => setNewUserPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  placeholder="Ex: 5678"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono tracking-widest text-base focus:outline-hidden focus:ring-2 focus:ring-purple-500"
-                  required
+                  placeholder="Padrão: 1234"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono tracking-widest text-base focus:outline-hidden focus:ring-2 focus:ring-purple-500 text-slate-900 bg-white"
                 />
                 <span className="text-[10px] text-slate-500 mt-1 block">
-                  Apenas 4 números. O usuário digitará essa senha no momento do login.
+                  Digite 4 dígitos numéricos (se deixar em branco, a senha inicial será <strong>1234</strong>).
                 </span>
               </div>
 
@@ -704,7 +706,7 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                   value={newUserNotes}
                   onChange={e => setNewUserNotes(e.target.value)}
                   placeholder="Ex: Docente de História dos 7ºs e 8ºs anos"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500 text-slate-900 bg-white"
                 />
               </div>
 
@@ -719,9 +721,9 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-5 py-2 font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+                  className="px-5 py-2 font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-sm transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95"
                 >
-                  {submitting ? 'Gravando...' : 'Salvar no Banco de Acessos'}
+                  {submitting ? 'Gravando no Sistema...' : 'Salvar no Banco de Acessos'}
                 </button>
               </div>
             </form>
@@ -747,7 +749,7 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSaveNewPin} className="p-5 space-y-4 text-xs">
+            <form onSubmit={handleSaveNewPin} noValidate className="p-5 space-y-4 text-xs">
               <div>
                 <span className="text-slate-500 block mb-1">Usuário selecionado:</span>
                 <div className="font-bold text-slate-900 text-sm">{selectedUserForPin.name}</div>
@@ -761,13 +763,11 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                 <input
                   type="text"
                   inputMode="numeric"
-                  pattern="[0-9]{4}"
                   maxLength={4}
                   value={newPinValue}
                   onChange={e => setNewPinValue(e.target.value.replace(/\D/g, '').slice(0, 4))}
                   placeholder="0000"
-                  className="w-full px-3 py-2 text-center text-lg font-mono font-bold tracking-widest border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500"
-                  required
+                  className="w-full px-3 py-2 text-center text-lg font-mono font-bold tracking-widest border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500 text-slate-900 bg-white"
                   autoFocus
                 />
                 <span className="text-[10px] text-slate-500 mt-1 block text-center">

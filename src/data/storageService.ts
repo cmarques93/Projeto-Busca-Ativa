@@ -304,6 +304,19 @@ export const storageService = {
     return cls;
   },
 
+  updateClass(clsId: string, updates: Partial<SchoolClass>): SchoolClass | null {
+    const classes = this.getClasses();
+    const idx = classes.findIndex(c => c.id.toLowerCase() === clsId.toLowerCase());
+    if (idx === -1) return null;
+    classes[idx] = { ...classes[idx], ...updates };
+    try {
+      localStorage.setItem('school_classes', JSON.stringify(classes));
+    } catch (e) {
+      console.error(e);
+    }
+    return classes[idx];
+  },
+
   deleteClass(clsId: string) {
     const classes = this.getClasses().filter(c => c.id.toLowerCase() !== clsId.toLowerCase());
     try {
@@ -327,12 +340,25 @@ export const storageService = {
     }
   },
 
+  getStudentById(id: string): Student | undefined {
+    return this.getStudents().find(s => s.id === id);
+  },
+
   saveStudents(students: Student[]) {
     try {
       localStorage.setItem('school_students', JSON.stringify(students));
     } catch (e) {
       console.error(e);
     }
+  },
+
+  updateStudent(studentId: string, updates: Partial<Student>): Student | null {
+    const list = this.getStudents();
+    const idx = list.findIndex(s => s.id === studentId);
+    if (idx === -1) return null;
+    list[idx] = { ...list[idx], ...updates };
+    this.saveStudents(list);
+    return list[idx];
   },
 
   createStudent(data: Partial<Student>): Student {

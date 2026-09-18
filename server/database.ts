@@ -1677,6 +1677,41 @@ export class SchoolDatabase {
     return true;
   }
 
+  public updateStudent(id: string, updates: Partial<Student>): Student | null {
+    const student = this.data.students.find(s => s.id === id);
+    if (!student) return null;
+
+    if (updates.name !== undefined) student.name = String(updates.name).trim();
+    if (updates.ra !== undefined) student.ra = String(updates.ra).trim();
+    if (updates.classId !== undefined && updates.classId !== student.classId) {
+      student.classId = updates.classId;
+      const cls = this.data.classes.find(c => c.id === updates.classId);
+      if (cls) student.className = cls.name;
+    }
+    if (updates.className !== undefined) student.className = updates.className;
+    if (updates.guardianName !== undefined) student.guardianName = updates.guardianName.trim();
+    if (updates.guardianPhone !== undefined) student.guardianPhone = updates.guardianPhone.trim();
+    if (updates.guardianRelationship !== undefined) student.guardianRelationship = updates.guardianRelationship.trim();
+    if (updates.address !== undefined) student.address = updates.address.trim();
+    if (updates.neighborhood !== undefined) student.neighborhood = updates.neighborhood.trim();
+    if (updates.status !== undefined) student.status = updates.status;
+    if (updates.riskLevel !== undefined) student.riskLevel = updates.riskLevel;
+    if (updates.notes !== undefined) student.notes = updates.notes;
+    if (updates.vulnerabilityFactors !== undefined) student.vulnerabilityFactors = updates.vulnerabilityFactors;
+    if (updates.totalAbsences !== undefined) student.totalAbsences = updates.totalAbsences;
+    if (updates.consecutiveAbsences !== undefined) student.consecutiveAbsences = updates.consecutiveAbsences;
+    if (updates.attendanceRate !== undefined) student.attendanceRate = updates.attendanceRate;
+
+    // Refresh class student counts
+    this.data.classes.forEach(c => {
+      c.totalStudents = this.data.students.filter(s => s.classId === c.id).length;
+    });
+
+    this.data.lastUpdated = new Date().toISOString();
+    this.saveToDisk();
+    return student;
+  }
+
   public createClass(input: { id: string; name: string; grade: string; shift: string }): SchoolClass {
     if (!input.id || !input.name) throw new Error('Identificador e Nome da Turma são obrigatórios');
 
@@ -1713,6 +1748,17 @@ export class SchoolDatabase {
 
     this.saveToDisk();
     return true;
+  }
+
+  public updateClass(classId: string, updates: Partial<SchoolClass>): SchoolClass | null {
+    const cls = this.data.classes.find(c => c.id === classId);
+    if (!cls) return null;
+    if (updates.name !== undefined) cls.name = String(updates.name).trim();
+    if (updates.grade !== undefined) cls.grade = updates.grade;
+    if (updates.shift !== undefined) cls.shift = updates.shift;
+    this.data.lastUpdated = new Date().toISOString();
+    this.saveToDisk();
+    return cls;
   }
 
   public getGoogleSheetsConfig() {

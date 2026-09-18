@@ -85,7 +85,7 @@ export default function App() {
       const [infoRes, classesRes, studentsRes, alertsRes, interventionsRes, reportRes] = await Promise.all([
         fetch('/api/school-info').catch(() => null),
         fetch('/api/classes').catch(() => null),
-        fetch(`/api/students?classId=${selectedClassId}`).catch(() => null),
+        fetch('/api/students').catch(() => null),
         fetch('/api/alerts').catch(() => null),
         fetch('/api/interventions').catch(() => null),
         fetch(`/api/reports/monthly?month=${selectedMonthIndex}&year=2026`).catch(() => null),
@@ -136,7 +136,7 @@ export default function App() {
         }
       }
       if (!hasServerStudents) {
-        setStudents(storageService.getStudents(selectedClassId));
+        setStudents(storageService.getStudents());
       }
       if (!hasServerInfo) {
         setSchoolInfo(storageService.getSchoolInfo());
@@ -490,7 +490,7 @@ export default function App() {
             classes={classes}
             selectedClassId={selectedClassId}
             onSelectClass={handleSelectClass}
-            students={students}
+            students={students.filter(s => !selectedClassId || s.classId === selectedClassId)}
             onSaveAttendance={handleSaveAttendance}
             onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
             onManualAlert={handleOpenAlertForStudent}
