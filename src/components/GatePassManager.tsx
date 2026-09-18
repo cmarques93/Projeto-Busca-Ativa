@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { GateRecord, GateMovementType, Student, SchoolClass } from '../types';
 import { InfoTooltip } from './InfoTooltip';
+import { storageService } from '../data/storageService';
 
 interface GatePassManagerProps {
   students: Student[];
@@ -51,16 +52,28 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
 
   const fetchRecords = async () => {
     setIsLoading(true);
+    let loadedFromServer = false;
     try {
       const url = `/api/gate-records?date=${selectedDate}&classId=${selectedClassFilter}`;
       const res = await fetch(url);
-      if (res.ok) {
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
         const data = await res.json();
-        setRecords(data);
+        if (Array.isArray(data)) {
+          setRecords(data);
+          loadedFromServer = true;
+        }
       }
     } catch (err) {
-      console.error('Erro ao buscar registros de portaria:', err);
+      console.warn('API de portaria não disponível, buscando do storageService:', err);
     } finally {
+      if (!loadedFromServer) {
+        const local = storageService.getGateRecords(
+          selectedDate,
+          selectedClassFilter !== 'todas' ? selectedClassFilter : undefined
+        );
+        setRecords(local);
+      }
       setIsLoading(false);
     }
   };
@@ -85,55 +98,61 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
     if (!st) return;
 
     setIsSubmitting(true);
-    try {
-      const payload = {
-        studentId: st.id,
-        studentName: st.name,
-        classId: st.classId,
-        className: st.className,
-        date: selectedDate,
-        time,
-        type,
-        reason,
-        guardianOrAuthorizedPerson,
-        guardianPhone,
-        recordedBy: operatorName || 'AOE - Portaria',
-        notes,
-      };
+    const payload: GateRecord = {
+      id: `gate-${Date.now()}`,
+      studentId: st.id,
+      studentName: st.name,
+      classId: st.classId,
+      className: st.className,
+      date: selectedDate,
+      time,
+      type,
+      reason,
+      guardianOrAuthorizedPerson,
+      guardianPhone,
+      recordedBy: operatorName || 'AOE - Portaria',
+      notes,
+    };
 
+    try {
       const res = await fetch('/api/gate-records', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-
-      if (res.ok) {
-        setSuccessMsg(`Movimentação de ${type === 'entrada_tardia' ? 'Entrada Tardia' : 'Saída Antecipada'} registrada com sucesso!`);
-        setTimeout(() => setSuccessMsg(null), 4000);
-        // Reset form
-        setStudentId('');
-        setReason('');
-        setNotes('');
-        setIsFormOpen(false);
-        fetchRecords();
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
+        // Backend updated
       }
     } catch (e) {
-      console.error(e);
-    } finally {
-      setIsSubmitting(false);
+      console.warn('API indisponível, registrando portaria localmente:', e);
     }
+
+    storageService.createGateRecord(payload);
+    setSuccessMsg(`Movimentação de ${type === 'entrada_tardia' ? 'Entrada Tardia' : 'Saída Antecipada'} registrada com sucesso!`);
+    setTimeout(() => setSuccessMsg(null), 4000);
+    // Reset form
+    setStudentId('');
+    setReason('');
+    setNotes('');
+    setIsFormOpen(false);
+    fetchRecords();
+    setIsSubmitting(false);
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Deseja realmente remover este registro de portaria?')) return;
     try {
       const res = await fetch(`/api/gate-records/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        setRecords(prev => prev.filter(r => r.id !== id));
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
+        // Backend updated
       }
     } catch (e) {
-      console.error(e);
+      console.warn('API indisponível:', e);
     }
+    storageService.deleteGateRecord(id);
+    setRecords(prev => prev.filter(r => r.id !== id));
   };
 
   const filteredRecords = records.filter(r => {

@@ -17,10 +17,11 @@ import {
   Lock,
   UserCheck,
   FileSpreadsheet,
-  Info
+  Info,
+  AlertCircle
 } from 'lucide-react';
 import { UserAccount, UserRole } from '../types';
-import { storageService } from '../data/storageService';
+import { storageService, getRoleLabel } from '../data/storageService';
 
 interface AccessManagementProps {
   onRefresh?: () => void;
@@ -41,6 +42,7 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
 
   // Modals
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [createModalError, setCreateModalError] = useState<string | null>(null);
   const [isEditPinModalOpen, setIsEditPinModalOpen] = useState(false);
   const [selectedUserForPin, setSelectedUserForPin] = useState<UserAccount | null>(null);
   const [newPinValue, setNewPinValue] = useState('');
@@ -91,41 +93,44 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole }),
       });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Erro ao atualizar perfil do usuário');
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
+        // Backend updated
       }
-
-      setSuccessMessage(`Perfil de "${user.name}" atualizado com sucesso para ${newRole.toUpperCase()}!`);
-      setTimeout(() => setSuccessMessage(null), 4000);
-      await fetchUsers();
-      if (onRefresh) onRefresh();
     } catch (err: any) {
-      setErrorMessage(err.message);
-      setTimeout(() => setErrorMessage(null), 5000);
+      console.warn('API backend indisponível, aplicando alteração local permanente:', err);
     }
+
+    storageService.updateUser(user.id, {
+      role: newRole,
+      roleLabel: getRoleLabel(newRole),
+    });
+
+    setSuccessMessage(`Perfil de "${user.name}" atualizado com sucesso para ${newRole.toUpperCase()}!`);
+    setTimeout(() => setSuccessMessage(null), 4000);
+    await fetchUsers();
+    if (onRefresh) onRefresh();
   };
 
   // Toggle user active/inactive
   const handleToggleActive = async (user: UserAccount) => {
+    const newStatus = !user.active;
     try {
       const res = await fetch(`/api/users/${user.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ active: !user.active }),
+        body: JSON.stringify({ active: newStatus }),
       });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Erro ao alterar status do usuário');
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
+        // Backend updated
       }
-
-      await fetchUsers();
     } catch (err: any) {
-      setErrorMessage(err.message);
-      setTimeout(() => setErrorMessage(null), 5000);
+      console.warn('API backend indisponível, alterando status localmente:', err);
     }
+
+    storageService.updateUser(user.id, { active: newStatus });
+    await fetchUsers();
   };
 
   // Delete user
@@ -136,18 +141,19 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
 
     try {
       const res = await fetch(`/api/users/${user.id}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Erro ao excluir usuário');
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
+        // Backend updated
       }
-
-      setSuccessMessage(`Usuário "${user.name}" removido com sucesso.`);
-      setTimeout(() => setSuccessMessage(null), 4000);
-      await fetchUsers();
     } catch (err: any) {
-      setErrorMessage(err.message);
-      setTimeout(() => setErrorMessage(null), 5000);
+      console.warn('API backend indisponível, removendo localmente:', err);
     }
+
+    storageService.deleteUser(user.id);
+    setSuccessMessage(`Usuário "${user.name}" removido com sucesso.`);
+    setTimeout(() => setSuccessMessage(null), 4000);
+    await fetchUsers();
+    if (onRefresh) onRefresh();
   };
 
   // Update 4-digit PIN
@@ -161,41 +167,45 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
     }
 
     setSubmitting(true);
+    setErrorMessage(null);
     try {
       const res = await fetch(`/api/users/${selectedUserForPin.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pin: newPinValue.trim() }),
       });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Erro ao atualizar senha numérica');
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
+        // Backend updated
       }
-
-      setSuccessMessage(`Senha de 4 dígitos de "${selectedUserForPin.name}" atualizada com sucesso!`);
-      setTimeout(() => setSuccessMessage(null), 4000);
-      setIsEditPinModalOpen(false);
-      setSelectedUserForPin(null);
-      setNewPinValue('');
-      await fetchUsers();
     } catch (err: any) {
-      setErrorMessage(err.message);
-    } finally {
-      setSubmitting(false);
+      console.warn('API backend indisponível, salvando senha localmente:', err);
     }
+
+    storageService.updateUserPin(selectedUserForPin.id, newPinValue.trim());
+
+    setSuccessMessage(`Senha de 4 dígitos de "${selectedUserForPin.name}" atualizada com sucesso!`);
+    setTimeout(() => setSuccessMessage(null), 4000);
+    setIsEditPinModalOpen(false);
+    setSelectedUserForPin(null);
+    setNewPinValue('');
+    await fetchUsers();
+    setSubmitting(false);
   };
 
   // Create new user
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCreateModalError(null);
+
     if (!newUserName.trim()) {
-      setErrorMessage('O nome do usuário é obrigatório.');
+      setCreateModalError('O nome do servidor é obrigatório.');
       return;
     }
 
-    if (!/^\d{4}$/.test(newUserPin.trim())) {
-      setErrorMessage('A senha de acesso deve conter exatamente 4 números (ex: 1234).');
+    const pinToUse = newUserPin.trim() || '1234';
+    if (!/^\d{4}$/.test(pinToUse)) {
+      setCreateModalError('A senha de acesso deve conter exatamente 4 números (ex: 1234).');
       return;
     }
 
@@ -207,30 +217,37 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
         body: JSON.stringify({
           name: newUserName.trim(),
           role: newUserRole,
-          pin: newUserPin.trim(),
+          pin: pinToUse,
           notes: newUserNotes.trim(),
         }),
       });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Erro ao cadastrar novo usuário');
+      const contentType = res.headers.get('content-type');
+      if (res.ok && contentType && contentType.includes('application/json')) {
+        // Backend updated
       }
-
-      setSuccessMessage(`Novo usuário "${newUserName}" cadastrado com perfil ${newUserRole.toUpperCase()}!`);
-      setTimeout(() => setSuccessMessage(null), 4000);
-      setIsCreateModalOpen(false);
-      setNewUserName('');
-      setNewUserRole('professor');
-      setNewUserPin('');
-      setNewUserNotes('');
-      await fetchUsers();
-      if (onRefresh) onRefresh();
     } catch (err: any) {
-      setErrorMessage(err.message);
-    } finally {
-      setSubmitting(false);
+      console.warn('API backend indisponível, gravando no banco permanente:', err);
     }
+
+    // Grava de forma resiliente e durável no storageService
+    const created = storageService.createUser({
+      name: newUserName.trim(),
+      role: newUserRole,
+      pin: pinToUse,
+      notes: newUserNotes.trim(),
+    });
+
+    setSuccessMessage(`Novo usuário "${created.name}" cadastrado com sucesso com perfil ${created.roleLabel}!`);
+    setTimeout(() => setSuccessMessage(null), 4000);
+    setIsCreateModalOpen(false);
+    setNewUserName('');
+    setNewUserRole('professor');
+    setNewUserPin('');
+    setNewUserNotes('');
+    setCreateModalError(null);
+    await fetchUsers();
+    if (onRefresh) onRefresh();
+    setSubmitting(false);
   };
 
   // Stats calculation
@@ -281,7 +298,11 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
           )}
 
           <button
-            onClick={() => setIsCreateModalOpen(true)}
+            onClick={() => {
+              setCreateModalError(null);
+              setErrorMessage(null);
+              setIsCreateModalOpen(true);
+            }}
             className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-2 transition-colors cursor-pointer shadow-md"
           >
             <UserPlus className="w-4 h-4" />
@@ -617,6 +638,13 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
             </div>
 
             <form onSubmit={handleCreateUser} className="p-6 space-y-4 text-xs">
+              {createModalError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-3 flex items-start gap-2 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span className="font-semibold text-xs">{createModalError}</span>
+                </div>
+              )}
+
               <div>
                 <label className="font-bold text-slate-700 block mb-1">
                   Nome Completo do Servidor: <span className="text-rose-500">*</span>

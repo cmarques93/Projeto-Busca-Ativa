@@ -76,6 +76,7 @@ export interface AttendanceRecord {
   studentId: string;
   studentName: string;
   classId: string;
+  className?: string;
   date: string; // YYYY-MM-DD
   status: AttendanceStatus;
   durationDays?: number; // Duração em dias (1, 2, 3...) quando a falta/justificativa for superior a 1 dia
@@ -84,7 +85,8 @@ export interface AttendanceRecord {
   medicalDays?: number; // Quantidade de dias do atestado
   isCountedAsAbsence?: boolean; // false para atestado médico (não contabiliza ausência), true para falta justificada/injustificada
   recordedBy: string;
-  recordedAt: string;
+  recordedAt?: string;
+  createdAt?: string;
 }
 
 export type AlertChannel = 'whatsapp' | 'sms' | 'ligacao' | 'notificacao_push';
