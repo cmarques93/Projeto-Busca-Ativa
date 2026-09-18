@@ -22,6 +22,7 @@ import {
 import { UserRole, UserSession } from '../types';
 
 export type MainTabType =
+  | 'classes'
   | 'attendance'
   | 'gate'
   | 'alerts'
@@ -259,6 +260,23 @@ export const Header: React.FC<HeaderProps> = ({
             <span>Gestão de Acessos & Perfis (Master)</span>
           </button>
         )}
+
+        {/* TURMAS & ESTUDANTES: Gestão para Master e visualização adaptada para os demais perfis */}
+        <button
+          onClick={() => setActiveTab('classes')}
+          className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'classes'
+              ? 'border-indigo-600 text-indigo-700 bg-indigo-50/40'
+              : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+          }`}
+          title="Visualização e gestão de turmas e estudantes da escola"
+        >
+          <Users className="w-4 h-4 text-indigo-600" />
+          <span>Turmas & Estudantes</span>
+          <span className="bg-slate-100 text-slate-600 text-[11px] font-semibold px-1.5 py-0.2 rounded-full">
+            {totalStudents}
+          </span>
+        </button>
 
         {/* PROFESSOR: Acesso restrito apenas ao motivo das ausências */}
         {(isProfessor || isAdmin) && (

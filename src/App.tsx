@@ -15,8 +15,9 @@ import { TeacherAbsenceView } from './components/TeacherAbsenceView';
 import { SeducContingencyReportModal } from './components/SeducContingencyReportModal';
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
 import { AccessManagement } from './components/AccessManagement';
+import { ClassesManager } from './components/ClassesManager';
 import { LoginScreen } from './components/LoginScreen';
-import { RotateCcw, ShieldCheck } from 'lucide-react';
+import { RotateCcw, ShieldCheck, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { storageService } from './data/storageService';
 import {
   Student,
@@ -66,6 +67,8 @@ export default function App() {
   const [isSeducReportModalOpen, setIsSeducReportModalOpen] = useState(false);
   const [isGoogleSheetsModalOpen, setIsGoogleSheetsModalOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [isWipeAllConfirmOpen, setIsWipeAllConfirmOpen] = useState(false);
+  const [wipeConfirmText, setWipeConfirmText] = useState('');
   const [isResetting, setIsResetting] = useState(false);
   const [roleRestrictionNotice, setRoleRestrictionNotice] = useState<string | null>(null);
   const [preSelectedStudentForAlert, setPreSelectedStudentForAlert] = useState<Student | null>(null);
@@ -101,11 +104,15 @@ export default function App() {
       }
       if (classesRes && classesRes.ok && classesRes.headers.get('content-type')?.includes('application/json')) {
         const clsList = await classesRes.json();
-        if (Array.isArray(clsList) && clsList.length > 0) {
+        if (Array.isArray(clsList)) {
           setClasses(clsList);
           hasServerClasses = true;
-          if (!selectedClassId && clsList.length > 0) {
-            setSelectedClassId(clsList[0].id);
+          if (clsList.length > 0) {
+            if (!selectedClassId || !clsList.some((c: any) => c.id === selectedClassId)) {
+              setSelectedClassId(clsList[0].id);
+            }
+          } else {
+            setSelectedClassId('');
           }
         }
       }
@@ -117,12 +124,18 @@ export default function App() {
         }
       }
       if (alertsRes && alertsRes.ok && alertsRes.headers.get('content-type')?.includes('application/json')) {
-        setAlerts(await alertsRes.json());
-        hasServerAlerts = true;
+        const alList = await alertsRes.json();
+        if (Array.isArray(alList)) {
+          setAlerts(alList);
+          hasServerAlerts = true;
+        }
       }
       if (interventionsRes && interventionsRes.ok && interventionsRes.headers.get('content-type')?.includes('application/json')) {
-        setInterventions(await interventionsRes.json());
-        hasServerInterventions = true;
+        const intList = await interventionsRes.json();
+        if (Array.isArray(intList)) {
+          setInterventions(intList);
+          hasServerInterventions = true;
+        }
       }
       if (reportRes && reportRes.ok && reportRes.headers.get('content-type')?.includes('application/json')) {
         setMonthlyReport(await reportRes.json());
@@ -135,8 +148,12 @@ export default function App() {
       if (!hasServerClasses) {
         const fbClasses = storageService.getClasses();
         setClasses(fbClasses);
-        if (!selectedClassId && fbClasses.length > 0) {
-          setSelectedClassId(fbClasses[0].id);
+        if (fbClasses.length > 0) {
+          if (!selectedClassId || !fbClasses.some((c: any) => c.id === selectedClassId)) {
+            setSelectedClassId(fbClasses[0].id);
+          }
+        } else {
+          setSelectedClassId('');
         }
       }
       if (!hasServerStudents) {
@@ -432,6 +449,35 @@ export default function App() {
     }
   };
 
+  // Factory Reset / Wipe all data (exclusive for Master user)
+  const confirmWipeAllData = async () => {
+    setIsResetting(true);
+    try {
+      await fetch('/api/wipe-all', { method: 'POST' }).catch(() => null);
+      storageService.wipeAllData(currentUser?.role === 'admin' ? currentUser : undefined);
+      setClasses([]);
+      setStudents([]);
+      setAlerts([]);
+      setInterventions([]);
+      setSelectedClassId('');
+      setSchoolInfo({
+        schoolName: 'EE Professor Arlindo Silvestre',
+        lastUpdated: new Date().toISOString(),
+        totalStudents: 0,
+        totalClasses: 0,
+        activeAlertsCount: 0,
+        activeCasesCount: 0,
+      });
+      await fetchData();
+    } catch (e) {
+      console.error('Erro ao executar reset geral:', e);
+    } finally {
+      setIsResetting(false);
+      setIsWipeAllConfirmOpen(false);
+      setWipeConfirmText('');
+    }
+  };
+
   // Open alert modal for specific student
   const handleOpenAlertForStudent = (student: Student) => {
     if (currentUser?.role === 'professor') {
@@ -482,6 +528,22 @@ export default function App() {
           <AccessManagement
             onRefresh={fetchData}
             onOpenGoogleSheets={() => setIsGoogleSheetsModalOpen(true)}
+          />
+        )}
+
+        {/* Gestão de Turmas & Estudantes: Visível para todos os perfis, com funções e sugestões adaptadas */}
+        {activeTab === 'classes' && (
+          <ClassesManager
+            classes={classes}
+            students={students}
+            currentUser={currentUser}
+            onRefresh={fetchData}
+            onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
+            onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
+            onOpenResetAllModal={() => {
+              setWipeConfirmText('');
+              setIsWipeAllConfirmOpen(true);
+            }}
           />
         )}
 
@@ -658,6 +720,72 @@ export default function App() {
                   <>
                     <RotateCcw className="w-4 h-4" />
                     <span>Sim, Restaurar</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Reset Total do Sistema (Limpar Absolutamente Tudo) - Master Only */}
+      {isWipeAllConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-rose-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4 shadow-xs">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 text-center">
+              Reset Total do Sistema (Zerar Tudo)
+            </h3>
+            <p className="text-xs text-slate-600 text-center mt-2 leading-relaxed">
+              Esta ação apagará <strong>permanentemente</strong> todas as turmas, todos os estudantes, histórico de ausências, chamadas diárias, casos de busca ativa, alertas e usuários secundários.
+            </p>
+            <div className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-xs text-rose-800 mt-3 space-y-1">
+              <p className="font-bold flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                <span>Apenas o Perfil Master será preservado:</span>
+              </p>
+              <p>O sistema voltará a um estado 100% limpo, sem resquícios de faltas ou estudantes excluídos, pronto para novos cadastros.</p>
+            </div>
+
+            <div className="mt-4">
+              <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                Digite <span className="font-mono text-rose-600 font-bold">LIMPAR</span> para confirmar a exclusão geral:
+              </label>
+              <input
+                type="text"
+                placeholder="LIMPAR"
+                value={wipeConfirmText}
+                onChange={e => setWipeConfirmText(e.target.value.toUpperCase())}
+                className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg font-mono uppercase tracking-wider focus:ring-2 focus:ring-rose-500 focus:outline-hidden"
+              />
+            </div>
+
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsWipeAllConfirmOpen(false);
+                  setWipeConfirmText('');
+                }}
+                disabled={isResetting}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmWipeAllData}
+                disabled={isResetting || wipeConfirmText !== 'LIMPAR'}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 disabled:cursor-not-allowed text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {isResetting ? (
+                  <span>Limpando Tudo...</span>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Zerar Sistema</span>
                   </>
                 )}
               </button>

@@ -728,13 +728,16 @@ export class SchoolDatabase {
   }
 
   public getSchoolInfo() {
+    const studentIds = new Set(this.data.students.map(s => s.id.toLowerCase()));
+    const validAlerts = this.data.alerts.filter(a => studentIds.has((a.studentId || '').toLowerCase()));
+    const validInterventions = this.data.interventions.filter(i => studentIds.has((i.studentId || '').toLowerCase()));
     return {
       schoolName: this.data.schoolName,
       lastUpdated: this.data.lastUpdated,
       totalStudents: this.data.students.length,
       totalClasses: this.data.classes.length,
-      activeAlertsCount: this.data.alerts.length,
-      activeCasesCount: this.data.interventions.filter(i => i.stage !== 'reintegrado' && i.stage !== 'encerrado').length
+      activeAlertsCount: validAlerts.length,
+      activeCasesCount: validInterventions.filter(i => i.stage !== 'reintegrado' && i.stage !== 'encerrado').length
     };
   }
 
@@ -929,13 +932,13 @@ export class SchoolDatabase {
   }
 
   public getClasses(): SchoolClass[] {
-    // Recompute current rates based on current day
+    const currentToday = new Date().toISOString().split('T')[0];
     const updated = this.data.classes.map(cls => {
       const classStudents = this.data.students.filter(s => s.classId === cls.id);
       const totalStudents = classStudents.length;
       const atRisk = classStudents.filter(s => s.riskLevel === 'alto' || s.riskLevel === 'critico').length;
       
-      const todayRecords = this.data.attendanceRecords.filter(r => r.classId === cls.id && r.date === todayStr);
+      const todayRecords = this.data.attendanceRecords.filter(r => r.classId === cls.id && r.date === currentToday);
       let presentToday = 0;
       let absentToday = 0;
 
@@ -943,12 +946,14 @@ export class SchoolDatabase {
         presentToday = todayRecords.filter(r => r.status === 'presente').length;
         absentToday = todayRecords.filter(r => r.status.startsWith('falta')).length;
       } else {
-        presentToday = cls.presentToday;
-        absentToday = cls.absentToday;
+        presentToday = 0;
+        absentToday = 0;
       }
 
-      const totalCounted = presentToday + absentToday || totalStudents || 1;
-      const attendanceRateToday = Number(((presentToday / totalCounted) * 100).toFixed(1));
+      const totalCounted = presentToday + absentToday || totalStudents || 0;
+      const attendanceRateToday = totalCounted > 0
+        ? Number(((presentToday / totalCounted) * 100).toFixed(1))
+        : 100;
 
       return {
         ...cls,
@@ -1657,20 +1662,35 @@ export class SchoolDatabase {
   }
 
   public deleteStudent(id: string): boolean {
+    const cleanId = String(id || '').trim().toLowerCase();
     const initialLen = this.data.students.length;
-    this.data.students = this.data.students.filter(s => s.id !== id);
+    this.data.students = this.data.students.filter(s => (s.id || '').trim().toLowerCase() !== cleanId);
     if (this.data.students.length === initialLen) return false;
 
-    // Clean up related attendance records & interventions
-    this.data.attendanceRecords = this.data.attendanceRecords.filter(r => r.studentId !== id);
-    this.data.alerts = this.data.alerts.filter(a => a.studentId !== id);
-    this.data.interventions = this.data.interventions.filter(i => i.studentId !== id);
+    // Clean up related attendance records, alerts, interventions & gate records
+    this.data.attendanceRecords = this.data.attendanceRecords.filter(
+      r => (r.studentId || '').trim().toLowerCase() !== cleanId
+    );
+    this.data.alerts = this.data.alerts.filter(
+      a => (a.studentId || '').trim().toLowerCase() !== cleanId
+    );
+    this.data.interventions = this.data.interventions.filter(
+      i => (i.studentId || '').trim().toLowerCase() !== cleanId
+    );
+    if (this.data.gateRecords) {
+      this.data.gateRecords = this.data.gateRecords.filter(
+        g => (g.studentId || '').trim().toLowerCase() !== cleanId
+      );
+    }
 
-    // Refresh class student counts
+    // Refresh class student counts & at-risk counters
     this.data.classes.forEach(c => {
-      c.totalStudents = this.data.students.filter(s => s.classId === c.id).length;
+      const classStudents = this.data.students.filter(s => s.classId === c.id);
+      c.totalStudents = classStudents.length;
+      c.studentsAtRiskCount = classStudents.filter(s => s.riskLevel === 'alto' || s.riskLevel === 'critico').length;
     });
 
+    this.data.lastUpdated = new Date().toISOString();
     this.saveToDisk();
     return true;
   }
@@ -2094,5 +2114,50 @@ export class SchoolDatabase {
     this.data = generateSeedData();
     this.saveToDisk();
     return this.data;
+  }
+
+  public wipeAllData() {
+    // Preserve ONLY the Master Administrator user
+    const users = this.getUsers();
+    const masterUser = users.find(u => u.role === 'admin') || {
+      id: 'usr-admin',
+      name: 'Administrador Master',
+      username: 'admin',
+      role: 'admin' as const,
+      roleLabel: 'Administrador (Master)',
+      pin: '1234',
+      createdAt: new Date().toISOString(),
+      active: true,
+      notes: 'Perfil Master exclusivo da escola',
+    };
+
+    this.data.classes = [];
+    this.data.students = [];
+    this.data.attendanceRecords = [];
+    this.data.alerts = [];
+    this.data.interventions = [];
+    this.data.gateRecords = [];
+    this.data.users = [masterUser];
+    if (this.data.googleSheetsConfig?.syncedCounts) {
+      this.data.googleSheetsConfig.syncedCounts = {
+        students: 0,
+        attendance: 0,
+        interventions: 0,
+        gateRecords: 0,
+        alerts: 0,
+      };
+    }
+    this.data.lastUpdated = new Date().toISOString();
+    this.saveToDisk();
+    return {
+      success: true,
+      message: 'Sistema totalmente limpo. Todas as turmas, estudantes, frequências, alertas, casos de busca ativa e usuários auxiliares foram removidos. O perfil Master foi preservado.',
+      masterUser: {
+        id: masterUser.id,
+        name: masterUser.name,
+        role: masterUser.role,
+        roleLabel: masterUser.roleLabel,
+      }
+    };
   }
 }

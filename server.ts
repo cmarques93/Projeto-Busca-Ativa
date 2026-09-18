@@ -131,7 +131,8 @@ async function startServer() {
   // Delete student
   app.delete('/api/students/:id', (req, res) => {
     try {
-      const success = db.deleteStudent(req.params.id);
+      const studentId = decodeURIComponent(req.params.id);
+      const success = db.deleteStudent(studentId);
       if (!success) return res.status(404).json({ error: 'Estudante não encontrado' });
       res.json({ success: true, message: 'Estudante removido com sucesso' });
     } catch (e: any) {
@@ -779,6 +780,16 @@ Responda em formato JSON com as seguintes chaves:
     try {
       const fresh = db.resetDemoData();
       res.json({ success: true, message: 'Dados escolares reinicializados com sucesso', schoolName: fresh.schoolName });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  // Wipe all school data completely (factory clean, keeping only Master user)
+  app.post('/api/wipe-all', (req, res) => {
+    try {
+      const result = db.wipeAllData();
+      res.json(result);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

@@ -278,9 +278,9 @@ export const storageService = {
   getClasses(): SchoolClass[] {
     try {
       const saved = localStorage.getItem('school_classes');
-      if (saved) {
+      if (saved !== null) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch (e) {
       // ignore
@@ -318,23 +318,59 @@ export const storageService = {
   },
 
   deleteClass(clsId: string) {
-    const classes = this.getClasses().filter(c => c.id.toLowerCase() !== clsId.toLowerCase());
+    const cleanId = clsId.trim().toLowerCase();
+    const classes = this.getClasses().filter(c => (c.id || '').trim().toLowerCase() !== cleanId);
     try {
       localStorage.setItem('school_classes', JSON.stringify(classes));
     } catch (e) {
       console.error(e);
     }
+
+    // Cascade delete all students belonging to this class
+    const students = this.getStudents();
+    const classStudents = students.filter(s => (s.classId || '').trim().toLowerCase() === cleanId);
+    classStudents.forEach(s => {
+      this.deleteStudent(s.id);
+    });
+
+    // Also remove class attendance & gate records
+    try {
+      const sr = localStorage.getItem('school_attendance_records');
+      if (sr) {
+        const records = JSON.parse(sr);
+        if (Array.isArray(records)) {
+          const filtered = records.filter((r: any) => (r.classId || '').trim().toLowerCase() !== cleanId);
+          localStorage.setItem('school_attendance_records', JSON.stringify(filtered));
+        }
+      }
+    } catch (e) { console.error(e); }
+
+    try {
+      const sg = localStorage.getItem('school_gate_records');
+      if (sg) {
+        const records = JSON.parse(sg);
+        if (Array.isArray(records)) {
+          const filtered = records.filter((g: any) => (g.classId || '').trim().toLowerCase() !== cleanId);
+          localStorage.setItem('school_gate_records', JSON.stringify(filtered));
+        }
+      }
+    } catch (e) { console.error(e); }
   },
 
   // === ESTUDANTES ===
   getStudents(classId?: string): Student[] {
     try {
       const saved = localStorage.getItem('school_students');
-      const list: Student[] = saved ? JSON.parse(saved) : DEFAULT_STUDENTS;
-      if (classId) {
-        return list.filter(s => s.classId === classId);
+      if (saved !== null) {
+        const list: Student[] = JSON.parse(saved);
+        if (Array.isArray(list)) {
+          if (classId) {
+            return list.filter(s => s.classId === classId);
+          }
+          return list;
+        }
       }
-      return list;
+      return DEFAULT_STUDENTS;
     } catch (e) {
       return DEFAULT_STUDENTS;
     }
@@ -418,8 +454,70 @@ export const storageService = {
   },
 
   deleteStudent(studentId: string) {
-    const list = this.getStudents().filter(s => s.id !== studentId);
+    const cleanId = String(studentId || '').trim().toLowerCase();
+    const list = this.getStudents().filter(s => (s.id || '').trim().toLowerCase() !== cleanId);
     this.saveStudents(list);
+
+    // Purge attendance records of this student
+    try {
+      const sr = localStorage.getItem('school_attendance_records');
+      if (sr) {
+        const records = JSON.parse(sr);
+        if (Array.isArray(records)) {
+          const filtered = records.filter((r: any) => (r.studentId || '').trim().toLowerCase() !== cleanId);
+          localStorage.setItem('school_attendance_records', JSON.stringify(filtered));
+        }
+      }
+    } catch (e) { console.error(e); }
+
+    // Purge alerts of this student
+    try {
+      const sa = localStorage.getItem('school_alerts');
+      if (sa) {
+        const alerts = JSON.parse(sa);
+        if (Array.isArray(alerts)) {
+          const filtered = alerts.filter((a: any) => (a.studentId || '').trim().toLowerCase() !== cleanId);
+          localStorage.setItem('school_alerts', JSON.stringify(filtered));
+        }
+      }
+    } catch (e) { console.error(e); }
+
+    // Purge interventions of this student
+    try {
+      const si = localStorage.getItem('school_interventions');
+      if (si) {
+        const cases = JSON.parse(si);
+        if (Array.isArray(cases)) {
+          const filtered = cases.filter((c: any) => (c.studentId || '').trim().toLowerCase() !== cleanId);
+          localStorage.setItem('school_interventions', JSON.stringify(filtered));
+        }
+      }
+    } catch (e) { console.error(e); }
+
+    // Purge gate records of this student
+    try {
+      const sg = localStorage.getItem('school_gate_records');
+      if (sg) {
+        const records = JSON.parse(sg);
+        if (Array.isArray(records)) {
+          const filtered = records.filter((g: any) => (g.studentId || '').trim().toLowerCase() !== cleanId);
+          localStorage.setItem('school_gate_records', JSON.stringify(filtered));
+        }
+      }
+    } catch (e) { console.error(e); }
+
+    // Update classes student counts
+    try {
+      const classes = this.getClasses().map(c => {
+        const classStudents = list.filter(s => s.classId === c.id);
+        return {
+          ...c,
+          totalStudents: classStudents.length,
+          studentsAtRiskCount: classStudents.filter(s => s.riskLevel === 'alto' || s.riskLevel === 'critico').length
+        };
+      });
+      localStorage.setItem('school_classes', JSON.stringify(classes));
+    } catch (e) { console.error(e); }
   },
 
   batchCreateStudents(studentsData: Partial<Student>[]): number {
@@ -642,7 +740,10 @@ export const storageService = {
   getAlerts(): ParentAlert[] {
     try {
       const saved = localStorage.getItem('school_alerts');
-      if (saved) return JSON.parse(saved);
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch (e) {
       // ignore
     }
@@ -689,7 +790,10 @@ export const storageService = {
   getInterventions(): InterventionCase[] {
     try {
       const saved = localStorage.getItem('school_interventions');
-      if (saved) return JSON.parse(saved);
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
     } catch (e) {
       // ignore
     }
@@ -743,7 +847,7 @@ export const storageService = {
     return DEFAULT_REPORT;
   },
 
-  // === RESET DE CONTINGÊNCIA ===
+  // === RESET DE CONTINGÊNCIA & WIPE GERAL ===
   resetToDefaults() {
     try {
       localStorage.removeItem('school_users');
@@ -756,6 +860,33 @@ export const storageService = {
       localStorage.removeItem('school_gate_records');
     } catch (e) {
       console.error(e);
+    }
+  },
+
+  wipeAllData(masterUser?: any) {
+    try {
+      const defaultMaster = masterUser || {
+        id: 'usr-admin',
+        name: 'Administrador Master',
+        username: 'admin',
+        role: 'admin',
+        roleLabel: 'Administrador (Master)',
+        pin: '1234',
+        createdAt: new Date().toISOString(),
+        active: true,
+        notes: 'Perfil Master exclusivo da escola',
+      };
+
+      localStorage.setItem('school_classes', JSON.stringify([]));
+      localStorage.setItem('school_students', JSON.stringify([]));
+      localStorage.setItem('school_alerts', JSON.stringify([]));
+      localStorage.setItem('school_interventions', JSON.stringify([]));
+      localStorage.setItem('school_attendance_records', JSON.stringify([]));
+      localStorage.setItem('school_gate_records', JSON.stringify([]));
+      localStorage.setItem('school_users', JSON.stringify([defaultMaster]));
+      localStorage.setItem('school_pins', JSON.stringify({ [defaultMaster.id]: defaultMaster.pin || '1234' }));
+    } catch (e) {
+      console.error('Erro ao executar wipeAllData:', e);
     }
   }
 };
