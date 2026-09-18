@@ -608,6 +608,7 @@ export default function App() {
             onGenerateAIPlan={handleGenerateAIPlan}
             isGeneratingAI={isGeneratingAI}
             aiPlanResult={aiPlanResult}
+            onRefresh={fetchData}
           />
         )}
 

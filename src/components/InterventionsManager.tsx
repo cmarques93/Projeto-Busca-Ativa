@@ -12,8 +12,10 @@ import {
   Clock,
   Calendar,
   AlertOctagon,
+  Info,
   HelpCircle,
-  HeartHandshake
+  HeartHandshake,
+  RefreshCw
 } from 'lucide-react';
 import { InterventionCase, InterventionStage } from '../types';
 import { InfoTooltip } from './InfoTooltip';
@@ -28,6 +30,7 @@ interface InterventionsManagerProps {
   onGenerateAIPlan: (caseItem: InterventionCase) => Promise<void>;
   isGeneratingAI: boolean;
   aiPlanResult: { caseId: string; plan: any } | null;
+  onRefresh: () => void;
 }
 
 const STAGE_CONFIG: Record<
@@ -85,6 +88,7 @@ export const InterventionsManager: React.FC<InterventionsManagerProps> = ({
   onGenerateAIPlan,
   isGeneratingAI,
   aiPlanResult,
+  onRefresh,
 }) => {
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(cases[0]?.id || null);
   const [filterStage, setFilterStage] = useState<string>('todos');
@@ -153,6 +157,13 @@ export const InterventionsManager: React.FC<InterventionsManagerProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={onRefresh}
+              className="p-2 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
+              title="Atualizar registros reais"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
             <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3.5 py-2 text-xs">
               <span className="text-emerald-700 font-medium">Reintegrados com Sucesso:</span>
               <span className="font-extrabold text-emerald-900 ml-1.5 text-sm">{resolvedCases.length}</span>

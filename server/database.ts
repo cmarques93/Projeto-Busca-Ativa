@@ -1674,26 +1674,30 @@ export class SchoolDatabase {
     return { insertedCount: inserted.length, students: inserted };
   }
 
-  public deleteStudent(id: string): boolean {
+  public deleteStudent(id: string, purgeAll: boolean = true): boolean {
     const cleanId = String(id || '').trim().toLowerCase();
     const initialLen = this.data.students.length;
     this.data.students = this.data.students.filter(s => (s.id || '').trim().toLowerCase() !== cleanId);
     if (this.data.students.length === initialLen) return false;
 
-    // Clean up related attendance records, alerts, interventions & gate records
-    this.data.attendanceRecords = this.data.attendanceRecords.filter(
-      r => (r.studentId || '').trim().toLowerCase() !== cleanId
-    );
-    this.data.alerts = this.data.alerts.filter(
-      a => (a.studentId || '').trim().toLowerCase() !== cleanId
-    );
+    // Remove from active interventions / "Casos de Busca Ativa & IA" in BOTH modes
     this.data.interventions = this.data.interventions.filter(
       i => (i.studentId || '').trim().toLowerCase() !== cleanId
     );
-    if (this.data.gateRecords) {
-      this.data.gateRecords = this.data.gateRecords.filter(
-        g => (g.studentId || '').trim().toLowerCase() !== cleanId
+
+    // If purgeAll is true, delete attendance records, alerts and gate records as well
+    if (purgeAll) {
+      this.data.attendanceRecords = this.data.attendanceRecords.filter(
+        r => (r.studentId || '').trim().toLowerCase() !== cleanId
       );
+      this.data.alerts = this.data.alerts.filter(
+        a => (a.studentId || '').trim().toLowerCase() !== cleanId
+      );
+      if (this.data.gateRecords) {
+        this.data.gateRecords = this.data.gateRecords.filter(
+          g => (g.studentId || '').trim().toLowerCase() !== cleanId
+        );
+      }
     }
 
     // Refresh class student counts & at-risk counters
