@@ -350,7 +350,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
           </div>
           <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Estudantes Matriculados</span>
-            <div className="text-xl font-bold text-slate-800 mt-0.5">{totalStudentsCount}</div>
+            <div className="text-xl font-bold text-slate-800 mt-0.5">{totalStudentsCount > 0 ? totalStudentsCount : '-'}</div>
           </div>
           <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Busca Ativa / Risco</span>

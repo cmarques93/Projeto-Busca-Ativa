@@ -298,38 +298,16 @@ export const DEFAULT_REPORT: MonthlyPedagogicalReport = {
   month: 'Setembro',
   monthIndex: 9,
   year: 2026,
-  totalEnrolled: 214,
-  averageAttendanceRate: 88.4,
-  totalAbsences: 112,
-  studentsWithCriticalAbsence: 6,
-  activeSearchCasesCount: 4,
-  successfulReintegrations: 3,
-  alertsDispatched: 14,
-  alertsResponded: 11,
-  absenceCausesDistribution: [
-    { cause: 'Problemas de saúde / gripe sazonal', count: 42, percentage: 37.5 },
-    { cause: 'Desmotivação e defasagem escolar', count: 28, percentage: 25.0 },
-    { cause: 'Dificuldade de transporte / chuva', count: 22, percentage: 19.6 },
-    { cause: 'Trabalho informal / jovem aprendiz', count: 20, percentage: 17.9 }
-  ],
-  riskByClass: [
-    { classId: '6A', className: '6º Ano A', averageAttendance: 92.8, riskStudents: 2, totalStudents: 28 },
-    { classId: '7B', className: '7º Ano B', averageAttendance: 83.3, riskStudents: 4, totalStudents: 30 },
-    { classId: '8A', className: '8º Ano A', averageAttendance: 93.1, riskStudents: 1, totalStudents: 29 },
-    { classId: '9A', className: '9º Ano A', averageAttendance: 81.2, riskStudents: 5, totalStudents: 32 },
-    { classId: '1EM-A', className: '1º Ano EM - A', averageAttendance: 82.3, riskStudents: 6, totalStudents: 34 },
-    { classId: '2EM-B', className: '2º Ano EM - B', averageAttendance: 90.3, riskStudents: 3, totalStudents: 31 },
-    { classId: '3EM-A', className: '3º Ano EM - A', averageAttendance: 96.6, riskStudents: 1, totalStudents: 30 }
-  ],
-  attendanceTrend: [
-    { week: 'Semana 1', rate: 91.2, absences: 24 },
-    { week: 'Semana 2', rate: 89.5, absences: 31 },
-    { week: 'Semana 3', rate: 86.8, absences: 38 },
-    { week: 'Semana 4', rate: 88.4, absences: 19 }
-  ],
-  pedagogicalInsights: [
-    'A taxa média de frequência da escola é de 88.4%, acima da meta legal da LDB (75%).',
-    'Turmas do 9º Ano A e 1º Ano EM requerem maior atenção da Busca Ativa.',
-    'A integração de avisos via WhatsApp acelerou em 65% a resposta dos responsáveis.'
-  ]
+  totalEnrolled: 0,
+  averageAttendanceRate: 0,
+  totalAbsences: 0,
+  studentsWithCriticalAbsence: 0,
+  activeSearchCasesCount: 0,
+  successfulReintegrations: 0,
+  alertsDispatched: 0,
+  alertsResponded: 0,
+  absenceCausesDistribution: [],
+  riskByClass: [],
+  attendanceTrend: [],
+  pedagogicalInsights: ['Nenhum dado disponível para este período.']
 };
