@@ -16,10 +16,13 @@ import {
   HelpCircle,
   HeartHandshake,
   Trash2,
-  RefreshCw
+  RefreshCw,
+  Phone,
+  Smartphone
 } from 'lucide-react';
 import { InterventionCase, InterventionStage } from '../types';
 import { InfoTooltip } from './InfoTooltip';
+import { getStudentPhones } from '../utils/phoneUtils';
 
 interface InterventionsManagerProps {
   cases: InterventionCase[];
@@ -355,7 +358,30 @@ export const InterventionsManager: React.FC<InterventionsManagerProps> = ({
                   <div className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-2">
                     <span>Responsável: <strong className="text-slate-700">{selectedCase.guardianName}</strong></span>
                     <span>•</span>
-                    <span>Tel: <strong className="text-slate-700">{selectedCase.guardianPhone}</strong></span>
+                    {(() => {
+                      const phones = getStudentPhones(selectedCase.guardianPhone);
+                      if (phones.length === 0) {
+                        return <span>Tel: <strong className="text-slate-700">{selectedCase.guardianPhone || 'Não informado'}</strong></span>;
+                      }
+                      return (
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="text-slate-500">Tel:</span>
+                          {phones.map((p, idx) => (
+                            <a
+                              key={idx}
+                              href={p.whatsAppUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-mono text-[11px] font-semibold px-1.5 py-0.5 rounded border border-emerald-200 transition-colors"
+                              title={`Abrir WhatsApp no contato: ${p.formatted}`}
+                            >
+                              <Smartphone className="w-2.5 h-2.5 text-emerald-600" />
+                              <span>{p.formatted}</span>
+                            </a>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     <span>•</span>
                     <span>Orientador(a): <strong className="text-slate-700">{selectedCase.assignedPedagogue}</strong></span>
                   </div>

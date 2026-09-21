@@ -21,10 +21,12 @@ import {
   Info,
   X,
   Lock,
-  MessageSquare
+  MessageSquare,
+  Smartphone
 } from 'lucide-react';
 import { SchoolClass, Student, UserSession, RiskLevel, AttendanceStatus } from '../types';
 import { storageService } from '../data/storageService';
+import { getStudentPhones } from '../utils/phoneUtils';
 
 interface ClassesManagerProps {
   classes: SchoolClass[];
@@ -669,23 +671,55 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
 
                           {/* Guardian & Phone */}
                           <td className="py-3 px-3">
-                            <span className="font-medium text-slate-800 block text-xs truncate max-w-[150px]">
+                            <span className="font-medium text-slate-800 block text-xs truncate max-w-[160px]">
                               {student.guardianName || 'Não informado'}
                             </span>
-                            {student.guardianPhone ? (
-                              <a
-                                href={`https://wa.me/55${student.guardianPhone.replace(/\D/g, '')}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-[11px] text-emerald-700 hover:text-emerald-900 font-medium"
-                                title="Abrir conversa no WhatsApp"
-                              >
-                                <Phone className="w-3 h-3 text-emerald-600" />
-                                <span>{student.guardianPhone}</span>
-                              </a>
-                            ) : (
-                              <span className="text-[11px] text-slate-400">Sem telefone</span>
-                            )}
+                            {(() => {
+                              const phones = getStudentPhones(student.guardianPhone);
+                              if (phones.length === 0) {
+                                return <span className="text-[11px] text-slate-400">Sem telefone</span>;
+                              }
+
+                              if (phones.length === 1) {
+                                return (
+                                  <a
+                                    href={phones[0].whatsAppUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 text-[11px] text-emerald-700 hover:text-emerald-900 hover:underline font-medium"
+                                    title={`Abrir conversa no WhatsApp (${phones[0].formatted})`}
+                                  >
+                                    <Phone className="w-3 h-3 text-emerald-600 shrink-0" />
+                                    <span>{phones[0].formatted}</span>
+                                  </a>
+                                );
+                              }
+
+                              // Multiple numbers (e.g. "19 99999-0000 / +55 19 90000-9999")
+                              return (
+                                <div className="space-y-1 mt-0.5">
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100/90 px-1.5 py-0.2 rounded-full">
+                                    <Smartphone className="w-2.5 h-2.5" /> {phones.length} números
+                                  </span>
+                                  <div className="flex flex-col gap-0.5">
+                                    {phones.map((p, pIdx) => (
+                                      <a
+                                        key={pIdx}
+                                        href={p.whatsAppUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 text-[11px] text-emerald-700 hover:text-emerald-900 hover:underline font-mono bg-emerald-50/70 border border-emerald-200/80 px-1.5 py-0.5 rounded transition-colors"
+                                        title={`Abrir WhatsApp no contato ${pIdx + 1}: ${p.formatted}`}
+                                      >
+                                        <Phone className="w-3 h-3 text-emerald-600 shrink-0" />
+                                        <span className="font-sans font-bold text-slate-400 text-[9px]">#{pIdx + 1}</span>
+                                        <span>{p.formatted}</span>
+                                      </a>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </td>
 
                           {/* Status Badge */}
@@ -825,13 +859,46 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">Telefone / WhatsApp</label>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Telefone(s) / WhatsApp
+                  </label>
                   <input
                     type="text"
                     value={editingStudent.guardianPhone || ''}
                     onChange={e => setEditingStudent({ ...editingStudent, guardianPhone: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    placeholder="Ex: 19 99999-0000 / +55 19 90000-9999"
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono"
                   />
+
+                  {/* Real-time detection feedback */}
+                  {editingStudent.guardianPhone && (() => {
+                    const detected = getStudentPhones(editingStudent.guardianPhone);
+                    if (detected.length === 0) return null;
+                    return (
+                      <div className="mt-1.5 p-2 bg-emerald-50 border border-emerald-200 rounded-md text-xs">
+                        <div className="flex items-center justify-between font-semibold text-emerald-900 mb-1">
+                          <span className="text-[10px] uppercase tracking-wide">
+                            {detected.length > 1 ? `${detected.length} números identificados:` : '1 número identificado:'}
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {detected.map((p, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-emerald-300 rounded text-emerald-900 font-mono text-[10px]"
+                            >
+                              <Phone className="w-2.5 h-2.5 text-emerald-600" />
+                              <strong className="font-sans text-slate-500">#{idx + 1}:</strong> {p.formatted}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <span className="text-[10px] text-slate-500 block mt-1">
+                    Para múltiplos números, separe com barra: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-slate-700">19 99999-0000 / +55 19 90000-9999</code>
+                  </span>
                 </div>
               </div>
 

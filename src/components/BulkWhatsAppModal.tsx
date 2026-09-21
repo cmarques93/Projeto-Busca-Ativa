@@ -9,10 +9,12 @@ import {
   MessageSquare,
   Users,
   Copy,
-  Check
+  Check,
+  Phone
 } from 'lucide-react';
 import { ParentAlert } from '../types';
 import { InfoTooltip } from './InfoTooltip';
+import { getStudentPhones } from '../utils/phoneUtils';
 
 interface BulkWhatsAppModalProps {
   isOpen: boolean;
@@ -53,14 +55,18 @@ export const BulkWhatsAppModal: React.FC<BulkWhatsAppModalProps> = ({
   const targetAlerts = whatsappAlerts.filter(a => selectedIds.includes(a.id));
   const currentAlert = targetAlerts[currentIndex] || targetAlerts[0];
 
-  const getWaLink = (alert: ParentAlert) => {
+  const getWaLink = (alert: ParentAlert, phoneIndex = 0) => {
+    const phones = getStudentPhones(alert.guardianPhone, alert.messageContent);
+    if (phones.length > 0 && phones[phoneIndex]) {
+      return phones[phoneIndex].whatsAppUrl;
+    }
     const rawPhone = alert.guardianPhone.replace(/\D/g, '');
     const cleanPhone = rawPhone.startsWith('55') ? rawPhone : `55${rawPhone}`;
     return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(alert.messageContent)}`;
   };
 
-  const handleOpenWhatsApp = async (alert: ParentAlert) => {
-    const url = getWaLink(alert);
+  const handleOpenWhatsApp = async (alert: ParentAlert, phoneIndex = 0) => {
+    const url = getWaLink(alert, phoneIndex);
     window.open(url, '_blank');
     if (!sentAlertIds.includes(alert.id)) {
       setSentAlertIds(prev => [...prev, alert.id]);
@@ -212,9 +218,31 @@ export const BulkWhatsAppModal: React.FC<BulkWhatsAppModalProps> = ({
                               {currentAlert.className}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            Destinatário: <strong>{currentAlert.guardianName}</strong> • {currentAlert.guardianPhone}
-                          </p>
+                          {(() => {
+                            const phones = getStudentPhones(currentAlert.guardianPhone);
+                            return (
+                              <div className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-1.5">
+                                <span>Destinatário: <strong>{currentAlert.guardianName}</strong></span>
+                                <span>•</span>
+                                <div className="flex flex-wrap items-center gap-1">
+                                  {phones.map((p, idx) => (
+                                    <span
+                                      key={idx}
+                                      className="inline-flex items-center gap-1 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-mono text-[11px] text-emerald-800 font-semibold shadow-2xs"
+                                    >
+                                      <Phone className="w-2.5 h-2.5 text-emerald-600" />
+                                      <span>{p.formatted}</span>
+                                    </span>
+                                  ))}
+                                  {phones.length > 1 && (
+                                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-full">
+                                      {phones.length} contatos
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
 
                         <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
@@ -264,19 +292,48 @@ export const BulkWhatsAppModal: React.FC<BulkWhatsAppModalProps> = ({
                           </button>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleOpenWhatsApp(currentAlert);
-                            if (currentIndex < targetAlerts.length - 1) {
-                              setTimeout(() => handleNext(), 500);
-                            }
-                          }}
-                          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-colors"
-                        >
-                          <Smartphone className="w-4 h-4" />
-                          <span>Enviar no WhatsApp e Avançar</span>
-                        </button>
+                        {(() => {
+                          const phones = getStudentPhones(currentAlert.guardianPhone);
+                          if (phones.length <= 1) {
+                            return (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleOpenWhatsApp(currentAlert, 0);
+                                  if (currentIndex < targetAlerts.length - 1) {
+                                    setTimeout(() => handleNext(), 500);
+                                  }
+                                }}
+                                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-colors"
+                              >
+                                <Smartphone className="w-4 h-4" />
+                                <span>Enviar no WhatsApp e Avançar</span>
+                              </button>
+                            );
+                          }
+
+                          return (
+                            <div className="flex flex-wrap items-center gap-2">
+                              {phones.map((p, pIdx) => (
+                                <button
+                                  key={pIdx}
+                                  type="button"
+                                  onClick={() => {
+                                    handleOpenWhatsApp(currentAlert, pIdx);
+                                    if (pIdx === phones.length - 1 && currentIndex < targetAlerts.length - 1) {
+                                      setTimeout(() => handleNext(), 600);
+                                    }
+                                  }}
+                                  className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm cursor-pointer transition-colors"
+                                  title={`Enviar para o contato #${pIdx + 1}: ${p.formatted}`}
+                                >
+                                  <Smartphone className="w-3.5 h-3.5" />
+                                  <span>Enviar Tel {pIdx + 1} ({p.formatted})</span>
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   ) : (

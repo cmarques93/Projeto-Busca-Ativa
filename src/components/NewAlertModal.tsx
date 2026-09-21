@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Send, Smartphone, MessageSquare, Phone, AlertTriangle, Sparkles } from 'lucide-react';
 import { Student, AlertChannel, AlertTrigger } from '../types';
+import { getStudentPhones } from '../utils/phoneUtils';
 
 interface NewAlertModalProps {
   isOpen: boolean;
@@ -204,13 +205,32 @@ export const NewAlertModal: React.FC<NewAlertModalProps> = ({
           </div>
 
           {/* Recipient info summary */}
-          {activeStudent && (
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-600 text-[11px] space-y-0.5">
-              <div><strong>Destinatário:</strong> {activeStudent.guardianName} ({activeStudent.guardianRelationship})</div>
-              <div><strong>Número de Contato:</strong> {activeStudent.guardianPhone}</div>
-              <div><strong>Situação Atual:</strong> {activeStudent.consecutiveAbsences} faltas consecutivas • Taxa: {activeStudent.attendanceRate}%</div>
-            </div>
-          )}
+          {activeStudent && (() => {
+            const phones = getStudentPhones(activeStudent.guardianPhone);
+            return (
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-slate-600 text-[11px] space-y-1">
+                <div><strong>Destinatário:</strong> {activeStudent.guardianName} ({activeStudent.guardianRelationship})</div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <strong>Contato(s):</strong>
+                  {phones.map((p, idx) => (
+                    <span
+                      key={idx}
+                      className="inline-flex items-center gap-1 bg-white border border-slate-200 px-2 py-0.5 rounded font-mono text-emerald-800 font-semibold shadow-2xs"
+                    >
+                      <Phone className="w-2.5 h-2.5 text-emerald-600" />
+                      <span>{p.formatted}</span>
+                    </span>
+                  ))}
+                  {phones.length > 1 && (
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-full">
+                      {phones.length} números cadastrados
+                    </span>
+                  )}
+                </div>
+                <div><strong>Situação Atual:</strong> {activeStudent.consecutiveAbsences} faltas consecutivas • Taxa: {activeStudent.attendanceRate}%</div>
+              </div>
+            );
+          })()}
 
           {/* Message textarea */}
           <div>
@@ -228,18 +248,26 @@ export const NewAlertModal: React.FC<NewAlertModalProps> = ({
           </div>
 
           <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-200">
-            {channel === 'whatsapp' && activeStudent && (
-              <a
-                href={`https://wa.me/55${activeStudent.guardianPhone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs mr-auto transition-colors"
-                title="Abrir a conversa pré-formatada no WhatsApp"
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span>Abrir no WhatsApp Web</span>
-              </a>
-            )}
+            {channel === 'whatsapp' && activeStudent && (() => {
+              const phones = getStudentPhones(activeStudent.guardianPhone, message);
+              return (
+                <div className="flex flex-wrap items-center gap-1.5 mr-auto">
+                  {phones.map((p, idx) => (
+                    <a
+                      key={idx}
+                      href={p.whatsAppUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                      title={`Abrir conversa no WhatsApp (${p.formatted})`}
+                    >
+                      <Smartphone className="w-3.5 h-3.5" />
+                      <span>WhatsApp {phones.length > 1 ? `(Nº ${idx + 1})` : ''}</span>
+                    </a>
+                  ))}
+                </div>
+              );
+            })()}
 
             <button
               type="button"

@@ -11,10 +11,12 @@ import {
   Clock,
   CheckCircle2,
   FileText,
-  Activity
+  Activity,
+  Smartphone
 } from 'lucide-react';
 import { Student, AttendanceRecord, ParentAlert, InterventionCase } from '../types';
 import { storageService } from '../data/storageService';
+import { getStudentPhones } from '../utils/phoneUtils';
 
 interface StudentDetailModalProps {
   studentId: string | null;
@@ -237,8 +239,42 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                     <strong className="text-slate-900">{data.student.guardianName}</strong> ({data.student.guardianRelationship})
                   </div>
                   <div>
-                    <span className="text-slate-400 block">Telefone / WhatsApp:</span>
-                    <strong className="text-slate-900">{data.student.guardianPhone}</strong>
+                    <span className="text-slate-400 block mb-0.5">Telefone(s) / WhatsApp:</span>
+                    {(() => {
+                      const phones = getStudentPhones(data.student.guardianPhone);
+                      if (phones.length === 0) {
+                        return <strong className="text-slate-900">{data.student.guardianPhone || 'Não informado'}</strong>;
+                      }
+
+                      return (
+                        <div className="space-y-1.5">
+                          {phones.length > 1 && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded-full">
+                              <Smartphone className="w-2.5 h-2.5" /> {phones.length} telefones cadastrados
+                            </span>
+                          )}
+                          <div className="flex flex-col gap-1">
+                            {phones.map((p, idx) => (
+                              <div key={idx} className="flex items-center gap-2">
+                                <span className="font-mono text-sm font-bold text-slate-900">
+                                  {p.formatted}
+                                </span>
+                                <a
+                                  href={p.whatsAppUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 transition-colors"
+                                  title={`Abrir WhatsApp com ${p.formatted}`}
+                                >
+                                  <Phone className="w-3 h-3 text-emerald-600" />
+                                  <span>WhatsApp</span>
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div>
                     <span className="text-slate-400 block">Endereço Residencial:</span>

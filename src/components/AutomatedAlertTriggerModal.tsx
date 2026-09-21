@@ -1,7 +1,8 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2, Send, Smartphone, ShieldAlert, X, ArrowRight } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Send, Smartphone, ShieldAlert, X, ArrowRight, Phone } from 'lucide-react';
 import { ParentAlert } from '../types';
 import { InfoTooltip } from './InfoTooltip';
+import { getStudentPhones } from '../utils/phoneUtils';
 
 interface AutomatedAlertTriggerModalProps {
   alerts: ParentAlert[];
@@ -71,25 +72,46 @@ export const AutomatedAlertTriggerModal: React.FC<AutomatedAlertTriggerModalProp
                   </span>
                 </div>
 
-                <div className="text-slate-600 flex flex-wrap items-center gap-2 text-[11px]">
-                  <span>Destinatário: <strong>{alt.guardianName}</strong></span>
-                  <span>•</span>
-                  <span>Canal: <strong className="text-emerald-700">WhatsApp ({alt.guardianPhone})</strong></span>
-                  <span>•</span>
-                  <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Disparo Realizado
-                  </span>
-                  <a
-                    href={`https://wa.me/55${alt.guardianPhone.replace(/\D/g, '')}?text=${encodeURIComponent(alt.messageContent)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2 py-1 rounded border border-emerald-200 ml-auto"
-                    title="Abrir no WhatsApp Web ou App"
-                  >
-                    <Smartphone className="w-3 h-3" />
-                    <span>Abrir no WhatsApp</span>
-                  </a>
-                </div>
+                {(() => {
+                  const phones = getStudentPhones(alt.guardianPhone, alt.messageContent);
+                  return (
+                    <div className="text-slate-600 flex flex-wrap items-center gap-2 text-[11px]">
+                      <span>Destinatário: <strong>{alt.guardianName}</strong></span>
+                      <span>•</span>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="text-slate-500 font-medium">WhatsApp:</span>
+                        {phones.map((p, idx) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center gap-1 bg-white border border-slate-200 px-1.5 py-0.5 rounded font-mono text-[10px] text-emerald-800 font-semibold"
+                          >
+                            <Phone className="w-2.5 h-2.5 text-emerald-600" />
+                            <span>{p.formatted}</span>
+                          </span>
+                        ))}
+                      </div>
+                      <span>•</span>
+                      <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Disparo Realizado
+                      </span>
+                      <div className="flex items-center gap-1 ml-auto">
+                        {phones.map((p, idx) => (
+                          <a
+                            key={idx}
+                            href={p.whatsAppUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2 py-1 rounded border border-emerald-200"
+                            title={`Abrir no WhatsApp (${p.formatted})`}
+                          >
+                            <Smartphone className="w-3 h-3" />
+                            <span>WhatsApp {phones.length > 1 ? `#${idx + 1}` : ''}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="p-2.5 bg-white border border-slate-200 rounded-lg text-slate-700 italic text-[11px] leading-relaxed">
                   "{alt.messageContent}"

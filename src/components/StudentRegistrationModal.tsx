@@ -13,11 +13,13 @@ import {
   Phone,
   User,
   GraduationCap,
-  Hash
+  Hash,
+  Smartphone
 } from 'lucide-react';
 import { SchoolClass, Student } from '../types';
 import { InfoTooltip } from './InfoTooltip';
 import { storageService } from '../data/storageService';
+import { getStudentPhones, parsePhoneNumbers } from '../utils/phoneUtils';
 
 interface StudentRegistrationModalProps {
   isOpen: boolean;
@@ -189,11 +191,11 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
   };
 
   const handleFillDemoCsv = () => {
-    const demo = `Mariana Santos Lima;2024-3312;11998765432
-Pedro Henrique Costa;2024-4421;11987654321
-Larissa Souza Mendes;2024-5533;11976543210
-Kauã Matheus Oliveira;2024-6644;11965432109
-Juliana Cristina Vieira;2024-7755;11954321098`;
+    const demo = `Mariana Santos Lima;2024-3312;19 99999-0000 / +55 19 90000-9999
+Pedro Henrique Costa;2024-4421;19 98765-4321 / 19 97654-3210
+Larissa Souza Mendes;2024-5533;+55 19 97654-3210
+Kauã Matheus Oliveira;2024-6644;19 96543-2109 / 19 95432-1098
+Juliana Cristina Vieira;2024-7755;19 95432-1098`;
     parseCsvData(demo);
   };
 
@@ -490,21 +492,62 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
                   <div className="flex items-center justify-between mb-1">
                     <label className="font-bold text-slate-700 flex items-center gap-1.5">
                       <Phone className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>Telefone (WhatsApp): *</span>
+                      <span>Telefone / WhatsApp: *</span>
                     </label>
                     <InfoTooltip
-                      title="Telefone para Notificações"
-                      content="Número que receberá comunicados de faltas, convocações e alertas da Busca Ativa Escolar via WhatsApp."
+                      title="Múltiplos Contatos Suportados"
+                      content="Se o estudante tiver mais de um número de contato, digite ambos separados por barra '/'. Exemplo: 19 99999-0000 / +55 19 90000-9999."
                     />
                   </div>
                   <input
                     type="text"
                     required
-                    placeholder="Ex: (11) 98765-4321"
+                    placeholder="Ex: 19 99999-0000 / +55 19 90000-9999 (aceita mais de um número com /)"
                     value={guardianPhone}
                     onChange={e => setGuardianPhone(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-mono"
                   />
+
+                  {/* Real-time detection of multiple numbers */}
+                  {guardianPhone.trim() && (() => {
+                    const detected = getStudentPhones(guardianPhone);
+                    return (
+                      <div className="mt-2 p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-lg text-xs">
+                        <div className="flex items-center justify-between font-semibold text-emerald-900 mb-1.5">
+                          <span className="flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            {detected.length > 1
+                              ? `${detected.length} números identificados:`
+                              : '1 número identificado:'}
+                          </span>
+                          {detected.length > 1 && (
+                            <span className="bg-emerald-200 text-emerald-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                              Multi-contatos Ativo
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex flex-wrap gap-1.5">
+                          {detected.map((p, idx) => (
+                            <div
+                              key={idx}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-emerald-300 rounded-md text-emerald-950 font-mono text-[11px] shadow-2xs"
+                            >
+                              <Smartphone className="w-3 h-3 text-emerald-600" />
+                              <span className="font-sans font-bold text-slate-500 text-[10px]">
+                                {detected.length > 1 ? `Nº ${idx + 1}:` : 'WhatsApp:'}
+                              </span>
+                              <span className="font-semibold">{p.formatted}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    💡 <strong>Múltiplos números:</strong> Separe com barra <code className="bg-slate-100 text-indigo-700 px-1 py-0.5 rounded font-mono font-bold">/</code> (ex: <span className="font-mono text-slate-700">19 99999-0000 / +55 19 90000-9999</span>). O sistema gerenciará ambos os contatos.
+                  </p>
                 </div>
               </div>
 
@@ -604,14 +647,37 @@ Juliana Cristina Vieira;2024-7755;11954321098`;
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {parsedPreview.map((item, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50">
-                            <td className="p-2 font-bold text-slate-900">{item.name}</td>
-                            <td className="p-2 text-slate-700">{item.classId}</td>
-                            <td className="p-2 text-slate-500">{item.ra}</td>
-                            <td className="p-2 font-mono text-emerald-700">{item.guardianPhone}</td>
-                          </tr>
-                        ))}
+                        {parsedPreview.map((item, idx) => {
+                          const phones = getStudentPhones(item.guardianPhone);
+                          return (
+                            <tr key={idx} className="hover:bg-slate-50">
+                              <td className="p-2 font-bold text-slate-900">{item.name}</td>
+                              <td className="p-2 text-slate-700">{item.classId}</td>
+                              <td className="p-2 text-slate-500">{item.ra}</td>
+                              <td className="p-2">
+                                {phones.length > 1 ? (
+                                  <div className="space-y-1">
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded-full">
+                                      <Smartphone className="w-2.5 h-2.5" /> {phones.length} números
+                                    </span>
+                                    <div className="flex flex-col gap-0.5 font-mono text-[11px] text-emerald-700">
+                                      {phones.map((p, pIdx) => (
+                                        <span key={pIdx}>
+                                          <span className="text-slate-400 font-sans text-[9px] mr-1">#{pIdx + 1}</span>
+                                          {p.formatted}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <span className="font-mono text-emerald-700">
+                                    {phones[0]?.formatted || item.guardianPhone}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
