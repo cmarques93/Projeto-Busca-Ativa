@@ -236,11 +236,11 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={onSyncData}
-            className="p-1.5 rounded-lg border border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors cursor-pointer"
+            className="px-3 py-1.5 rounded-lg border border-indigo-300 text-indigo-800 bg-indigo-100 hover:bg-indigo-200 transition-colors cursor-pointer font-bold flex items-center gap-1.5"
             title="Sincronizar com a Nuvem (Firebase)"
-            aria-label="Sincronizar dados"
           >
             <Database className="w-4 h-4" />
+            <span>Sincronizar</span>
           </button>
 
           <button
