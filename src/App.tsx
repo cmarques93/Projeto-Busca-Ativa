@@ -191,10 +191,17 @@ export default function App() {
     }
   }, [selectedClassId, selectedMonthIndex, fetchQuotaStatus]);
 
-  // Load on mount and when selectedClassId changes
+  // Load on mount
   useEffect(() => {
-    migrateToFirebase().then(() => fetchData());
+    fetchData();
   }, [fetchData]);
+
+  // Migration on login
+  useEffect(() => {
+    if (currentUser) {
+        migrateToFirebase();
+    }
+  }, [currentUser]);
 
   // Role selection & Login success handlers
   const handleLoginSuccess = (session: UserSession) => {
