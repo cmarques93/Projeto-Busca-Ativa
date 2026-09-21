@@ -51,6 +51,7 @@ interface HeaderProps {
   onOpenWhatsAppIntegration: () => void;
   onOpenGoogleSheets: () => void;
   onSyncData: () => void;
+  isSyncing: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -73,6 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenWhatsAppIntegration,
   onOpenGoogleSheets,
   onSyncData,
+  isSyncing,
 }) => {
   const isAdmin = currentUser.role === 'admin';
   const isGestao = currentUser.role === 'gestao_paac';
@@ -236,11 +238,12 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             onClick={onSyncData}
-            className="px-3 py-1.5 rounded-lg border border-indigo-300 text-indigo-800 bg-indigo-100 hover:bg-indigo-200 transition-colors cursor-pointer font-bold flex items-center gap-1.5"
+            disabled={isSyncing}
+            className="px-3 py-1.5 rounded-lg border border-indigo-300 text-indigo-800 bg-indigo-100 hover:bg-indigo-200 transition-colors cursor-pointer font-bold flex items-center gap-1.5 disabled:opacity-50"
             title="Sincronizar com a Nuvem (Firebase)"
           >
-            <Database className="w-4 h-4" />
-            <span>Sincronizar</span>
+            <Database className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+            <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
           </button>
 
           <button

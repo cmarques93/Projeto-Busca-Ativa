@@ -40,6 +40,20 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<MainTabType>('attendance');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSyncData = async () => {
+    setIsSyncing(true);
+    try {
+      await migrateToFirebase();
+      alert('Sincronização concluída com sucesso!');
+    } catch (error) {
+      console.error('Erro na sincronização:', error);
+      alert('Erro ao sincronizar. Tente novamente.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Core data states
   const [schoolInfo, setSchoolInfo] = useState({
@@ -560,7 +574,8 @@ export default function App() {
         onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
         onOpenWhatsAppIntegration={() => setIsWhatsAppModalOpen(true)}
         onOpenGoogleSheets={() => setIsGoogleSheetsModalOpen(true)}
-        onSyncData={migrateToFirebase}
+        onSyncData={handleSyncData}
+        isSyncing={isSyncing}
       />
 
       {/* Main Container Area */}
