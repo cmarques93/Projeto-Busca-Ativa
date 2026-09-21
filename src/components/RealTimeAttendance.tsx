@@ -23,6 +23,7 @@ import {
 import { Student, SchoolClass, AttendanceStatus, ParentAlert, AttendanceRecord } from '../types';
 import { InfoTooltip } from './InfoTooltip';
 import { storageService } from '../data/storageService';
+import { SaveSuccessModal } from './SaveSuccessModal';
 
 interface RealTimeAttendanceProps {
   classes: SchoolClass[];
@@ -76,6 +77,7 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
   const [teacherName, setTeacherName] = useState('AOE / Equipe Escolar');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [existingRecordSummary, setExistingRecordSummary] = useState<{
     recordedBy: string;
     recordedAt: string;
@@ -293,6 +295,7 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
       setSaveSuccessMsg(
         `Frequência da data ${new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR')} registrada com sucesso no banco de dados! (${absentCount} ausências/atestados salvos)`
       );
+      setShowSuccessModal(true);
       setTimeout(() => setSaveSuccessMsg(null), 8000);
     } catch (err: any) {
       console.error(err);
@@ -472,6 +475,16 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
             </button>
           )}
         </div>
+      )}
+
+      {showSuccessModal && (
+        <SaveSuccessModal
+          onClose={() => setShowSuccessModal(false)}
+          onContinue={() => {
+            setShowSuccessModal(false);
+            // Optionally redirect or clear
+          }}
+        />
       )}
 
       {/* Controls: Search, Filters & Bulk Action */}

@@ -78,9 +78,10 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
     };
   });
 
-  const absentList = combinedList.filter(item => item.isAbsent || item.status === 'atraso');
-
-  const filteredAbsences = absentList.filter(item => {
+  // List of all students in the class
+  const allList = combinedList;
+  
+  const filteredList = allList.filter(item => {
     const matchesSearch =
       item.student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.student.ra.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -95,9 +96,9 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
     return true;
   });
 
-  const totalJustified = absentList.filter(i => i.status === 'falta_justificada').length;
-  const totalMedical = absentList.filter(i => i.status === 'atestado_medico').length;
-  const totalUnjustified = absentList.filter(i => i.status === 'falta_injustificada').length;
+  const totalJustified = allList.filter(i => i.status === 'falta_justificada').length;
+  const totalMedical = allList.filter(i => i.status === 'atestado_medico').length;
+  const totalUnjustified = allList.filter(i => i.status === 'falta_injustificada').length;
 
   return (
     <div className="space-y-6">
@@ -179,7 +180,7 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
             <span>Total Ausentes no Dia</span>
             <UserX className="w-4 h-4 text-slate-400" />
           </div>
-          <div className="text-xl font-extrabold text-slate-900">{absentList.length}</div>
+          <div className="text-xl font-extrabold text-slate-900">{allList.filter(i => i.isAbsent).length}</div>
           <span className="text-[10px] text-slate-500">de {classStudents.length} matriculados</span>
         </div>
 
@@ -235,7 +236,7 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
             filterType === 'todas' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
           }`}
         >
-          Todas as Ocorrências ({absentList.length})
+          Todas as Ocorrências ({allList.length})
         </button>
         <button
           onClick={() => setFilterType('justificadas')}
@@ -269,7 +270,7 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
           <div className="p-8 text-center text-xs text-slate-400 animate-pulse">
             Carregando ausências da turma...
           </div>
-        ) : filteredAbsences.length === 0 ? (
+        ) : filteredList.length === 0 ? (
           <div className="p-10 text-center">
             <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
             <h3 className="text-sm font-bold text-slate-800">
@@ -292,7 +293,7 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredAbsences.map(({ student, status, justification, medicalCertificate }) => (
+                {filteredList.map(({ student, status, justification, medicalCertificate }) => (
                   <tr key={student.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3.5 px-4">
                       <div className="font-bold text-slate-900 text-sm">{student.name}</div>

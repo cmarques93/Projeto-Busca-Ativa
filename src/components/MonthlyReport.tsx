@@ -77,16 +77,9 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
         <div className="flex items-center gap-2.5">
           <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold">
             <Calendar className="w-4 h-4 text-slate-500" />
-            <select
-              value={selectedMonthIndex}
-              onChange={e => onSelectMonth(Number(e.target.value))}
-              className="bg-transparent text-slate-800 focus:outline-hidden font-bold cursor-pointer"
-            >
-              <option value={9}>Setembro / 2026 (Consolidado Atual)</option>
-              <option value={8}>Agosto / 2026</option>
-              <option value={7}>Julho / 2026</option>
-              <option value={6}>Junho / 2026</option>
-            </select>
+            <input type="date" className="bg-transparent text-slate-800 focus:outline-hidden font-bold cursor-pointer" />
+            <span className="text-slate-400">até</span>
+            <input type="date" className="bg-transparent text-slate-800 focus:outline-hidden font-bold cursor-pointer" />
           </div>
 
           <button
