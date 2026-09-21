@@ -41,17 +41,20 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<MainTabType>('attendance');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const handleSyncData = async () => {
     setIsSyncing(true);
+    setSyncMessage(null);
     try {
       await migrateToFirebase(true);
-      alert('Sincronização concluída com sucesso!');
+      setSyncMessage('Sincronização concluída com sucesso!');
     } catch (error) {
       console.error('Erro na sincronização:', error);
-      alert('Erro ao sincronizar. Tente novamente.');
+      setSyncMessage('Erro ao sincronizar. Tente novamente.');
     } finally {
       setIsSyncing(false);
+      setTimeout(() => setSyncMessage(null), 5000);
     }
   };
 
@@ -576,6 +579,7 @@ export default function App() {
         onOpenGoogleSheets={() => setIsGoogleSheetsModalOpen(true)}
         onSyncData={handleSyncData}
         isSyncing={isSyncing}
+        syncMessage={syncMessage}
       />
 
       {/* Main Container Area */}

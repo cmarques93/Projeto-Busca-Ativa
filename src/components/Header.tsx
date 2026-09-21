@@ -52,6 +52,7 @@ interface HeaderProps {
   onOpenGoogleSheets: () => void;
   onSyncData: () => void;
   isSyncing: boolean;
+  syncMessage?: string | null;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -75,6 +76,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenGoogleSheets,
   onSyncData,
   isSyncing,
+  syncMessage,
 }) => {
   const isAdmin = currentUser.role === 'admin';
   const isGestao = currentUser.role === 'gestao_paac';
@@ -245,6 +247,9 @@ export const Header: React.FC<HeaderProps> = ({
             <Database className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
             <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
           </button>
+          {syncMessage && (
+            <span className="text-xs text-indigo-700 font-medium ml-2">{syncMessage}</span>
+          )}
 
           <button
             onClick={onRefresh}
