@@ -120,6 +120,34 @@ export default function App() {
     let hasServerInterventions = false;
     let hasServerReport = false;
 
+    // Verificar se precisa sincronizar do Google Sheets
+    const checkAndSyncFromSheets = async () => {
+      try {
+        const configRes = await fetch('/api/google-sheets/config');
+        if (configRes.ok) {
+          const config = await configRes.json();
+          if (config.spreadsheetId) {
+            // Se tem planilha, tenta importar automaticamente
+            const syncRes = await fetch('/api/google-sheets/sync-from-sheet', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({}),
+            });
+            if (syncRes.ok) {
+              console.log('Sincronização automática do Sheets realizada com sucesso.');
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Erro na sincronização automática:', err);
+      }
+    };
+
+    // Só sincroniza se estiver vazio
+    if (!localStorage.getItem('school_students')) {
+      await checkAndSyncFromSheets();
+    }
+
     try {
       const [infoRes, classesRes, studentsRes, alertsRes, interventionsRes, reportRes] = await Promise.all([
         fetch('/api/school-info').catch(() => null),
