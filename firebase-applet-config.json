@@ -3,6 +3,7 @@
   "appId": "1:214784604718:web:90c8b5d991e2f9b5b1bdbf",
   "apiKey": "AIzaSyCJD1K52PYyv9DnrAZuY1Dl5h0BK6eLxMI",
   "authDomain": "gen-lang-client-0658274617.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-buscaativaescola-2a5f4923-5b0d-48b7-938b-d63e00b9e62b",
   "storageBucket": "gen-lang-client-0658274617.firebasestorage.app",
   "messagingSenderId": "214784604718",
   "measurementId": "",
