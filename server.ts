@@ -37,6 +37,55 @@ async function startServer() {
     return aiClient;
   }
 
+  // --- SISTEMA DE GESTÃO E PROTEÇÃO DE COTA GRATUITA DA IA ---
+  interface DailyQuotaTracker {
+    date: string; // YYYY-MM-DD (Horário de Brasília)
+    requestsToday: number;
+    maxFreeRequestsPerDay: number;
+    isBlockedUntilNextDay: boolean;
+    blockedReason: string | null;
+    blockedAt: string | null;
+  }
+
+  function getSaoPauloDate(): string {
+    try {
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Sao_Paulo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(new Date());
+    } catch {
+      return new Date().toISOString().slice(0, 10);
+    }
+  }
+
+  const quotaTracker: DailyQuotaTracker = {
+    date: getSaoPauloDate(),
+    requestsToday: 0,
+    maxFreeRequestsPerDay: 50, // Limite diário de segurança na cota gratuita para evitar qualquer cobrança
+    isBlockedUntilNextDay: false,
+    blockedReason: null,
+    blockedAt: null,
+  };
+
+  function syncDailyQuota() {
+    const today = getSaoPauloDate();
+    if (quotaTracker.date !== today) {
+      quotaTracker.date = today;
+      quotaTracker.requestsToday = 0;
+      quotaTracker.isBlockedUntilNextDay = false;
+      quotaTracker.blockedReason = null;
+      quotaTracker.blockedAt = null;
+    }
+  }
+
+  function blockQuotaUntilTomorrow(reason: string) {
+    quotaTracker.isBlockedUntilNextDay = true;
+    quotaTracker.blockedReason = reason;
+    quotaTracker.blockedAt = new Date().toISOString();
+  }
+
   // --- API ROUTES ---
 
   // Health check
@@ -481,26 +530,132 @@ async function startServer() {
     }
   });
 
-  // AI Pedagogical Assistant (Gemini with fallback)
-  app.post('/api/ai/pedagogical-plan', async (req, res) => {
-    const { studentName, className, consecutiveAbsences, attendanceRate, vulnerabilityFactors, guardianRelationship } = req.body;
+  // Status da cota gratuita diária da IA
+  app.get('/api/ai/quota-status', (req, res) => {
+    syncDailyQuota();
+    res.json({
+      date: quotaTracker.date,
+      requestsToday: quotaTracker.requestsToday,
+      maxFreeRequestsPerDay: quotaTracker.maxFreeRequestsPerDay,
+      isBlockedUntilNextDay: quotaTracker.isBlockedUntilNextDay,
+      blockedReason: quotaTracker.blockedReason,
+      blockedAt: quotaTracker.blockedAt,
+      resetsAt: '00:00 (Horário de Brasília)'
+    });
+  });
 
+  // Handler compartilhado do Assistente Pedagógico com Controle de Cota e Fundamentação Legal
+  const handlePedagogicalPlan = async (req: express.Request, res: express.Response) => {
+    syncDailyQuota();
+
+    const {
+      studentName = 'Estudante',
+      className = '',
+      studentClass = '',
+      consecutiveAbsences = 0,
+      attendanceRate = 100,
+      vulnerabilityFactors = [],
+      guardianRelationship = 'Responsável Legal'
+    } = req.body;
+
+    const actualClass = className || studentClass;
+    const isOver20Percent = attendanceRate <= 80 || consecutiveAbsences >= 4;
+    const isOver10Percent = attendanceRate <= 90 || consecutiveAbsences >= 2;
+
+    // Gerador de resposta baseada nas Fundamentações Legais Oficiais (SEDUC 39/2023, ECA Art. 56 e Lei 13.068/2008)
+    const generateLegalFallback = (quotaExceeded = false, blockMessage?: string) => {
+      let diagnostico = '';
+      let recomendacoes: string[] = [];
+      let mensagemSugerida = '';
+
+      if (isOver20Percent) {
+        // Marco de 20% de faltas / Faltas consecutivas reiteradas (Risco crítico de abandono)
+        diagnostico = `O(A) estudante ${studentName} (${actualClass}) atingiu o marco crítico de infrequência (${consecutiveAbsences} faltas consecutivas / taxa de ${attendanceRate}%), enquadrando-se no marco de 20% de faltas previsto na Resolução SEDUC nº 39/2023 e no Art. 56 do ECA. Esgotadas as tratativas iniciais da unidade escolar, há necessidade iminente de formalização junto à rede protetiva.`;
+        recomendacoes = [
+          'Emissão de notificação formal obrigatória aos responsáveis legais, fundamentada na Lei Estadual nº 13.068/2008 e Resolução SEDUC nº 39/2023.',
+          'Articulação imediata com o Programa CONVIVA SP para identificação e remoção de barreiras de vulnerabilidade e convivência escolar.',
+          'Elaboração de relatório circunstanciado e formalização de encaminhamento ao Conselho Tutelar (nos termos do Artigo 56, II, da Lei Federal nº 8.069/1990 - ECA) diante da reiteração de faltas injustificadas.',
+          'Pactuação de Plano Pedagógico de Reposição e Acolhimento junto aos professores da turma para retorno sem evasão.'
+        ];
+        mensagemSugerida = `Comunicado Oficial - EE Prof. Arlindo Silvestre: Prezada família de ${studentName}, informamos que o(a) estudante atingiu ${consecutiveAbsences} faltas consecutivas. Conforme determina a Resolução SEDUC nº 39/2023 e o Estatuto da Criança e do Adolescente (Art. 56), a frequência regular é obrigatória. Solicitamos o comparecimento urgente da família à escola hoje para alinhamento e apoio pedagógico, prevenindo o encaminhamento formal aos órgãos de proteção. Estamos de portas abertas!`;
+      } else if (isOver10Percent) {
+        // Marco de 10% de faltas (Acompanhamento e Prevenção)
+        diagnostico = `O(A) estudante ${studentName} (${actualClass}) atingiu o marco de 10% de faltas da Resolução SEDUC nº 39/2023 (${consecutiveAbsences} faltas / taxa de ${attendanceRate}%). Trata-se de fase de intervenção preventiva para orientar a família e restabelecer a rotina regular de estudos antes que haja prejuízo curricular severo.`;
+        recomendacoes = [
+          'Contato direto de acolhimento e escuta ativa com a família para orientar sobre a importância da assiduidade (Resolução SEDUC nº 39/2023).',
+          'Identificar se as faltas decorrem de problemas de transporte, saúde na família ou trabalho infantil para acionamento intersetorial precoce.',
+          'Monitoramento prioritário da chamada diária nas próximas duas semanas pela equipe de mediação e gestão escolar.'
+        ];
+        mensagemSugerida = `Acompanhamento de Frequência - EE Prof. Arlindo Silvestre: Olá, responsáveis por ${studentName}! Identificamos ausências recentes e, em conformidade com o acompanhamento preventivo da Resolução SEDUC nº 39/2023, queremos entender como a escola pode ajudar a garantir que ${studentName} não perca as atividades e mantenha sua assiduidade regular. Por favor, entre em contato conosco. Contem sempre com nosso apoio!`;
+      } else {
+        // Acompanhamento inicial
+        diagnostico = `O(A) estudante ${studentName} apresenta início de faltas pontuais que demandam registro preventivo conforme diretrizes da Busca Ativa da rede estadual paulista.`;
+        recomendacoes = [
+          'Registro da justificativa no diário escolar.',
+          'Orientação aos responsáveis sobre o impacto de ausências intermitentes no aprendizado.'
+        ];
+        mensagemSugerida = `Olá, família de ${studentName}! Aqui é da EE Prof. Arlindo Silvestre. Notamos a ausência nas aulas recentes e queremos checar se está tudo bem com o(a) estudante. Estamos à disposição para qualquer suporte necessário!`;
+      }
+
+      return {
+        diagnostico,
+        recomendacoes,
+        mensagemSugerida,
+        fundamentacaoLegal: [
+          'Resolução SEDUC nº 39, de 05/09/2023 (Procedimentos de Busca Ativa da Rede Paulista - marcos de 10% e 20% de faltas)',
+          'Estatuto da Criança e do Adolescente (ECA - Lei Federal nº 8.069/1990, Artigo 56, II - Conselho Tutelar)',
+          'Lei Estadual nº 13.068/2008 e Articulação Intersetorial com o Programa CONVIVA SP'
+        ],
+        quotaStatus: {
+          quotaExceeded,
+          isBlocked: quotaTracker.isBlockedUntilNextDay,
+          reason: blockMessage || quotaTracker.blockedReason || (quotaExceeded ? 'Cota gratuita diária excedida. Função bloqueada até amanhã às 00:00 para evitar cobranças.' : null),
+          requestsToday: quotaTracker.requestsToday,
+          maxFreeRequestsPerDay: quotaTracker.maxFreeRequestsPerDay,
+          resetsAt: '00:00 (Horário de Brasília)',
+          source: 'motor_pedagogico_seduc_39'
+        }
+      };
+    };
+
+    // 1. Verifica se a cota já está bloqueada até o dia seguinte
+    if (quotaTracker.isBlockedUntilNextDay) {
+      return res.json(generateLegalFallback(true, quotaTracker.blockedReason || undefined));
+    }
+
+    // 2. Verifica se atingiu o limite de segurança diário da cota gratuita
+    if (quotaTracker.requestsToday >= quotaTracker.maxFreeRequestsPerDay) {
+      blockQuotaUntilTomorrow(
+        `Limite diário de segurança da cota gratuita (${quotaTracker.maxFreeRequestsPerDay} requisições) foi atingido hoje. A IA externa foi bloqueada até as 00:00 de amanhã para garantir que você não tenha custos na sua chave de API.`
+      );
+      return res.json(generateLegalFallback(true, quotaTracker.blockedReason || undefined));
+    }
+
+    // 3. Tenta processar com o Gemini se houver cliente configurado
     const ai = getGeminiClient();
     if (ai) {
       try {
-        const prompt = `Você é um especialista pedagógico da Busca Ativa Escolar (UNICEF / MEC).
-Elabore um plano de intervenção rápido e empático para o seguinte estudante em risco de evasão escolar:
-- Nome do estudante: ${studentName} (${className})
+        const prompt = `Você é um especialista pedagógico da Busca Ativa Escolar da Rede Estadual de Ensino de São Paulo (SEDUC-SP).
+Elabore um plano de intervenção técnico e humanizado para o seguinte estudante em risco de infrequência ou evasão:
+- Estudante: ${studentName} (${actualClass})
 - Faltas consecutivas: ${consecutiveAbsences}
-- Taxa de frequência atual: ${attendanceRate}%
-- Fatores de vulnerabilidade: ${vulnerabilityFactors?.join(', ') || 'Não especificados'}
-- Responsável: ${guardianRelationship || 'Responsável Legal'}
+- Frequência atual acumulada: ${attendanceRate}%
+- Fatores de vulnerabilidade: ${vulnerabilityFactors?.join(', ') || 'Ausências reiteradas sem justificativa formal'}
+- Responsável: ${guardianRelationship}
 
-Responda em formato JSON com as seguintes chaves:
+FUNDAMENTAÇÃO LEGAL OBRIGATÓRIA A SEGUIR:
+1. Resolução SEDUC nº 39, de 5 de setembro de 2023:
+   - 10% de faltas: comunicação imediata aos pais/responsáveis orientando sobre a importância da frequência;
+   - 20% de faltas: comunicação formal aos responsáveis com base na Lei Estadual nº 13.068/2008;
+   - Persistindo a situação: esgotados os recursos escolares, acionamento obrigatório do Conselho Tutelar e do programa CONVIVA SP (Programa de Melhoria da Convivência e Proteção Escolar).
+2. Estatuto da Criança e do Adolescente (ECA - Lei Federal nº 8.069/1990, Artigo 56, inciso II):
+   - Os dirigentes escolares devem comunicar ao Conselho Tutelar os casos de reiteração de faltas injustificadas e evasão escolar, esgotados os recursos escolares.
+
+Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
 {
-  "diagnostico": "Resumo empático e técnico do caso em 2 a 3 frases",
-  "recomendacoes": ["Ação imediata 1", "Ação 2 com a rede protetiva", "Ação pedagógica 3"],
-  "mensagemSugerida": "Mensagem empática para enviar via WhatsApp para o responsável (sem tom punitivo, demonstrando acolhimento da escola)"
+  "diagnostico": "Resumo empático e técnico do caso citando o enquadramento na Resolução SEDUC nº 39/2023 e Art. 56 do ECA (2 a 3 frases)",
+  "recomendacoes": ["Ação imediata escolar", "Ação formal com base na Lei 13.068/2008 ou CONVIVA SP", "Ação de rede protetiva / Conselho Tutelar se aplicável", "Acolhimento pedagógico"],
+  "mensagemSugerida": "Mensagem empática para WhatsApp para o responsável (sem tom punitivo, informando com respeito a fundamentação na Resolução SEDUC 39/2023 e convidando com acolhimento para a escola)"
 }`;
 
         const response = await ai.models.generateContent({
@@ -511,28 +666,58 @@ Responda em formato JSON com as seguintes chaves:
 
         const text = response.text || '';
         const parsed = JSON.parse(text);
-        return res.json(parsed);
-      } catch (err) {
-        console.warn('Gemini API call failed, falling back to pedagogical rules engine:', err);
+
+        // Incrementa o contador de requisições do dia
+        quotaTracker.requestsToday++;
+
+        // Se atingiu o limite de segurança com esta chamada, bloqueia as próximas até amanhã
+        if (quotaTracker.requestsToday >= quotaTracker.maxFreeRequestsPerDay) {
+          blockQuotaUntilTomorrow(
+            `Limite diário de segurança da cota gratuita (${quotaTracker.maxFreeRequestsPerDay} requisições) atingido. A IA externa foi bloqueada até as 00:00 de amanhã para garantir custo zero.`
+          );
+        }
+
+        return res.json({
+          ...parsed,
+          fundamentacaoLegal: [
+            'Resolução SEDUC nº 39/2023 (Marcos de 10% e 20% de faltas)',
+            'Estatuto da Criança e do Adolescente (ECA - Lei nº 8.069/1990, Artigo 56)',
+            'Lei Estadual nº 13.068/2008 & Articulação com CONVIVA SP'
+          ],
+          quotaStatus: {
+            quotaExceeded: false,
+            isBlocked: quotaTracker.isBlockedUntilNextDay,
+            requestsToday: quotaTracker.requestsToday,
+            maxFreeRequestsPerDay: quotaTracker.maxFreeRequestsPerDay,
+            resetsAt: '00:00 (Horário de Brasília)',
+            source: 'gemini_ai'
+          }
+        });
+      } catch (err: any) {
+        console.warn('Falha ou cota da API Gemini atingida:', err?.message || err);
+        // Se o Google reportar erro de cota / 429 / ResourceExhausted, bloqueia até amanhã imediatamente
+        const isQuotaErr =
+          err?.status === 429 ||
+          String(err?.message || '').toLowerCase().includes('quota') ||
+          String(err?.message || '').toLowerCase().includes('resource_exhausted') ||
+          String(err?.message || '').toLowerCase().includes('rate limit');
+
+        if (isQuotaErr) {
+          blockQuotaUntilTomorrow(
+            'O Google identificou que a cota gratuita de requisições foi atingida (código 429/ResourceExhausted). Para garantir que você não tenha custos, a função foi bloqueada até as 00:00 de amanhã.'
+          );
+          return res.json(generateLegalFallback(true, quotaTracker.blockedReason || undefined));
+        }
       }
     }
 
-    // High quality fallback based on UNICEF Busca Ativa guidelines
-    const isCritical = consecutiveAbsences >= 4 || attendanceRate < 75;
-    const fallbackResponse = {
-      diagnostico: `O estudante ${studentName} apresenta padrão de infrequência ${isCritical ? 'crítica com risco iminente de abandono escolar' : 'em elevação que demanda alerta preventivo'}. Os fatores observados (${vulnerabilityFactors?.join(', ') || 'ausências reiteradas'}) indicam a necessidade de ação intersetorial imediata para remover as barreiras de acesso à escola.`,
-      recomendacoes: [
-        'Realizar escuta ativa com a família para identificar se a ausência decorre de trabalho informal, saúde ou vulnerabilidade de transporte.',
-        'Pactuar um Plano de Estudos Individualizado (PEI) para recuperação dos conteúdos perdidos sem sobrecarregar o aluno.',
-        isCritical
-          ? 'Articular encaminhamento ao CRAS / Conselho Tutelar via FICAI para garantir a garantia dos direitos fundamentais.'
-          : 'Monitorar a assiduidade diária nas próximas duas semanas com confirmação via chamada matinal.'
-      ],
-      mensagemSugerida: `Olá, ${guardianRelationship || 'Família'} de ${studentName}! Aqui é da coordenação da EE Professor Arlindo Silvestre. Sentimos muito a falta do(a) ${studentName} nas aulas esta semana. A escola quer muito entender como podemos apoiá-los para que ele(a) retorne com tranquilidade aos estudos. Podemos conversar hoje? Estamos de portas abertas!`
-    };
+    // Fallback padrão com fundamentação legal quando IA não configurada
+    return res.json(generateLegalFallback(false));
+  };
 
-    return res.json(fallbackResponse);
-  });
+  // Ambos endpoints mapeados para retrocompatibilidade
+  app.post('/api/ai/pedagogical-plan', handlePedagogicalPlan);
+  app.post('/api/ai/intervention-plan', handlePedagogicalPlan);
 
   // --- GOOGLE SHEETS / DRIVE DATABASE INTEGRATION ---
 

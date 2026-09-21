@@ -77,6 +77,20 @@ export default function App() {
   // AI plan state
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [aiPlanResult, setAiPlanResult] = useState<{ caseId: string; plan: any } | null>(null);
+  const [aiQuotaStatus, setAiQuotaStatus] = useState<any>(null);
+
+  // Fetch AI daily quota status
+  const fetchQuotaStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/ai/quota-status');
+      if (res.ok) {
+        const data = await res.json();
+        setAiQuotaStatus(data);
+      }
+    } catch {
+      // Ignora erro silencioso se offline
+    }
+  }, []);
 
   // Fetch all base data
   const fetchData = useCallback(async () => {
@@ -171,9 +185,10 @@ export default function App() {
       if (!hasServerReport) {
         setMonthlyReport(storageService.getMonthlyReport());
       }
+      fetchQuotaStatus();
       setIsRefreshing(false);
     }
-  }, [selectedClassId, selectedMonthIndex]);
+  }, [selectedClassId, selectedMonthIndex, fetchQuotaStatus]);
 
   // Load on mount and when selectedClassId changes
   useEffect(() => {
@@ -397,16 +412,20 @@ export default function App() {
   };
 
   // Generate AI Plan for intervention
-  const handleGenerateAIPlan = async (caseId: string, studentId: string) => {
+  const handleGenerateAIPlan = async (caseItemOrId: any, studentIdParam?: string) => {
     setIsGeneratingAI(true);
     setAiPlanResult(null);
     try {
+      const caseId = typeof caseItemOrId === 'object' ? caseItemOrId.id : caseItemOrId;
+      const studentId = typeof caseItemOrId === 'object' ? caseItemOrId.studentId : studentIdParam;
+
       const student = students.find(s => s.id === studentId);
-      const studentName = student ? student.name : 'Estudante';
-      const studentClass = student ? student.className : '';
-      const consecutive = student ? student.consecutiveAbsences : 5;
+      const studentName = student ? student.name : (typeof caseItemOrId === 'object' ? caseItemOrId.studentName : 'Estudante');
+      const studentClass = student ? student.className : (typeof caseItemOrId === 'object' ? caseItemOrId.className : '');
+      const consecutive = student ? student.consecutiveAbsences : (typeof caseItemOrId === 'object' ? caseItemOrId.consecutiveAbsences : 5);
       const rate = student ? student.attendanceRate : 65;
       const factors = student ? student.vulnerabilityFactors : [];
+      const guardian = student ? student.guardianName : '';
 
       const res = await fetch('/api/ai/intervention-plan', {
         method: 'POST',
@@ -417,12 +436,16 @@ export default function App() {
           consecutiveAbsences: consecutive,
           attendanceRate: rate,
           vulnerabilityFactors: factors,
+          guardianRelationship: guardian,
         }),
       });
 
       if (res.ok) {
         const data = await res.json();
         setAiPlanResult({ caseId, plan: data });
+        if (data.quotaStatus) {
+          setAiQuotaStatus(data.quotaStatus);
+        }
       }
     } catch (e) {
       console.error('Erro na IA:', e);
@@ -618,6 +641,7 @@ export default function App() {
             onGenerateAIPlan={handleGenerateAIPlan}
             isGeneratingAI={isGeneratingAI}
             aiPlanResult={aiPlanResult}
+            aiQuotaStatus={aiQuotaStatus}
             onRefresh={fetchData}
             onDeleteAllOpenCases={handleDeleteAllOpenCases}
           />
