@@ -45,7 +45,7 @@ export default function App() {
   const handleSyncData = async () => {
     setIsSyncing(true);
     try {
-      await migrateToFirebase();
+      await migrateToFirebase(true);
       alert('Sincronização concluída com sucesso!');
     } catch (error) {
       console.error('Erro na sincronização:', error);

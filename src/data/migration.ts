@@ -2,8 +2,13 @@ import { db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import { storageService } from './storageService';
 
-export const migrateToFirebase = async () => {
-  if (localStorage.getItem('firebase_migration_completed')) return;
+export const migrateToFirebase = async (force: boolean = false) => {
+  if (!force && localStorage.getItem('firebase_migration_completed')) {
+    console.log('Migração já concluída.');
+    return;
+  }
+  
+  console.log('Iniciando migração...');
 
   const users = storageService.getUsers();
   const classes = storageService.getClasses();
