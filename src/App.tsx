@@ -560,6 +560,7 @@ export default function App() {
         onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
         onOpenWhatsAppIntegration={() => setIsWhatsAppModalOpen(true)}
         onOpenGoogleSheets={() => setIsGoogleSheetsModalOpen(true)}
+        onSyncData={migrateToFirebase}
       />
 
       {/* Main Container Area */}

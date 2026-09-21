@@ -50,6 +50,7 @@ interface HeaderProps {
   onOpenStudentRegistration: () => void;
   onOpenWhatsAppIntegration: () => void;
   onOpenGoogleSheets: () => void;
+  onSyncData: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -71,6 +72,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenStudentRegistration,
   onOpenWhatsAppIntegration,
   onOpenGoogleSheets,
+  onSyncData,
 }) => {
   const isAdmin = currentUser.role === 'admin';
   const isGestao = currentUser.role === 'gestao_paac';
@@ -231,6 +233,15 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="font-bold text-amber-800">{todayAlertsCount}</span>
             </div>
           )}
+
+          <button
+            onClick={onSyncData}
+            className="p-1.5 rounded-lg border border-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors cursor-pointer"
+            title="Sincronizar com a Nuvem (Firebase)"
+            aria-label="Sincronizar dados"
+          >
+            <Database className="w-4 h-4" />
+          </button>
 
           <button
             onClick={onRefresh}
