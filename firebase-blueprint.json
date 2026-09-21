@@ -1,0 +1,105 @@
+{
+  "entities": {
+    "SchoolClass": {
+      "title": "SchoolClass",
+      "description": "Definition of a school class",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "grade": { "type": "string" },
+        "shift": { "type": "string" },
+        "totalStudents": { "type": "number" },
+        "presentToday": { "type": "number" },
+        "absentToday": { "type": "number" },
+        "attendanceRateToday": { "type": "number" },
+        "studentsAtRiskCount": { "type": "number" }
+      },
+      "required": ["id", "name"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Definition of a student",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "ra": { "type": "string" },
+        "classId": { "type": "string" },
+        "className": { "type": "string" },
+        "status": { "type": "string" },
+        "riskLevel": { "type": "string" },
+        "totalSchoolDays": { "type": "number" },
+        "totalAbsences": { "type": "number" },
+        "consecutiveAbsences": { "type": "number" },
+        "attendanceRate": { "type": "number" },
+        "guardianName": { "type": "string" },
+        "guardianPhone": { "type": "string" },
+        "guardianRelationship": { "type": "string" },
+        "address": { "type": "string" },
+        "neighborhood": { "type": "string" },
+        "vulnerabilityFactors": { "type": "array", "items": { "type": "string" } },
+        "notes": { "type": "string" },
+        "lastAttendanceDate": { "type": "string" }
+      },
+      "required": ["id", "name", "ra", "classId"]
+    },
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Definition of a user account",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "pin": { "type": "string" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "role", "pin"]
+    },
+    "ParentAlert": {
+      "title": "ParentAlert",
+      "description": "Definition of a parent alert",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "sentAt": { "type": "string" }
+      },
+      "required": ["id", "studentId", "sentAt"]
+    },
+    "AttendanceRecord": {
+      "title": "AttendanceRecord",
+      "description": "Definition of an attendance record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "studentId": { "type": "string" },
+        "date": { "type": "string" }
+      },
+      "required": ["id", "studentId", "date"]
+    }
+  },
+  "firestore": {
+    "classes": {
+      "schema": "SchoolClass",
+      "description": "Collection of school classes"
+    },
+    "students": {
+      "schema": "Student",
+      "description": "Collection of students"
+    },
+    "users": {
+      "schema": "UserAccount",
+      "description": "Collection of users"
+    },
+    "alerts": {
+      "schema": "ParentAlert",
+      "description": "Collection of parent alerts"
+    },
+    "attendance_records": {
+      "schema": "AttendanceRecord",
+      "description": "Collection of attendance records"
+    }
+  }
+}

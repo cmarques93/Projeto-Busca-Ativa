@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { migrateToFirebase } from './data/migration';
 import { Header, MainTabType } from './components/Header';
 import { RealTimeAttendance } from './components/RealTimeAttendance';
 import { AlertsManager } from './components/AlertsManager';
@@ -192,7 +193,7 @@ export default function App() {
 
   // Load on mount and when selectedClassId changes
   useEffect(() => {
-    fetchData();
+    migrateToFirebase().then(() => fetchData());
   }, [fetchData]);
 
   // Role selection & Login success handlers
