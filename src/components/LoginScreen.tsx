@@ -47,12 +47,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       }
 
       // Fallback resiliente: Carrega usuários locais (Vercel / GitHub Pages / Modo Offline)
-      const fallbackList = storageService.getUsers().filter(u => u.active !== false);
-      setUsers(fallbackList);
-      if (fallbackList.length > 0) {
-        setSelectedUserId(fallbackList[0].id);
+      try {
+        const rawUsers = storageService.getUsers();
+        const fallbackList = Array.isArray(rawUsers) ? rawUsers.filter(u => u.active !== false) : [];
+        setUsers(fallbackList);
+        if (fallbackList.length > 0) {
+          setSelectedUserId(fallbackList[0].id);
+        }
+      } catch (e) {
+        console.error('Erro ao ler usuários no fallback:', e);
+      } finally {
+        setLoadingUsers(false);
       }
-      setLoadingUsers(false);
     };
 
     fetchUsers();

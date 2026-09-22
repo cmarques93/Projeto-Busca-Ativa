@@ -63,13 +63,19 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         console.warn('Backend API /api/users/public indisponível no modal, usando storageService:', e);
       }
 
-      const fallbackList = storageService.getUsers().filter(u => u.active !== false);
-      setUsers(fallbackList);
-      const matching = fallbackList.find(
-        u => u.username === currentUser.username || u.name === currentUser.name
-      );
-      setSelectedUserId(matching ? matching.id : (fallbackList[0]?.id || ''));
-      setLoadingUsers(false);
+      try {
+        const rawUsers = storageService.getUsers();
+        const fallbackList = Array.isArray(rawUsers) ? rawUsers.filter(u => u.active !== false) : [];
+        setUsers(fallbackList);
+        const matching = fallbackList.find(
+          u => u.username === currentUser.username || u.name === currentUser.name
+        );
+        setSelectedUserId(matching ? matching.id : (fallbackList[0]?.id || ''));
+      } catch (err) {
+        console.error('Erro ao ler usuários no fallback do modal:', err);
+      } finally {
+        setLoadingUsers(false);
+      }
     };
 
     fetchUsers();

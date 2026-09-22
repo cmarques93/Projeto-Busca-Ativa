@@ -7,19 +7,19 @@ import {
   SchoolClass,
   Student,
   ParentAlert,
-  InterventionCase
+  InterventionCase,
+  MonthlyPedagogicalReport
 } from '../types';
-
-const apiCall = async (endpoint: string, method: string = 'GET', body: any = null) => {
-  const options: RequestInit = {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-  };
-  if (body) options.body = JSON.stringify(body);
-  const res = await fetch(endpoint, options);
-  if (!res.ok) throw new Error(`API Error: ${await res.text()}`);
-  return res.json();
-};
+import {
+  DEFAULT_USERS,
+  DEFAULT_PINS,
+  DEFAULT_CLASSES,
+  DEFAULT_STUDENTS,
+  DEFAULT_ALERTS,
+  DEFAULT_INTERVENTIONS,
+  DEFAULT_SCHOOL_INFO,
+  DEFAULT_REPORT
+} from './fallbackData';
 
 export function getRoleLabel(role: UserRole): string {
   switch (role) {
@@ -36,72 +36,464 @@ export function getRoleLabel(role: UserRole): string {
   }
 }
 
+// Helper to safely access localStorage (handles SSR, disabled cookies, etc.)
+function getStored<T>(key: string, fallback: T): T {
+  try {
+    const val = localStorage.getItem(key);
+    if (!val) return fallback;
+    return JSON.parse(val);
+  } catch (e) {
+    console.warn(`Erro ao ler ${key} do localStorage:`, e);
+    return fallback;
+  }
+}
+
+function setStored<T>(key: string, data: T): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (e) {
+    console.warn(`Erro ao salvar ${key} no localStorage:`, e);
+  }
+}
+
+// Ensure default users have their default PIN attached
+function initializeDefaultUsers(): UserAccount[] {
+  return DEFAULT_USERS.map(u => ({
+    ...u,
+    pin: DEFAULT_PINS[u.id]?.pin || '1234',
+    createdAt: new Date().toISOString()
+  }));
+}
+
 export const storageService = {
   // === USUÁRIOS & ACESSOS ===
-  getUsers: async (): Promise<UserAccount[]> => apiCall('/api/users'),
-  
-  createUser: async (data: { name: string; role: UserRole; pin: string; notes?: string }): Promise<UserAccount> => 
-    apiCall('/api/users', 'POST', data),
+  getUsers: (): UserAccount[] => {
+    let users = getStored<UserAccount[]>('school_users', []);
+    if (!users || users.length === 0) {
+      users = initializeDefaultUsers();
+      setStored('school_users', users);
+    }
+    return users;
+  },
 
-  updateUser: async (id: string, updates: Partial<UserAccount>): Promise<UserAccount> => 
-    apiCall(`/api/users/${id}`, 'PUT', updates),
+  getUserById: (id: string): UserAccount | undefined => {
+    const users = storageService.getUsers();
+    return users.find(u => u.id === id);
+  },
 
-  deleteUser: async (userId: string): Promise<boolean> => {
-    await apiCall(`/api/users/${userId}`, 'DELETE');
+  createUser: (data: { name: string; username?: string; role: UserRole; pin: string; notes?: string }): UserAccount => {
+    const cleanName = data.name.trim();
+    const cleanPin = (data.pin || '').trim();
+    const cleanUsername = data.username?.trim() || cleanName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '.');
+    
+    const newUser: UserAccount = {
+      id: `usr-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      name: cleanName,
+      username: cleanUsername,
+      role: data.role,
+      roleLabel: getRoleLabel(data.role),
+      pin: cleanPin,
+      createdAt: new Date().toISOString(),
+      active: true,
+      notes: data.notes?.trim() || ''
+    };
+
+    const users = storageService.getUsers();
+    users.push(newUser);
+    setStored('school_users', users);
+    return newUser;
+  },
+
+  updateUser: (id: string, updates: Partial<UserAccount>): UserAccount | null => {
+    const users = storageService.getUsers();
+    const idx = users.findIndex(u => u.id === id);
+    if (idx === -1) return null;
+
+    users[idx] = {
+      ...users[idx],
+      ...updates,
+      roleLabel: updates.role ? getRoleLabel(updates.role) : users[idx].roleLabel
+    };
+    setStored('school_users', users);
+    return users[idx];
+  },
+
+  updateUserPin: (id: string, pin: string): void => {
+    storageService.updateUser(id, { pin: pin.trim() });
+  },
+
+  deleteUser: (userId: string): boolean => {
+    const users = storageService.getUsers().filter(u => u.id !== userId);
+    setStored('school_users', users);
     return true;
   },
 
-  verifyPin: async (userId: string, pin: string): Promise<{ success: boolean; user?: any; error?: string }> => 
-    apiCall('/api/auth/login-pin', 'POST', { userId, pin }),
+  verifyPin: (userId: string, pin: string): { success: boolean; user?: any; error?: string } => {
+    const users = storageService.getUsers();
+    const cleanPin = pin.trim();
+    const user = users.find(u => u.id === userId);
+
+    if (!user) {
+      // Fallback check against DEFAULT_PINS
+      const defaultPinObj = DEFAULT_PINS[userId];
+      if (defaultPinObj && defaultPinObj.pin === cleanPin) {
+        return { success: true, user: defaultPinObj.user };
+      }
+      return { success: false, error: 'Usuário não localizado.' };
+    }
+
+    if (user.active === false) {
+      return { success: false, error: 'Este usuário está inativo no sistema.' };
+    }
+
+    if (user.pin === cleanPin || (DEFAULT_PINS[userId] && DEFAULT_PINS[userId].pin === cleanPin)) {
+      return {
+        success: true,
+        user: {
+          id: user.id,
+          username: user.username,
+          name: user.name,
+          role: user.role,
+          roleLabel: user.roleLabel || getRoleLabel(user.role)
+        }
+      };
+    }
+
+    return { success: false, error: 'Senha de 4 dígitos incorreta.' };
+  },
 
   // === TURMAS ===
-  getClasses: async (): Promise<SchoolClass[]> => apiCall('/api/classes'),
-  
-  createClass: async (cls: SchoolClass): Promise<SchoolClass> => apiCall('/api/classes', 'POST', cls),
+  getClasses: (): SchoolClass[] => {
+    return getStored<SchoolClass[]>('school_classes', DEFAULT_CLASSES);
+  },
 
-  updateClass: async (clsId: string, updates: Partial<SchoolClass>): Promise<SchoolClass> => 
-    apiCall(`/api/classes/${clsId}`, 'PUT', updates),
+  createClass: (cls: SchoolClass): SchoolClass => {
+    const classes = storageService.getClasses();
+    const existingIdx = classes.findIndex(c => c.id === cls.id);
+    if (existingIdx >= 0) {
+      classes[existingIdx] = cls;
+    } else {
+      classes.push(cls);
+    }
+    setStored('school_classes', classes);
+    return cls;
+  },
 
-  deleteClass: async (clsId: string) => apiCall(`/api/classes/${clsId}`, 'DELETE'),
+  updateClass: (clsId: string, updates: Partial<SchoolClass>): SchoolClass | null => {
+    const classes = storageService.getClasses();
+    const idx = classes.findIndex(c => c.id === clsId);
+    if (idx === -1) return null;
+    classes[idx] = { ...classes[idx], ...updates };
+    setStored('school_classes', classes);
+    return classes[idx];
+  },
+
+  deleteClass: (clsId: string): void => {
+    const classes = storageService.getClasses().filter(c => c.id !== clsId);
+    setStored('school_classes', classes);
+  },
 
   // === ESTUDANTES ===
-  getStudents: async (classId?: string): Promise<Student[]> => 
-    apiCall(classId ? `/api/students?classId=${classId}` : '/api/students'),
+  getStudents: (classId?: string): Student[] => {
+    const students = getStored<Student[]>('school_students', DEFAULT_STUDENTS);
+    if (classId) {
+      return students.filter(s => s.classId === classId);
+    }
+    return students;
+  },
 
-  updateStudent: async (studentId: string, updates: Partial<Student>): Promise<Student> => 
-    apiCall(`/api/students/${studentId}`, 'PUT', updates),
+  getStudentById: (id: string): Student | undefined => {
+    const students = storageService.getStudents();
+    return students.find(s => s.id === id);
+  },
 
-  createStudent: async (data: Partial<Student>): Promise<Student> => apiCall('/api/students', 'POST', data),
+  getStudentDetails: (studentId: string): any => {
+    const student = storageService.getStudentById(studentId);
+    if (!student) return null;
+    const history = storageService.getAttendanceRecords()
+      .filter(r => r.studentId === studentId)
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const alerts = storageService.getAlerts()
+      .filter(a => a.studentId === studentId)
+      .sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+    const intervention = storageService.getInterventions().find(i => i.studentId === studentId);
 
-  deleteStudent: async (studentId: string) => apiCall(`/api/students/${encodeURIComponent(studentId)}`, 'DELETE'),
+    return {
+      student,
+      attendanceHistory: history,
+      alerts,
+      intervention
+    };
+  },
+
+  createStudent: (data: Partial<Student>): Student => {
+    const students = storageService.getStudents();
+    const id = data.id || `std-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`;
+    const newStudent: Student = {
+      id,
+      name: data.name || '',
+      ra: data.ra || '',
+      classId: data.classId || '',
+      className: data.className || '',
+      guardianName: data.guardianName || '',
+      guardianPhone: data.guardianPhone || '',
+      guardianRelationship: data.guardianRelationship || 'Responsável',
+      address: data.address || '',
+      neighborhood: data.neighborhood || '',
+      status: data.status || 'regular',
+      riskLevel: data.riskLevel || 'baixo',
+      totalSchoolDays: data.totalSchoolDays ?? 45,
+      totalAbsences: data.totalAbsences ?? 0,
+      consecutiveAbsences: data.consecutiveAbsences ?? 0,
+      attendanceRate: data.attendanceRate ?? 100,
+      vulnerabilityFactors: data.vulnerabilityFactors || [],
+      lastAttendanceDate: data.lastAttendanceDate || new Date().toISOString().split('T')[0],
+      notes: data.notes || ''
+    };
+    students.push(newStudent);
+    setStored('school_students', students);
+    return newStudent;
+  },
+
+  updateStudent: (studentId: string, updates: Partial<Student>): Student | null => {
+    const students = storageService.getStudents();
+    const idx = students.findIndex(s => s.id === studentId);
+    if (idx === -1) return null;
+    students[idx] = { ...students[idx], ...updates };
+    setStored('school_students', students);
+    return students[idx];
+  },
+
+  deleteStudent: (studentId: string): void => {
+    const students = storageService.getStudents().filter(s => s.id !== studentId);
+    setStored('school_students', students);
+  },
+
+  batchCreateStudents: (newStudents: Partial<Student>[]): number => {
+    const existing = storageService.getStudents();
+    let count = 0;
+    for (const data of newStudents) {
+      const id = data.id || `std-${Date.now()}-${count}-${Math.random().toString(36).substring(2, 5)}`;
+      const s: Student = {
+        id,
+        name: data.name || '',
+        ra: data.ra || '',
+        classId: data.classId || '',
+        className: data.className || '',
+        guardianName: data.guardianName || '',
+        guardianPhone: data.guardianPhone || '',
+        guardianRelationship: data.guardianRelationship || 'Responsável',
+        address: data.address || '',
+        neighborhood: data.neighborhood || '',
+        status: data.status || 'regular',
+        riskLevel: data.riskLevel || 'baixo',
+        totalSchoolDays: data.totalSchoolDays ?? 45,
+        totalAbsences: data.totalAbsences ?? 0,
+        consecutiveAbsences: data.consecutiveAbsences ?? 0,
+        attendanceRate: data.attendanceRate ?? 100,
+        vulnerabilityFactors: data.vulnerabilityFactors || [],
+        lastAttendanceDate: data.lastAttendanceDate || new Date().toISOString().split('T')[0],
+        notes: data.notes || ''
+      };
+      existing.push(s);
+      count++;
+    }
+    setStored('school_students', existing);
+    return count;
+  },
 
   // === FREQUÊNCIA ===
-  recordAttendance: async (
-    items: any[],
+  recordAttendance: (
+    items: { studentId: string; status: AttendanceStatus; notes?: string }[],
     classId: string,
     recordedBy: string,
     date?: string
-  ) => apiCall('/api/attendance', 'POST', { items, classId, recordedBy, date }),
+  ): any => {
+    const records = storageService.getAttendanceRecords();
+    const recordDate = date || new Date().toISOString().split('T')[0];
+    const students = storageService.getStudents(classId);
 
-  getAttendanceRecords: async (classId?: string, date?: string): Promise<AttendanceRecord[]> => 
-    apiCall(`/api/attendance?classId=${classId || ''}&date=${date || ''}`),
+    const newRecords: AttendanceRecord[] = items.map(item => {
+      const student = students.find(s => s.id === item.studentId);
+      return {
+        id: `att-${Date.now()}-${item.studentId}`,
+        studentId: item.studentId,
+        studentName: student?.name || '',
+        classId,
+        className: student?.className || '',
+        date: recordDate,
+        status: item.status,
+        recordedBy,
+        recordedAt: new Date().toISOString(),
+        justification: item.notes
+      };
+    });
+
+    // Replace existing records for same student & date
+    const studentIds = new Set(items.map(i => i.studentId));
+    const filteredRecords = records.filter(r => !(r.date === recordDate && studentIds.has(r.studentId)));
+    filteredRecords.push(...newRecords);
+    setStored('school_attendance', filteredRecords);
+
+    // Update students absence counts
+    const allStudents = storageService.getStudents();
+    allStudents.forEach(st => {
+      const item = items.find(i => i.studentId === st.id);
+      if (item) {
+        if (item.status === 'falta_injustificada' || item.status === 'falta_justificada') {
+          st.totalAbsences = (st.totalAbsences || 0) + 1;
+          st.consecutiveAbsences = (st.consecutiveAbsences || 0) + 1;
+        } else if (item.status === 'presente') {
+          st.consecutiveAbsences = 0;
+          st.lastAttendanceDate = recordDate;
+        }
+        st.attendanceRate = Math.max(0, Math.round(((st.totalSchoolDays - st.totalAbsences) / st.totalSchoolDays) * 100));
+        if (st.consecutiveAbsences >= 4 || st.attendanceRate < 75) {
+          st.riskLevel = 'critico';
+          st.status = 'evasao_iminente';
+        } else if (st.consecutiveAbsences >= 2 || st.attendanceRate < 80) {
+          st.riskLevel = 'alto';
+          st.status = 'alerta';
+        }
+      }
+    });
+    setStored('school_students', allStudents);
+
+    return { success: true, count: newRecords.length };
+  },
+
+  getAttendanceRecords: (classId?: string, date?: string): AttendanceRecord[] => {
+    let records = getStored<AttendanceRecord[]>('school_attendance', []);
+    if (classId) {
+      records = records.filter(r => r.classId === classId);
+    }
+    if (date) {
+      records = records.filter(r => r.date === date);
+    }
+    return records;
+  },
 
   // === PORTARIA ===
-  getGateRecords: async (date?: string, classId?: string): Promise<GateRecord[]> =>
-    apiCall(`/api/gate-records?date=${date || ''}&classId=${classId || ''}`),
-  
-  createGateRecord: async (record: GateRecord) => apiCall('/api/gate-records', 'POST', record),
+  getGateRecords: (date?: string, classId?: string): GateRecord[] => {
+    let list = getStored<GateRecord[]>('school_gate_records', []);
+    if (date) {
+      list = list.filter(r => r.date === date);
+    }
+    if (classId) {
+      list = list.filter(r => r.classId === classId);
+    }
+    return list;
+  },
 
-  deleteGateRecord: async (id: string) => apiCall(`/api/gate-records/${id}`, 'DELETE'),
+  createGateRecord: (record: GateRecord): GateRecord => {
+    const list = storageService.getGateRecords();
+    const newRecord = {
+      ...record,
+      id: record.id || `gate-${Date.now()}`
+    };
+    list.push(newRecord);
+    setStored('school_gate_records', list);
+    return newRecord;
+  },
+
+  deleteGateRecord: (id: string): void => {
+    const list = storageService.getGateRecords().filter(r => r.id !== id);
+    setStored('school_gate_records', list);
+  },
 
   // === ALERTAS ===
-  getAlerts: async (): Promise<ParentAlert[]> => apiCall('/api/alerts'),
+  getAlerts: (): ParentAlert[] => {
+    return getStored<ParentAlert[]>('school_alerts', DEFAULT_ALERTS);
+  },
 
-  createAlert: async (alert: ParentAlert) => apiCall('/api/alerts/send', 'POST', alert),
+  addAlert: (alert: ParentAlert): ParentAlert => {
+    const list = storageService.getAlerts();
+    const newAlert = {
+      ...alert,
+      id: alert.id || `alt-${Date.now()}`
+    };
+    list.unshift(newAlert);
+    setStored('school_alerts', list);
+    return newAlert;
+  },
+
+  updateAlertStatus: (alertId: string, status: any, notes?: string): void => {
+    const list = storageService.getAlerts();
+    const alert = list.find(a => a.id === alertId);
+    if (alert) {
+      alert.status = status;
+      if (notes) alert.guardianFeedback = notes;
+      setStored('school_alerts', list);
+    }
+  },
 
   // === INTERVENÇÕES ===
-  getInterventions: async (): Promise<InterventionCase[]> => apiCall('/api/interventions'),
-  
-  // === RESET E WIPE ===
-  wipeAllData: async () => apiCall('/api/wipe-all', 'POST')
+  getInterventions: (): InterventionCase[] => {
+    return getStored<InterventionCase[]>('school_interventions', DEFAULT_INTERVENTIONS);
+  },
+
+  addInterventionAction: (caseId: string, action: any): void => {
+    const list = storageService.getInterventions();
+    const item = list.find(i => i.id === caseId);
+    if (item) {
+      item.actionLog = item.actionLog || [];
+      item.actionLog.push({
+        ...action,
+        id: action.id || `act-${Date.now()}`
+      });
+      item.lastUpdatedAt = new Date().toISOString().split('T')[0];
+      setStored('school_interventions', list);
+    }
+  },
+
+  deleteOpenInterventions: (): void => {
+    const list = storageService.getInterventions().filter(i => i.stage === 'reintegrado' || i.stage === 'encerrado');
+    setStored('school_interventions', list);
+  },
+
+  // === INFORMAÇÕES ESCOLARES & RELATÓRIOS ===
+  getSchoolInfo: (): any => {
+    const students = storageService.getStudents();
+    const classes = storageService.getClasses();
+    const alerts = storageService.getAlerts();
+    const interventions = storageService.getInterventions();
+
+    return {
+      schoolName: 'EE Professor Arlindo Silvestre',
+      lastUpdated: new Date().toISOString(),
+      totalStudents: students.length,
+      totalClasses: classes.length,
+      activeAlertsCount: alerts.filter(a => a.status === 'enviado' || a.status === 'lido').length,
+      activeCasesCount: interventions.filter(i => i.stage !== 'reintegrado' && i.stage !== 'encerrado').length
+    };
+  },
+
+  getMonthlyReport: (monthIndex?: number): MonthlyPedagogicalReport => {
+    const report = getStored<MonthlyPedagogicalReport>('school_monthly_report', DEFAULT_REPORT);
+    return report;
+  },
+
+  // === RESET TOTAL (Wipe All Data) ===
+  wipeAllData: (currentUser?: any): void => {
+    localStorage.removeItem('school_classes');
+    localStorage.removeItem('school_students');
+    localStorage.removeItem('school_attendance');
+    localStorage.removeItem('school_gate_records');
+    localStorage.removeItem('school_alerts');
+    localStorage.removeItem('school_interventions');
+    localStorage.removeItem('school_monthly_report');
+
+    // Keep only the master admin
+    const masterAdmin: UserAccount = {
+      id: currentUser?.id || 'usr-admin',
+      name: currentUser?.name || 'Administrador Geral',
+      username: currentUser?.username || 'admin',
+      role: 'admin',
+      roleLabel: 'Direção Escolar (Administrador)',
+      pin: currentUser?.pin || '1234',
+      createdAt: new Date().toISOString(),
+      active: true
+    };
+    setStored('school_users', [masterAdmin]);
+  }
 };

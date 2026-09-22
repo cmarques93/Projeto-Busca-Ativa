@@ -166,7 +166,7 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
     const allStudents = students.length > 0 ? students : storageService.getStudents();
 
     // 1. Process attendance records where status is not "presente"
-    dailyRecords.forEach(rec => {
+    (dailyRecords || []).forEach(rec => {
       if (rec.status === 'presente') return;
 
       const student = allStudents.find(s => s.id === rec.studentId) || storageService.getStudentById(rec.studentId);
@@ -211,7 +211,7 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
     });
 
     // 2. Also check students who entered late via gate if not already marked
-    dailyGateRecords
+    (dailyGateRecords || [])
       .filter(g => g.type === 'entrada_tardia')
       .forEach(gate => {
         const alreadyInList = list.some(i => i.studentId === gate.studentId);
