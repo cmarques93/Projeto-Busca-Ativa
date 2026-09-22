@@ -1,25 +1,25 @@
 import {
-  DEFAULT_USERS,
-  DEFAULT_PINS,
-  DEFAULT_CLASSES,
-  DEFAULT_STUDENTS,
-  DEFAULT_ALERTS,
-  DEFAULT_INTERVENTIONS,
-  DEFAULT_SCHOOL_INFO,
-  DEFAULT_REPORT
-} from './fallbackData';
-import {
-  SchoolClass,
-  Student,
-  ParentAlert,
-  InterventionCase,
-  UserSession,
   UserAccount,
   UserRole,
   AttendanceStatus,
   GateRecord,
-  AttendanceRecord
+  AttendanceRecord,
+  SchoolClass,
+  Student,
+  ParentAlert,
+  InterventionCase
 } from '../types';
+
+const apiCall = async (endpoint: string, method: string = 'GET', body: any = null) => {
+  const options: RequestInit = {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+  };
+  if (body) options.body = JSON.stringify(body);
+  const res = await fetch(endpoint, options);
+  if (!res.ok) throw new Error(`API Error: ${await res.text()}`);
+  return res.json();
+};
 
 export function getRoleLabel(role: UserRole): string {
   switch (role) {
@@ -38,865 +38,70 @@ export function getRoleLabel(role: UserRole): string {
 
 export const storageService = {
   // === USUÁRIOS & ACESSOS ===
-  getUsers(): UserAccount[] {
-    let list: any[] = [];
-    try {
-      const saved = localStorage.getItem('school_users');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) list = parsed;
-      }
-    } catch (e) {
-      console.warn('Erro ao ler school_users do localStorage:', e);
-    }
+  getUsers: async (): Promise<UserAccount[]> => apiCall('/api/users'),
+  
+  createUser: async (data: { name: string; role: UserRole; pin: string; notes?: string }): Promise<UserAccount> => 
+    apiCall('/api/users', 'POST', data),
 
-    let savedPins: Record<string, { pin: string }> = {};
-    try {
-      const sp = localStorage.getItem('school_pins');
-      savedPins = sp ? JSON.parse(sp) : DEFAULT_PINS;
-    } catch (e) {
-      savedPins = DEFAULT_PINS;
-    }
+  updateUser: async (id: string, updates: Partial<UserAccount>): Promise<UserAccount> => 
+    apiCall(`/api/users/${id}`, 'PUT', updates),
 
-    if (list.length === 0) {
-      list = DEFAULT_USERS.map(u => ({
-        ...u,
-        pin: savedPins[u.id]?.pin || '1234',
-        createdAt: '2026-02-01',
-        active: u.active ?? true,
-      }));
-      try {
-        localStorage.setItem('school_users', JSON.stringify(list));
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    return list.map(u => ({
-      ...u,
-      pin: u.pin || savedPins[u.id]?.pin || '1234',
-      createdAt: u.createdAt || '2026-02-01',
-      active: u.active !== false,
-      roleLabel: u.roleLabel || getRoleLabel(u.role),
-    }));
+  deleteUser: async (userId: string): Promise<boolean> => {
+    await apiCall(`/api/users/${userId}`, 'DELETE');
+    return true;
   },
 
-  createUser(data: {
-    name: string;
-    role: UserRole;
-    pin: string;
-    notes?: string;
-  }): UserAccount {
-    const newId = `user-${Date.now()}`;
-    const cleanUsername = data.name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9 ]/g, '')
-      .trim()
-      .replace(/\s+/g, '.');
-
-    const newUser: UserAccount = {
-      id: newId,
-      username: cleanUsername || `usuario.${Date.now().toString().slice(-4)}`,
-      name: data.name,
-      role: data.role,
-      roleLabel: getRoleLabel(data.role),
-      pin: data.pin,
-      active: true,
-      createdAt: new Date().toISOString().split('T')[0],
-      notes: data.notes || 'Cadastrado no sistema escolar',
-    };
-
-    // Salva no banco de usuários
-    const users = this.getUsers();
-    users.push(newUser);
-    try {
-      localStorage.setItem('school_users', JSON.stringify(users));
-    } catch (e) {
-      console.error(e);
-    }
-
-    // Salva a senha numérica de 4 dígitos
-    try {
-      const savedPins = localStorage.getItem('school_pins');
-      const pins = savedPins ? JSON.parse(savedPins) : { ...DEFAULT_PINS };
-      pins[newId] = {
-        pin: data.pin,
-        user: {
-          id: newUser.id,
-          username: newUser.username,
-          name: newUser.name,
-          role: newUser.role,
-          roleLabel: newUser.roleLabel,
-        }
-      };
-      localStorage.setItem('school_pins', JSON.stringify(pins));
-    } catch (e) {
-      console.error(e);
-    }
-
-    return newUser;
-  },
-
-  updateUser(id: string, updates: Partial<UserAccount>): UserAccount | null {
-    const users = this.getUsers();
-    const idx = users.findIndex(u => u.id === id);
-    if (idx === -1) return null;
-
-    users[idx] = { ...users[idx], ...updates };
-    try {
-      localStorage.setItem('school_users', JSON.stringify(users));
-    } catch (e) {
-      console.error(e);
-    }
-
-    // Sincroniza dados da sessão no mapa de PINs
-    try {
-      const savedPins = localStorage.getItem('school_pins');
-      const pins = savedPins ? JSON.parse(savedPins) : { ...DEFAULT_PINS };
-      if (pins[id]) {
-        pins[id].user = {
-          ...pins[id].user,
-          name: users[idx].name,
-          role: users[idx].role,
-          roleLabel: users[idx].roleLabel,
-        };
-        if (updates.pin) {
-          pins[id].pin = updates.pin;
-        }
-        localStorage.setItem('school_pins', JSON.stringify(pins));
-      }
-    } catch (e) {
-      console.error(e);
-    }
-
-    return users[idx];
-  },
-
-  updateUserPin(userId: string, newPin: string): boolean {
-    const users = this.getUsers();
-    const u = users.find(x => x.id === userId);
-    if (!u) return false;
-
-    u.pin = newPin;
-    try {
-      localStorage.setItem('school_users', JSON.stringify(users));
-    } catch (e) {
-      console.error(e);
-    }
-
-    try {
-      const savedPins = localStorage.getItem('school_pins');
-      const pins = savedPins ? JSON.parse(savedPins) : { ...DEFAULT_PINS };
-      pins[userId] = {
-        pin: newPin,
-        user: {
-          id: u.id,
-          username: u.username,
-          name: u.name,
-          role: u.role,
-          roleLabel: u.roleLabel,
-        }
-      };
-      localStorage.setItem('school_pins', JSON.stringify(pins));
-      return true;
-    } catch (e) {
-      console.error(e);
-      return false;
-    }
-  },
-
-  deleteUser(userId: string): boolean {
-    const users = this.getUsers().filter(u => u.id !== userId);
-    try {
-      localStorage.setItem('school_users', JSON.stringify(users));
-      const savedPins = localStorage.getItem('school_pins');
-      if (savedPins) {
-        const pins = JSON.parse(savedPins);
-        delete pins[userId];
-        localStorage.setItem('school_pins', JSON.stringify(pins));
-      }
-      return true;
-    } catch (e) {
-      console.error(e);
-      return false;
-    }
-  },
-
-  verifyPin(userId: string, pin: string): { success: boolean; user?: UserSession; error?: string } {
-    try {
-      const savedPins = localStorage.getItem('school_pins');
-      const pins = savedPins ? JSON.parse(savedPins) : { ...DEFAULT_PINS };
-      const target = pins[userId];
-
-      if (target) {
-        if (target.pin === pin) {
-          return { success: true, user: target.user };
-        }
-      }
-
-      // Procura o usuário na lista ativa
-      const users = this.getUsers();
-      const u = users.find(x => x.id === userId);
-      if (u) {
-        if (u.pin === pin) {
-          return {
-            success: true,
-            user: {
-              id: u.id,
-              username: u.username,
-              name: u.name,
-              role: u.role,
-              roleLabel: u.roleLabel
-            }
-          };
-        }
-        // Se a senha padrão for 1234
-        if (pin === '1234') {
-          return {
-            success: true,
-            user: {
-              id: u.id,
-              username: u.username,
-              name: u.name,
-              role: u.role,
-              roleLabel: u.roleLabel
-            }
-          };
-        }
-      }
-
-      return { success: false, error: 'Senha numérica incorreta.' };
-    } catch (e) {
-      console.error(e);
-      return { success: false, error: 'Erro ao validar senha.' };
-    }
-  },
+  verifyPin: async (userId: string, pin: string): Promise<{ success: boolean; user?: any; error?: string }> => 
+    apiCall('/api/auth/login-pin', 'POST', { userId, pin }),
 
   // === TURMAS ===
-  getClasses(): SchoolClass[] {
-    try {
-      const saved = localStorage.getItem('school_classes');
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch (e) {
-      // ignore
-    }
-    return DEFAULT_CLASSES;
-  },
+  getClasses: async (): Promise<SchoolClass[]> => apiCall('/api/classes'),
+  
+  createClass: async (cls: SchoolClass): Promise<SchoolClass> => apiCall('/api/classes', 'POST', cls),
 
-  createClass(cls: SchoolClass): SchoolClass {
-    const classes = this.getClasses();
-    const existingIdx = classes.findIndex(c => c.id.toLowerCase() === cls.id.toLowerCase());
-    if (existingIdx !== -1) {
-      classes[existingIdx] = { ...classes[existingIdx], ...cls };
-    } else {
-      classes.push(cls);
-    }
-    try {
-      localStorage.setItem('school_classes', JSON.stringify(classes));
-    } catch (e) {
-      console.error(e);
-    }
-    return cls;
-  },
+  updateClass: async (clsId: string, updates: Partial<SchoolClass>): Promise<SchoolClass> => 
+    apiCall(`/api/classes/${clsId}`, 'PUT', updates),
 
-  updateClass(clsId: string, updates: Partial<SchoolClass>): SchoolClass | null {
-    const classes = this.getClasses();
-    const idx = classes.findIndex(c => c.id.toLowerCase() === clsId.toLowerCase());
-    if (idx === -1) return null;
-    classes[idx] = { ...classes[idx], ...updates };
-    try {
-      localStorage.setItem('school_classes', JSON.stringify(classes));
-    } catch (e) {
-      console.error(e);
-    }
-    return classes[idx];
-  },
-
-  deleteClass(clsId: string) {
-    const cleanId = clsId.trim().toLowerCase();
-    const classes = this.getClasses().filter(c => (c.id || '').trim().toLowerCase() !== cleanId);
-    try {
-      localStorage.setItem('school_classes', JSON.stringify(classes));
-    } catch (e) {
-      console.error(e);
-    }
-
-    // Cascade delete all students belonging to this class
-    const students = this.getStudents();
-    const classStudents = students.filter(s => (s.classId || '').trim().toLowerCase() === cleanId);
-    classStudents.forEach(s => {
-      this.deleteStudent(s.id);
-    });
-
-    // Also remove class attendance & gate records
-    try {
-      const sr = localStorage.getItem('school_attendance_records');
-      if (sr) {
-        const records = JSON.parse(sr);
-        if (Array.isArray(records)) {
-          const filtered = records.filter((r: any) => (r.classId || '').trim().toLowerCase() !== cleanId);
-          localStorage.setItem('school_attendance_records', JSON.stringify(filtered));
-        }
-      }
-    } catch (e) { console.error(e); }
-
-    try {
-      const sg = localStorage.getItem('school_gate_records');
-      if (sg) {
-        const records = JSON.parse(sg);
-        if (Array.isArray(records)) {
-          const filtered = records.filter((g: any) => (g.classId || '').trim().toLowerCase() !== cleanId);
-          localStorage.setItem('school_gate_records', JSON.stringify(filtered));
-        }
-      }
-    } catch (e) { console.error(e); }
-  },
+  deleteClass: async (clsId: string) => apiCall(`/api/classes/${clsId}`, 'DELETE'),
 
   // === ESTUDANTES ===
-  getStudents(classId?: string): Student[] {
-    try {
-      const saved = localStorage.getItem('school_students');
-      if (saved !== null) {
-        const list: Student[] = JSON.parse(saved);
-        if (Array.isArray(list)) {
-          if (classId) {
-            return list.filter(s => s.classId === classId);
-          }
-          return list;
-        }
-      }
-      return DEFAULT_STUDENTS;
-    } catch (e) {
-      return DEFAULT_STUDENTS;
-    }
-  },
+  getStudents: async (classId?: string): Promise<Student[]> => 
+    apiCall(classId ? `/api/students?classId=${classId}` : '/api/students'),
 
-  getStudentById(id: string): Student | undefined {
-    return this.getStudents().find(s => s.id === id);
-  },
+  updateStudent: async (studentId: string, updates: Partial<Student>): Promise<Student> => 
+    apiCall(`/api/students/${studentId}`, 'PUT', updates),
 
-  getStudentDetails(id: string): {
-    student: Student;
-    attendanceHistory: AttendanceRecord[];
-    alerts: ParentAlert[];
-    intervention?: InterventionCase;
-  } | null {
-    const student = this.getStudentById(id);
-    if (!student) return null;
+  createStudent: async (data: Partial<Student>): Promise<Student> => apiCall('/api/students', 'POST', data),
 
-    const attendanceHistory = this.getAttendanceRecords()
-      .filter(r => r.studentId === id)
-      .sort((a, b) => b.date.localeCompare(a.date));
+  deleteStudent: async (studentId: string) => apiCall(`/api/students/${encodeURIComponent(studentId)}`, 'DELETE'),
 
-    const alerts = this.getAlerts()
-      .filter(a => a.studentId === id)
-      .sort((a, b) => b.sentAt.localeCompare(a.sentAt));
-
-    const intervention = this.getInterventions().find(i => i.studentId === id);
-
-    return {
-      student,
-      attendanceHistory,
-      alerts,
-      intervention,
-    };
-  },
-
-  saveStudents(students: Student[]) {
-    try {
-      localStorage.setItem('school_students', JSON.stringify(students));
-    } catch (e) {
-      console.error(e);
-    }
-  },
-
-  updateStudent(studentId: string, updates: Partial<Student>): Student | null {
-    const list = this.getStudents();
-    const idx = list.findIndex(s => s.id === studentId);
-    if (idx === -1) return null;
-    list[idx] = { ...list[idx], ...updates };
-    this.saveStudents(list);
-    return list[idx];
-  },
-
-  createStudent(data: Partial<Student>): Student {
-    const list = this.getStudents();
-    const newStudent: Student = {
-      id: data.id || `std-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      name: data.name || 'Novo Estudante',
-      ra: data.ra || `2024-${Math.floor(1000 + Math.random() * 9000)}`,
-      classId: data.classId || '9A',
-      className: data.className || '9º Ano A',
-      status: data.status || 'regular',
-      riskLevel: data.riskLevel || 'baixo',
-      totalSchoolDays: data.totalSchoolDays || 45,
-      totalAbsences: data.totalAbsences || 0,
-      consecutiveAbsences: data.consecutiveAbsences || 0,
-      attendanceRate: data.attendanceRate || 100,
-      guardianName: data.guardianName || 'Responsável',
-      guardianPhone: data.guardianPhone || '(11) 90000-0000',
-      guardianRelationship: data.guardianRelationship || 'Responsável',
-      address: data.address || 'Endereço escolar',
-      neighborhood: data.neighborhood || 'Bairro escolar',
-      vulnerabilityFactors: data.vulnerabilityFactors || [],
-      notes: data.notes || 'Cadastrado no sistema',
-      lastAttendanceDate: data.lastAttendanceDate || new Date().toISOString().split('T')[0],
-    };
-
-    list.push(newStudent);
-    this.saveStudents(list);
-    return newStudent;
-  },
-
-  deleteStudent(studentId: string) {
-    const cleanId = String(studentId || '').trim().toLowerCase();
-    const list = this.getStudents().filter(s => (s.id || '').trim().toLowerCase() !== cleanId);
-    this.saveStudents(list);
-
-    // Purge attendance records of this student
-    try {
-      const sr = localStorage.getItem('school_attendance_records');
-      if (sr) {
-        const records = JSON.parse(sr);
-        if (Array.isArray(records)) {
-          const filtered = records.filter((r: any) => (r.studentId || '').trim().toLowerCase() !== cleanId);
-          localStorage.setItem('school_attendance_records', JSON.stringify(filtered));
-        }
-      }
-    } catch (e) { console.error(e); }
-
-    // Purge alerts of this student
-    try {
-      const sa = localStorage.getItem('school_alerts');
-      if (sa) {
-        const alerts = JSON.parse(sa);
-        if (Array.isArray(alerts)) {
-          const filtered = alerts.filter((a: any) => (a.studentId || '').trim().toLowerCase() !== cleanId);
-          localStorage.setItem('school_alerts', JSON.stringify(filtered));
-        }
-      }
-    } catch (e) { console.error(e); }
-
-    // Purge interventions of this student
-    try {
-      const si = localStorage.getItem('school_interventions');
-      if (si) {
-        const cases = JSON.parse(si);
-        if (Array.isArray(cases)) {
-          const filtered = cases.filter((c: any) => (c.studentId || '').trim().toLowerCase() !== cleanId);
-          localStorage.setItem('school_interventions', JSON.stringify(filtered));
-        }
-      }
-    } catch (e) { console.error(e); }
-
-    // Purge gate records of this student
-    try {
-      const sg = localStorage.getItem('school_gate_records');
-      if (sg) {
-        const records = JSON.parse(sg);
-        if (Array.isArray(records)) {
-          const filtered = records.filter((g: any) => (g.studentId || '').trim().toLowerCase() !== cleanId);
-          localStorage.setItem('school_gate_records', JSON.stringify(filtered));
-        }
-      }
-    } catch (e) { console.error(e); }
-
-    // Update classes student counts
-    try {
-      const classes = this.getClasses().map(c => {
-        const classStudents = list.filter(s => s.classId === c.id);
-        return {
-          ...c,
-          totalStudents: classStudents.length,
-          studentsAtRiskCount: classStudents.filter(s => s.riskLevel === 'alto' || s.riskLevel === 'critico').length
-        };
-      });
-      localStorage.setItem('school_classes', JSON.stringify(classes));
-    } catch (e) { console.error(e); }
-  },
-
-  batchCreateStudents(studentsData: Partial<Student>[]): number {
-    const currentList = this.getStudents();
-    let count = 0;
-    studentsData.forEach(d => {
-      if (!d.name) return;
-      const newStudent: Student = {
-        id: d.id || `std-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
-        name: d.name,
-        ra: d.ra || `2024-${Math.floor(1000 + Math.random() * 9000)}`,
-        classId: d.classId || '9A',
-        className: d.className || '9º Ano A',
-        status: 'regular',
-        riskLevel: 'baixo',
-        totalSchoolDays: 45,
-        totalAbsences: 0,
-        consecutiveAbsences: 0,
-        attendanceRate: 100,
-        guardianName: d.guardianName || 'Responsável',
-        guardianPhone: d.guardianPhone || '(11) 90000-0000',
-        guardianRelationship: 'Responsável',
-        address: 'Endereço escolar',
-        neighborhood: 'Bairro escolar',
-        vulnerabilityFactors: [],
-        notes: 'Cadastrado via importação em lote',
-        lastAttendanceDate: new Date().toISOString().split('T')[0],
-      };
-      currentList.push(newStudent);
-      count++;
-    });
-    this.saveStudents(currentList);
-    return count;
-  },
-
-  // === FREQUÊNCIA & DIÁRIO ===
-  recordAttendance(
-    items: {
-      studentId: string;
-      status: AttendanceStatus;
-      durationDays?: number;
-      justification?: string;
-      medicalCertificate?: string;
-      medicalDays?: number;
-    }[],
+  // === FREQUÊNCIA ===
+  recordAttendance: async (
+    items: any[],
     classId: string,
     recordedBy: string,
     date?: string
-  ): { newAlerts: ParentAlert[] } {
-    const students = this.getStudents();
-    const newAlerts: ParentAlert[] = [];
-    const currentDate = date || new Date().toISOString().split('T')[0];
+  ) => apiCall('/api/attendance', 'POST', { items, classId, recordedBy, date }),
 
-    // Guarda histórico de chamadas diárias no localStorage
-    let savedRecords: AttendanceRecord[] = [];
-    try {
-      const sr = localStorage.getItem('school_attendance_records');
-      if (sr) savedRecords = JSON.parse(sr);
-    } catch (e) {}
+  getAttendanceRecords: async (classId?: string, date?: string): Promise<AttendanceRecord[]> => 
+    apiCall(`/api/attendance?classId=${classId || ''}&date=${date || ''}`),
 
-    items.forEach(item => {
-      const student = students.find(s => s.id === item.studentId);
-      if (!student) return;
+  // === PORTARIA ===
+  getGateRecords: async (date?: string, classId?: string): Promise<GateRecord[]> =>
+    apiCall(`/api/gate-records?date=${date || ''}&classId=${classId || ''}`),
+  
+  createGateRecord: async (record: GateRecord) => apiCall('/api/gate-records', 'POST', record),
 
-      student.totalSchoolDays = (student.totalSchoolDays || 45) + 1;
-      student.lastAttendanceDate = currentDate;
-
-      if (item.status === 'falta_injustificada' || item.status === 'falta_justificada') {
-        student.totalAbsences = (student.totalAbsences || 0) + 1;
-        if (item.status === 'falta_injustificada') {
-          student.consecutiveAbsences = (student.consecutiveAbsences || 0) + 1;
-        }
-      } else if (item.status === 'presente') {
-        student.consecutiveAbsences = 0;
-      }
-
-      // Se tiver atestado médico registrado
-      if (item.status === 'atestado_medico' && item.medicalCertificate) {
-        student.notes = item.medicalCertificate;
-      }
-
-      // Recalcula taxa de presença
-      student.attendanceRate = Math.max(
-        0,
-        Math.round(((student.totalSchoolDays - student.totalAbsences) / student.totalSchoolDays) * 1000) / 10
-      );
-
-      // Atualiza nível de risco
-      if (student.attendanceRate < 75 || student.consecutiveAbsences >= 5) {
-        student.riskLevel = 'critico';
-        student.status = 'busca_ativa';
-      } else if (student.attendanceRate < 80 || student.consecutiveAbsences >= 3) {
-        student.riskLevel = 'alto';
-        student.status = 'alerta';
-      } else if (student.attendanceRate < 85) {
-        student.riskLevel = 'medio';
-        student.status = 'regular';
-      } else {
-        student.riskLevel = 'baixo';
-        student.status = 'regular';
-      }
-
-      // Gera alerta automático se atingir 3 ausências consecutivas
-      if (student.consecutiveAbsences >= 3) {
-        const alert: ParentAlert = {
-          id: `alt-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-          studentId: student.id,
-          studentName: student.name,
-          classId: student.classId,
-          className: student.className,
-          guardianPhone: student.guardianPhone,
-          guardianName: student.guardianName,
-          channel: 'whatsapp',
-          triggerReason: '3_faltas_consecutivas',
-          triggerLabel: `${student.consecutiveAbsences} ausências consecutivas`,
-          status: 'enviado',
-          sentAt: new Date().toISOString(),
-          messageContent: `Prezado(a) ${student.guardianName}, a EE Professor Arlindo Silvestre comunica que seu(sua) filho(a) ${student.name} registrou ${student.consecutiveAbsences} ausências consecutivas. Solicitamos comparecer à coordenação.`,
-          autoGenerated: true,
-        };
-        newAlerts.push(alert);
-      }
-
-      // Adiciona ao registro diário
-      const recIndex = savedRecords.findIndex(r => r.studentId === item.studentId && r.date === currentDate);
-      const recData: AttendanceRecord = {
-        id: `att-${Date.now()}-${item.studentId}`,
-        studentId: item.studentId,
-        studentName: student.name,
-        classId: student.classId,
-        className: student.className,
-        date: currentDate,
-        status: item.status,
-        durationDays: item.durationDays || 1,
-        justification: item.justification,
-        medicalCertificate: item.medicalCertificate,
-        medicalDays: item.medicalDays,
-        recordedBy: recordedBy || 'AOE / Equipe Escolar',
-        recordedAt: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-      };
-      if (recIndex !== -1) {
-        savedRecords[recIndex] = recData;
-      } else {
-        savedRecords.push(recData);
-      }
-    });
-
-    this.saveStudents(students);
-
-    try {
-      localStorage.setItem('school_attendance_records', JSON.stringify(savedRecords));
-    } catch (e) {
-      console.error(e);
-    }
-
-    if (newAlerts.length > 0) {
-      const existingAlerts = this.getAlerts();
-      const updatedAlerts = [...newAlerts, ...existingAlerts];
-      try {
-        localStorage.setItem('school_alerts', JSON.stringify(updatedAlerts));
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
-    return { newAlerts };
-  },
-
-  getAttendanceRecords(classId?: string, date?: string): AttendanceRecord[] {
-    try {
-      const saved = localStorage.getItem('school_attendance_records');
-      if (saved) {
-        let list: AttendanceRecord[] = JSON.parse(saved);
-        if (classId) list = list.filter(r => r.classId === classId);
-        if (date) list = list.filter(r => r.date === date);
-        return list;
-      }
-    } catch (e) {}
-    return [];
-  },
-
-  // === PORTARIA & MOVIMENTAÇÕES DE ALUNOS ===
-  getGateRecords(date?: string, classId?: string): GateRecord[] {
-    try {
-      const saved = localStorage.getItem('school_gate_records');
-      if (saved) {
-        let list: GateRecord[] = JSON.parse(saved);
-        if (date) list = list.filter(r => r.date === date);
-        if (classId) list = list.filter(r => r.classId === classId);
-        return list;
-      }
-    } catch (e) {}
-    return [];
-  },
-
-  createGateRecord(record: GateRecord): GateRecord {
-    const list = this.getGateRecords();
-    list.unshift(record);
-    try {
-      localStorage.setItem('school_gate_records', JSON.stringify(list));
-    } catch (e) {
-      console.error(e);
-    }
-    return record;
-  },
-
-  deleteGateRecord(id: string): boolean {
-    const list = this.getGateRecords().filter(r => r.id !== id);
-    try {
-      localStorage.setItem('school_gate_records', JSON.stringify(list));
-      return true;
-    } catch (e) {
-      console.error(e);
-      return false;
-    }
-  },
+  deleteGateRecord: async (id: string) => apiCall(`/api/gate-records/${id}`, 'DELETE'),
 
   // === ALERTAS ===
-  getAlerts(): ParentAlert[] {
-    try {
-      const saved = localStorage.getItem('school_alerts');
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch (e) {
-      // ignore
-    }
-    return DEFAULT_ALERTS;
-  },
+  getAlerts: async (): Promise<ParentAlert[]> => apiCall('/api/alerts'),
 
-  addAlert(alert: ParentAlert): ParentAlert {
-    const list = this.getAlerts();
-    list.unshift(alert);
-    try {
-      localStorage.setItem('school_alerts', JSON.stringify(list));
-    } catch (e) {
-      console.error(e);
-    }
-    return alert;
-  },
+  createAlert: async (alert: ParentAlert) => apiCall('/api/alerts/send', 'POST', alert),
 
-  createAlert(alert: ParentAlert): ParentAlert {
-    return this.addAlert(alert);
-  },
-
-  updateAlertStatus(alertId: string, status: string, notes?: string): ParentAlert | null {
-    const list = this.getAlerts();
-    const alert = list.find(a => a.id === alertId);
-    if (alert) {
-      alert.status = status as any;
-      if (status === 'lido' && !alert.readAt) {
-        alert.readAt = new Date().toISOString();
-      }
-      if (notes) {
-        alert.notes = notes;
-      }
-      try {
-        localStorage.setItem('school_alerts', JSON.stringify(list));
-      } catch (e) {
-        console.error(e);
-      }
-      return alert;
-    }
-    return null;
-  },
-
-  // === INTERVENÇÕES & BUSCA ATIVA ===
-  getInterventions(): InterventionCase[] {
-    try {
-      const saved = localStorage.getItem('school_interventions');
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch (e) {
-      // ignore
-    }
-    return DEFAULT_INTERVENTIONS;
-  },
-
-  addIntervention(c: InterventionCase): InterventionCase {
-    const list = this.getInterventions();
-    list.unshift(c);
-    try {
-      localStorage.setItem('school_interventions', JSON.stringify(list));
-    } catch (e) {
-      console.error(e);
-    }
-    return c;
-  },
-
-  addInterventionAction(caseId: string, action: any): InterventionCase | null {
-    const list = this.getInterventions();
-    const item = list.find(c => c.id === caseId);
-    if (item) {
-      if (!item.actionLog) item.actionLog = [];
-      item.actionLog.push({
-        id: `act-${Date.now()}`,
-        date: new Date().toISOString().split('T')[0],
-        action: action.action || action.type || 'Ação de Busca Ativa',
-        author: action.author || action.responsibleParty || 'Equipe Escolar',
-        notes: action.notes || action.description || '',
-        result: action.result || action.outcome || '',
-      });
-      if (action.newStage) {
-        item.stage = action.newStage;
-      }
-      item.lastUpdatedAt = new Date().toISOString().split('T')[0];
-      try {
-        localStorage.setItem('school_interventions', JSON.stringify(list));
-      } catch (e) {
-        console.error(e);
-      }
-      return item;
-    }
-    return null;
-  },
-
-  deleteOpenInterventions() {
-    const cases = this.getInterventions();
-    const filtered = cases.filter(c => c.stage === 'reintegrado' || c.stage === 'encerrado');
-    try {
-      localStorage.setItem('school_interventions', JSON.stringify(filtered));
-    } catch (e) {
-      console.error(e);
-    }
-  },
-
-  // === INFORMAÇÕES ESCOLARES & RELATÓRIOS ===
-  getSchoolInfo() {
-    return DEFAULT_SCHOOL_INFO;
-  },
-
-  getMonthlyReport() {
-    return DEFAULT_REPORT;
-  },
-
-  // === RESET DE CONTINGÊNCIA & WIPE GERAL ===
-  resetToDefaults() {
-    try {
-      localStorage.removeItem('school_users');
-      localStorage.removeItem('school_pins');
-      localStorage.removeItem('school_classes');
-      localStorage.removeItem('school_students');
-      localStorage.removeItem('school_alerts');
-      localStorage.removeItem('school_interventions');
-      localStorage.removeItem('school_attendance_records');
-      localStorage.removeItem('school_gate_records');
-    } catch (e) {
-      console.error(e);
-    }
-  },
-
-  wipeAllData(masterUser?: any) {
-    try {
-      const defaultMaster = masterUser || {
-        id: 'usr-admin',
-        name: 'Administrador Master',
-        username: 'admin',
-        role: 'admin',
-        roleLabel: 'Administrador (Master)',
-        pin: '1234',
-        createdAt: new Date().toISOString(),
-        active: true,
-        notes: 'Perfil Master exclusivo da escola',
-      };
-
-      localStorage.setItem('school_classes', JSON.stringify([]));
-      localStorage.setItem('school_students', JSON.stringify([]));
-      localStorage.setItem('school_alerts', JSON.stringify([]));
-      localStorage.setItem('school_interventions', JSON.stringify([]));
-      localStorage.setItem('school_attendance_records', JSON.stringify([]));
-      localStorage.setItem('school_gate_records', JSON.stringify([]));
-      localStorage.setItem('school_users', JSON.stringify([defaultMaster]));
-      localStorage.setItem('school_pins', JSON.stringify({ [defaultMaster.id]: defaultMaster.pin || '1234' }));
-    } catch (e) {
-      console.error('Erro ao executar wipeAllData:', e);
-    }
-  }
+  // === INTERVENÇÕES ===
+  getInterventions: async (): Promise<InterventionCase[]> => apiCall('/api/interventions'),
+  
+  // === RESET E WIPE ===
+  wipeAllData: async () => apiCall('/api/wipe-all', 'POST')
 };
