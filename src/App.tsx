@@ -20,6 +20,7 @@ import { ClassesManager } from './components/ClassesManager';
 import { LoginScreen } from './components/LoginScreen';
 import { RotateCcw, ShieldCheck, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { storageService } from './data/storageService';
+import { firestoreService } from './lib/firestoreService';
 import {
   Student,
   SchoolClass,
@@ -146,6 +147,50 @@ export default function App() {
     // Só sincroniza se estiver vazio
     if (!localStorage.getItem('school_students')) {
       await checkAndSyncFromSheets();
+    }
+
+    // Busca dados em tempo real da Nuvem central (Firestore) compartilhada entre todos os navegadores
+    try {
+      const [cloudClasses, cloudStudents, cloudAlerts, cloudAttendance, cloudInterventions, cloudGate] = await Promise.all([
+        firestoreService.getClasses(),
+        firestoreService.getStudents(),
+        firestoreService.getAlerts(),
+        firestoreService.getAttendanceRecords(),
+        firestoreService.getInterventions(),
+        firestoreService.getGateRecords(),
+      ]);
+
+      if (cloudClasses && cloudClasses.length > 0) {
+        setClasses(cloudClasses);
+        storageService.setClasses(cloudClasses);
+        hasServerClasses = true;
+        if (!selectedClassId || !cloudClasses.some(c => c.id === selectedClassId)) {
+          setSelectedClassId(cloudClasses[0].id);
+        }
+      }
+      if (cloudStudents && cloudStudents.length > 0) {
+        setStudents(cloudStudents);
+        storageService.setStudents(cloudStudents);
+        hasServerStudents = true;
+      }
+      if (cloudAlerts && cloudAlerts.length > 0) {
+        setAlerts(cloudAlerts);
+        storageService.setAlerts(cloudAlerts);
+        hasServerAlerts = true;
+      }
+      if (cloudAttendance && cloudAttendance.length > 0) {
+        storageService.setAttendanceRecords(cloudAttendance);
+      }
+      if (cloudInterventions && cloudInterventions.length > 0) {
+        setInterventions(cloudInterventions);
+        storageService.setInterventions(cloudInterventions);
+        hasServerInterventions = true;
+      }
+      if (cloudGate && cloudGate.length > 0) {
+        storageService.setGateRecords(cloudGate);
+      }
+    } catch (cloudErr) {
+      console.warn('Erro ao carregar dados do Firestore em App.tsx:', cloudErr);
     }
 
     try {

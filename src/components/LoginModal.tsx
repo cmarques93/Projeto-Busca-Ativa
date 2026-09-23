@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { KeyRound, User, Lock, X, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import { UserRole, UserSession } from '../types';
 import { storageService } from '../data/storageService';
+import { firestoreService } from '../lib/firestoreService';
 
 interface PublicUserItem {
   id: string;
@@ -43,6 +44,44 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       setLoadingUsers(true);
       setErrorMessage(null);
       setPin('');
+
+      // 1. Carrega imediatamente do cache local para não demorar
+      try {
+        const rawUsers = storageService.getUsers();
+        const localList = Array.isArray(rawUsers) ? rawUsers.filter(u => u.active !== false) : [];
+        if (localList.length > 0) {
+          setUsers(localList);
+          const matching = localList.find(
+            u => u.username === currentUser.username || u.name === currentUser.name
+          );
+          setSelectedUserId(matching ? matching.id : localList[0].id);
+          setLoadingUsers(false);
+        }
+      } catch (e) {
+        console.warn('Cache local vazio no modal:', e);
+      }
+
+      // 2. Busca lista oficial e sincronizada do Firestore
+      try {
+        const cloudUsers = await firestoreService.getUsers();
+        if (cloudUsers && cloudUsers.length > 0) {
+          const activeList = cloudUsers.filter(u => u.active !== false);
+          if (activeList.length > 0) {
+            setUsers(activeList);
+            storageService.setUsers(cloudUsers);
+            const matching = activeList.find(
+              u => u.username === currentUser.username || u.name === currentUser.name
+            );
+            setSelectedUserId(matching ? matching.id : activeList[0].id);
+            setLoadingUsers(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar usuários da nuvem no modal:', err);
+      }
+
+      // 3. Fallback: API proxy ou fallback seguro
       try {
         const res = await fetch('/api/users/public');
         const contentType = res.headers.get('content-type');
@@ -60,19 +99,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
           }
         }
       } catch (e) {
-        console.warn('Backend API /api/users/public indisponível no modal, usando storageService:', e);
-      }
-
-      try {
-        const rawUsers = storageService.getUsers();
-        const fallbackList = Array.isArray(rawUsers) ? rawUsers.filter(u => u.active !== false) : [];
-        setUsers(fallbackList);
-        const matching = fallbackList.find(
-          u => u.username === currentUser.username || u.name === currentUser.name
-        );
-        setSelectedUserId(matching ? matching.id : (fallbackList[0]?.id || ''));
-      } catch (err) {
-        console.error('Erro ao ler usuários no fallback do modal:', err);
+        console.warn('Backend API indisponível no modal:', e);
       } finally {
         setLoadingUsers(false);
       }

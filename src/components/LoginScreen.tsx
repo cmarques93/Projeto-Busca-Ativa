@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { School, KeyRound, User, Lock, Eye, EyeOff, AlertCircle, Shield, ArrowRight } from 'lucide-react';
 import { UserRole, UserSession } from '../types';
 import { storageService } from '../data/storageService';
+import { firestoreService } from '../lib/firestoreService';
 
 interface PublicUserItem {
   id: string;
@@ -29,6 +30,41 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     const fetchUsers = async () => {
       setLoadingUsers(true);
       setErrorMessage(null);
+
+      // 1. Imediatamente exibe o cache local para a interface não piscar
+      try {
+        const rawUsers = storageService.getUsers();
+        const localList = Array.isArray(rawUsers) ? rawUsers.filter(u => u.active !== false) : [];
+        if (localList.length > 0) {
+          setUsers(localList);
+          setSelectedUserId(localList[0].id);
+          setLoadingUsers(false);
+        }
+      } catch (e) {
+        console.warn('Cache local de usuários vazio:', e);
+      }
+
+      // 2. Busca a lista oficial de usuários do Firestore (Nuvem central compartilhada em todos os navegadores)
+      try {
+        const cloudUsers = await firestoreService.getUsers();
+        if (cloudUsers && cloudUsers.length > 0) {
+          const activeList = cloudUsers.filter(u => u.active !== false);
+          if (activeList.length > 0) {
+            setUsers(activeList);
+            storageService.setUsers(cloudUsers);
+            setSelectedUserId(prev => {
+              const stillExists = activeList.some(u => u.id === prev);
+              return stillExists ? prev : activeList[0].id;
+            });
+            setLoadingUsers(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar usuários da nuvem Firestore:', err);
+      }
+
+      // 3. Fallback: API proxy ou fallback padrão
       try {
         const res = await fetch('/api/users/public');
         const contentType = res.headers.get('content-type');
@@ -43,19 +79,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           }
         }
       } catch (err) {
-        console.warn('API backend /api/users/public indisponível, ativando banco local resiliente:', err);
-      }
-
-      // Fallback resiliente: Carrega usuários locais (Vercel / GitHub Pages / Modo Offline)
-      try {
-        const rawUsers = storageService.getUsers();
-        const fallbackList = Array.isArray(rawUsers) ? rawUsers.filter(u => u.active !== false) : [];
-        setUsers(fallbackList);
-        if (fallbackList.length > 0) {
-          setSelectedUserId(fallbackList[0].id);
-        }
-      } catch (e) {
-        console.error('Erro ao ler usuários no fallback:', e);
+        console.warn('API backend /api/users/public indisponível:', err);
       } finally {
         setLoadingUsers(false);
       }

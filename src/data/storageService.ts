@@ -17,9 +17,9 @@ import {
   DEFAULT_STUDENTS,
   DEFAULT_ALERTS,
   DEFAULT_INTERVENTIONS,
-  DEFAULT_SCHOOL_INFO,
   DEFAULT_REPORT
 } from './fallbackData';
+import { firestoreService } from '../lib/firestoreService';
 
 export function getRoleLabel(role: UserRole): string {
   switch (role) {
@@ -66,6 +66,29 @@ function initializeDefaultUsers(): UserAccount[] {
 }
 
 export const storageService = {
+  // === SETTERS PARA SINCRONIZAÇÃO COM A NUVEM ===
+  setUsers: (users: UserAccount[]): void => {
+    setStored('school_users', users);
+  },
+  setClasses: (classes: SchoolClass[]): void => {
+    setStored('school_classes', classes);
+  },
+  setStudents: (students: Student[]): void => {
+    setStored('school_students', students);
+  },
+  setAttendanceRecords: (records: AttendanceRecord[]): void => {
+    setStored('school_attendance', records);
+  },
+  setAlerts: (alerts: ParentAlert[]): void => {
+    setStored('school_alerts', alerts);
+  },
+  setInterventions: (interventions: InterventionCase[]): void => {
+    setStored('school_interventions', interventions);
+  },
+  setGateRecords: (records: GateRecord[]): void => {
+    setStored('school_gate_records', records);
+  },
+
   // === USUÁRIOS & ACESSOS ===
   getUsers: (): UserAccount[] => {
     let users = getStored<UserAccount[]>('school_users', []);
@@ -101,6 +124,10 @@ export const storageService = {
     const users = storageService.getUsers();
     users.push(newUser);
     setStored('school_users', users);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.saveUser(newUser).catch(err => console.warn('Erro ao salvar usuário no Firestore:', err));
+
     return newUser;
   },
 
@@ -115,6 +142,10 @@ export const storageService = {
       roleLabel: updates.role ? getRoleLabel(updates.role) : users[idx].roleLabel
     };
     setStored('school_users', users);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.saveUser(users[idx]).catch(err => console.warn('Erro ao atualizar usuário no Firestore:', err));
+
     return users[idx];
   },
 
@@ -125,6 +156,10 @@ export const storageService = {
   deleteUser: (userId: string): boolean => {
     const users = storageService.getUsers().filter(u => u.id !== userId);
     setStored('school_users', users);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.deleteUser(userId).catch(err => console.warn('Erro ao deletar usuário do Firestore:', err));
+
     return true;
   },
 
@@ -134,7 +169,6 @@ export const storageService = {
     const user = users.find(u => u.id === userId);
 
     if (!user) {
-      // Fallback check against DEFAULT_PINS
       const defaultPinObj = DEFAULT_PINS[userId];
       if (defaultPinObj && defaultPinObj.pin === cleanPin) {
         return { success: true, user: defaultPinObj.user };
@@ -176,6 +210,10 @@ export const storageService = {
       classes.push(cls);
     }
     setStored('school_classes', classes);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.saveClass(cls).catch(err => console.warn('Erro ao salvar turma no Firestore:', err));
+
     return cls;
   },
 
@@ -185,12 +223,19 @@ export const storageService = {
     if (idx === -1) return null;
     classes[idx] = { ...classes[idx], ...updates };
     setStored('school_classes', classes);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.saveClass(classes[idx]).catch(err => console.warn('Erro ao atualizar turma no Firestore:', err));
+
     return classes[idx];
   },
 
   deleteClass: (clsId: string): void => {
     const classes = storageService.getClasses().filter(c => c.id !== clsId);
     setStored('school_classes', classes);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.deleteClass(clsId).catch(err => console.warn('Erro ao deletar turma no Firestore:', err));
   },
 
   // === ESTUDANTES ===
@@ -252,6 +297,10 @@ export const storageService = {
     };
     students.push(newStudent);
     setStored('school_students', students);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.saveStudent(newStudent).catch(err => console.warn('Erro ao salvar estudante no Firestore:', err));
+
     return newStudent;
   },
 
@@ -261,16 +310,24 @@ export const storageService = {
     if (idx === -1) return null;
     students[idx] = { ...students[idx], ...updates };
     setStored('school_students', students);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.saveStudent(students[idx]).catch(err => console.warn('Erro ao atualizar estudante no Firestore:', err));
+
     return students[idx];
   },
 
   deleteStudent: (studentId: string): void => {
     const students = storageService.getStudents().filter(s => s.id !== studentId);
     setStored('school_students', students);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.deleteStudent(studentId).catch(err => console.warn('Erro ao deletar estudante no Firestore:', err));
   },
 
   batchCreateStudents: (newStudents: Partial<Student>[]): number => {
     const existing = storageService.getStudents();
+    const createdList: Student[] = [];
     let count = 0;
     for (const data of newStudents) {
       const id = data.id || `std-${Date.now()}-${count}-${Math.random().toString(36).substring(2, 5)}`;
@@ -296,9 +353,14 @@ export const storageService = {
         notes: data.notes || ''
       };
       existing.push(s);
+      createdList.push(s);
       count++;
     }
     setStored('school_students', existing);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.batchSaveStudents(createdList).catch(err => console.warn('Erro ao salvar lote de estudantes no Firestore:', err));
+
     return count;
   },
 
@@ -337,6 +399,7 @@ export const storageService = {
 
     // Update students absence counts
     const allStudents = storageService.getStudents();
+    const updatedStudents: Student[] = [];
     allStudents.forEach(st => {
       const item = items.find(i => i.studentId === st.id);
       if (item) {
@@ -355,9 +418,14 @@ export const storageService = {
           st.riskLevel = 'alto';
           st.status = 'alerta';
         }
+        updatedStudents.push(st);
       }
     });
     setStored('school_students', allStudents);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.batchSaveAttendance(newRecords).catch(err => console.warn('Erro ao salvar chamadas no Firestore:', err));
+    firestoreService.batchSaveStudents(updatedStudents).catch(err => console.warn('Erro ao atualizar alunos no Firestore:', err));
 
     return { success: true, count: newRecords.length };
   },
@@ -393,12 +461,19 @@ export const storageService = {
     };
     list.push(newRecord);
     setStored('school_gate_records', list);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.saveGateRecord(newRecord).catch(err => console.warn('Erro ao salvar registro de portaria no Firestore:', err));
+
     return newRecord;
   },
 
   deleteGateRecord: (id: string): void => {
     const list = storageService.getGateRecords().filter(r => r.id !== id);
     setStored('school_gate_records', list);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.deleteGateRecord(id).catch(err => console.warn('Erro ao deletar registro de portaria no Firestore:', err));
   },
 
   // === ALERTAS ===
@@ -414,6 +489,10 @@ export const storageService = {
     };
     list.unshift(newAlert);
     setStored('school_alerts', list);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.saveAlert(newAlert).catch(err => console.warn('Erro ao salvar alerta no Firestore:', err));
+
     return newAlert;
   },
 
@@ -424,6 +503,9 @@ export const storageService = {
       alert.status = status;
       if (notes) alert.guardianFeedback = notes;
       setStored('school_alerts', list);
+
+      // Sincroniza em nuvem no Firestore
+      firestoreService.saveAlert(alert).catch(err => console.warn('Erro ao atualizar alerta no Firestore:', err));
     }
   },
 
@@ -443,6 +525,9 @@ export const storageService = {
       });
       item.lastUpdatedAt = new Date().toISOString().split('T')[0];
       setStored('school_interventions', list);
+
+      // Sincroniza em nuvem no Firestore
+      firestoreService.saveIntervention(item).catch(err => console.warn('Erro ao salvar intervenção no Firestore:', err));
     }
   },
 

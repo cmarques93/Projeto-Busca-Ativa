@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { UserAccount, UserRole } from '../types';
 import { storageService, getRoleLabel } from '../data/storageService';
+import { firestoreService } from '../lib/firestoreService';
 
 interface AccessManagementProps {
   onRefresh?: () => void;
@@ -61,6 +62,20 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
   const fetchUsers = async () => {
     setLoading(true);
     setErrorMessage(null);
+
+    // 1. Busca usuários da nuvem Firestore (compartilhada em tempo real)
+    try {
+      const cloudUsers = await firestoreService.getUsers();
+      if (cloudUsers && cloudUsers.length > 0) {
+        setUsers(cloudUsers);
+        storageService.setUsers(cloudUsers);
+        setLoading(false);
+        return;
+      }
+    } catch (err: any) {
+      console.warn('Erro ao buscar usuários do Firestore:', err);
+    }
+
     try {
       const res = await fetch('/api/users');
       const contentType = res.headers.get('content-type');
