@@ -138,6 +138,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       const contentType = res.headers.get('content-type');
       if (res.ok && contentType && contentType.includes('application/json')) {
         const data = await res.json();
+        storageService.recordUserLogin(selectedUserId);
         onLoginSuccess(data.user);
         if (onSelectRole) {
           onSelectRole(data.user.role, data.user.name);

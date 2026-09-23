@@ -163,6 +163,21 @@ export const storageService = {
     return true;
   },
 
+  recordUserLogin: (userId: string): void => {
+    try {
+      const now = new Date().toISOString();
+      const users = storageService.getUsers();
+      const idx = users.findIndex(u => u.id === userId);
+      if (idx !== -1) {
+        users[idx].lastLogin = now;
+        setStored('school_users', users);
+        firestoreService.saveUser(users[idx]).catch(err => console.warn('Erro ao atualizar lastLogin no Firestore:', err));
+      }
+    } catch (e) {
+      console.warn('Erro ao registrar lastLogin:', e);
+    }
+  },
+
   verifyPin: (userId: string, pin: string): { success: boolean; user?: any; error?: string } => {
     const users = storageService.getUsers();
     const cleanPin = pin.trim();
@@ -181,6 +196,11 @@ export const storageService = {
     }
 
     if (user.pin === cleanPin || (DEFAULT_PINS[userId] && DEFAULT_PINS[userId].pin === cleanPin)) {
+      // Registra e sincroniza último acesso imediatamente
+      const now = new Date().toISOString();
+      user.lastLogin = now;
+      storageService.updateUser(user.id, { lastLogin: now });
+
       return {
         success: true,
         user: {
@@ -507,6 +527,14 @@ export const storageService = {
       // Sincroniza em nuvem no Firestore
       firestoreService.saveAlert(alert).catch(err => console.warn('Erro ao atualizar alerta no Firestore:', err));
     }
+  },
+
+  deleteAlert: (alertId: string): void => {
+    const list = storageService.getAlerts().filter(a => a.id !== alertId);
+    setStored('school_alerts', list);
+
+    // Sincroniza em nuvem no Firestore
+    firestoreService.deleteAlert(alertId).catch(err => console.warn('Erro ao excluir alerta no Firestore:', err));
   },
 
   // === INTERVENÇÕES ===

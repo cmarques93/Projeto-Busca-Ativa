@@ -18,7 +18,8 @@ import {
   UserCheck,
   FileSpreadsheet,
   Info,
-  AlertCircle
+  AlertCircle,
+  UserCog
 } from 'lucide-react';
 import { UserAccount, UserRole } from '../types';
 import { storageService, getRoleLabel } from '../data/storageService';
@@ -47,6 +48,16 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
   const [isEditPinModalOpen, setIsEditPinModalOpen] = useState(false);
   const [selectedUserForPin, setSelectedUserForPin] = useState<UserAccount | null>(null);
   const [newPinValue, setNewPinValue] = useState('');
+
+  // Complete User Editor Modal (Name, Role, PIN, Notes, Active)
+  const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
+  const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserAccount | null>(null);
+  const [editNameValue, setEditNameValue] = useState('');
+  const [editRoleValue, setEditRoleValue] = useState<UserRole>('professor');
+  const [editPinValue, setEditPinValue] = useState('');
+  const [editNotesValue, setEditNotesValue] = useState('');
+  const [editActiveValue, setEditActiveValue] = useState(true);
+  const [editModalError, setEditModalError] = useState<string | null>(null);
 
   // User deletion state for in-app confirmation modal (works reliably inside iframes)
   const [userToDelete, setUserToDelete] = useState<UserAccount | null>(null);
@@ -211,6 +222,71 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
     setSelectedUserForPin(null);
     setNewPinValue('');
     setSubmitting(false);
+  };
+
+  // Open full user edit modal
+  const handleOpenEditUser = (user: UserAccount) => {
+    setSelectedUserForEdit(user);
+    setEditNameValue(user.name);
+    setEditRoleValue(user.role);
+    setEditPinValue(user.pin);
+    setEditNotesValue(user.notes || '');
+    setEditActiveValue(user.active !== false);
+    setEditModalError(null);
+    setIsEditUserModalOpen(true);
+  };
+
+  // Save complete user edit (Name, Role, PIN, Notes, Active)
+  const handleSaveUserEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserForEdit) return;
+
+    const cleanName = editNameValue.trim();
+    if (!cleanName) {
+      setEditModalError('O nome completo do servidor é obrigatório.');
+      return;
+    }
+
+    const cleanPin = editPinValue.trim();
+    if (!/^\d{4}$/.test(cleanPin)) {
+      setEditModalError('A senha de acesso deve conter exatamente 4 números (ex: 1234).');
+      return;
+    }
+
+    setSubmitting(true);
+    setEditModalError(null);
+
+    const updates = {
+      name: cleanName,
+      role: editRoleValue,
+      roleLabel: getRoleLabel(editRoleValue),
+      pin: cleanPin,
+      notes: editNotesValue.trim(),
+      active: editActiveValue,
+    };
+
+    try {
+      await fetch(`/api/users/${selectedUserForEdit.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+    } catch (err: any) {
+      console.warn('API backend indisponível, aplicando atualização local e na nuvem:', err);
+    }
+
+    // Grava localmente e sincroniza automaticamente com o Firestore na nuvem
+    const localUpdated = storageService.updateUser(selectedUserForEdit.id, updates);
+    if (localUpdated) {
+      setUsers(prev => prev.map(u => u.id === selectedUserForEdit.id ? { ...u, ...localUpdated } : u));
+    }
+
+    setSuccessMessage(`Servidor "${cleanName}" atualizado com sucesso!`);
+    setTimeout(() => setSuccessMessage(null), 4000);
+    setIsEditUserModalOpen(false);
+    setSelectedUserForEdit(null);
+    setSubmitting(false);
+    if (onRefresh) onRefresh();
   };
 
   // Create new user
@@ -491,7 +567,14 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                       {/* Name & username */}
                       <td className="py-3 px-4">
                         <div className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
-                          {user.name}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditUser(user)}
+                            className="hover:text-purple-700 hover:underline cursor-pointer text-left font-bold"
+                            title="Clique para editar este servidor (nome, perfil, senha e observações)"
+                          >
+                            {user.name}
+                          </button>
                           {user.id === 'usr-admin' && (
                             <span className="bg-purple-100 text-purple-800 text-[9px] px-1.5 py-0.2 rounded font-black border border-purple-300">
                               PRINCIPAL
@@ -545,13 +628,9 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              setSelectedUserForPin(user);
-                              setNewPinValue(user.pin);
-                              setIsEditPinModalOpen(true);
-                            }}
+                            onClick={() => handleOpenEditUser(user)}
                             className="text-indigo-600 hover:text-indigo-800 p-0.5 ml-1 cursor-pointer"
-                            title="Alterar senha de 4 dígitos"
+                            title="Editar dados e senha do servidor"
                           >
                             <Edit2 className="w-3 h-3" />
                           </button>
@@ -559,9 +638,16 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                       </td>
 
                       {/* Last access */}
-                      <td className="py-3 px-4 text-slate-500 text-[11px]">
+                      <td className="py-3 px-4 text-slate-600 text-[11px]">
                         {user.lastLogin ? (
-                          <span>{new Date(user.lastLogin).toLocaleString('pt-BR')}</span>
+                          <div className="flex flex-col">
+                            <span className="font-bold text-slate-800">
+                              {new Date(user.lastLogin).toLocaleDateString('pt-BR')}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              às {new Date(user.lastLogin).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
                         ) : (
                           <span className="text-slate-400 italic">Nunca acessou</span>
                         )}
@@ -589,22 +675,19 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             type="button"
-                            onClick={() => {
-                              setSelectedUserForPin(user);
-                              setNewPinValue(user.pin);
-                              setIsEditPinModalOpen(true);
-                            }}
-                            className="p-1 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors cursor-pointer"
-                            title="Trocar senha de 4 dígitos"
+                            onClick={() => handleOpenEditUser(user)}
+                            className="px-2 py-1 text-slate-600 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors cursor-pointer flex items-center gap-1 text-xs font-semibold border border-slate-200 shadow-2xs"
+                            title="Editar servidor (nome, perfil, senha e notas)"
                           >
-                            <KeyRound className="w-4 h-4" />
+                            <UserCog className="w-3.5 h-3.5 text-purple-600" />
+                            <span>Editar</span>
                           </button>
 
                           {user.id !== 'usr-admin' && (
                             <button
                               type="button"
                               onClick={() => handleDeleteUser(user)}
-                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                               title="Excluir este usuário"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -867,6 +950,142 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Editar Usuário Completo (Nome, Cargo, Senha e Observações) */}
+      {isEditUserModalOpen && selectedUserForEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <UserCog className="w-5 h-5 text-purple-400" />
+                <div>
+                  <h3 className="font-bold text-sm">Editar Cadastro do Servidor</h3>
+                  <p className="text-[11px] text-slate-400">Edição de nome, perfil de acesso e senha</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditUserModalOpen(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveUserEdit} noValidate className="p-6 space-y-4 text-xs">
+              {editModalError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-3 flex items-start gap-2 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span className="font-semibold text-xs">{editModalError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  Nome Completo do Servidor: <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editNameValue}
+                  onChange={e => setEditNameValue(e.target.value)}
+                  placeholder="Ex: Prof. Marcos Silva"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500 text-slate-900 bg-white font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  Perfil / Cargo Determinado: <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={editRoleValue}
+                  onChange={e => setEditRoleValue(e.target.value as UserRole)}
+                  disabled={selectedUserForEdit.id === 'usr-admin'}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-500 cursor-pointer text-slate-900 font-medium"
+                >
+                  <option value="professor">Professor Regente (Consulta Restrita)</option>
+                  <option value="aoe">AOE - Agente de Organização Escolar (Frequência & Portaria)</option>
+                  <option value="gestao_paac">Gestão / PAAC (Acesso Total & Planilhas)</option>
+                  <option value="admin">Administrador (Master - Controle Geral)</option>
+                </select>
+                {selectedUserForEdit.id === 'usr-admin' && (
+                  <span className="text-[10px] text-purple-600 font-medium mt-1 block">
+                    O perfil do Administrador Master Principal não pode ser alterado.
+                  </span>
+                )}
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  Senha Numérica de 4 Dígitos: <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={editPinValue}
+                  onChange={e => setEditPinValue(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  placeholder="1234"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg font-mono tracking-widest text-base font-bold text-center focus:outline-hidden focus:ring-2 focus:ring-purple-500 text-slate-900 bg-white"
+                />
+                <span className="text-[10px] text-slate-500 mt-1 block">
+                  Esta é a senha de 4 números usada para o login no sistema.
+                </span>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  Observações / Disciplina / Lotação:
+                </label>
+                <input
+                  type="text"
+                  value={editNotesValue}
+                  onChange={e => setEditNotesValue(e.target.value)}
+                  placeholder="Ex: Docente de História dos 7ºs e 8ºs anos"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500 text-slate-900 bg-white"
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <div>
+                  <span className="font-bold text-slate-800 block text-xs">Status do Acesso</span>
+                  <span className="text-[11px] text-slate-500">Permite ou bloqueia o login deste servidor</span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editActiveValue}
+                    onChange={e => setEditActiveValue(e.target.checked)}
+                    disabled={selectedUserForEdit.id === 'usr-admin'}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                  <span className="ml-2 text-xs font-bold text-slate-700">
+                    {editActiveValue ? 'Ativo' : 'Inativo'}
+                  </span>
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsEditUserModalOpen(false)}
+                  className="px-4 py-2 font-semibold text-slate-600 hover:text-slate-800 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-5 py-2 font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-sm transition-colors cursor-pointer flex items-center gap-1.5 active:scale-95"
+                >
+                  {submitting ? 'Salvando Alterações...' : 'Salvar Alterações'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

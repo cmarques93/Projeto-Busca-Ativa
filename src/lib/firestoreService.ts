@@ -228,6 +228,15 @@ export const firestoreService = {
     }
   },
 
+  async deleteAlert(alertId: string): Promise<void> {
+    const path = `alerts/${alertId}`;
+    try {
+      await deleteDoc(doc(db, 'alerts', alertId));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, path);
+    }
+  },
+
   // === INTERVENTIONS ===
   async getInterventions(): Promise<InterventionCase[]> {
     try {

@@ -116,6 +116,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       const contentType = res.headers.get('content-type');
       if (res.ok && contentType && contentType.includes('application/json')) {
         const data = await res.json();
+        storageService.recordUserLogin(selectedUserId);
         onLoginSuccess(data.user);
         setAuthenticating(false);
         return;

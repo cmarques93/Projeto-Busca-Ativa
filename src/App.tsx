@@ -696,7 +696,8 @@ export default function App() {
             classes={classes}
             selectedClassId={selectedClassId}
             onSelectClass={handleSelectClass}
-            students={students.filter(s => !selectedClassId || s.classId === selectedClassId)}
+            students={students}
+            currentUser={currentUser}
             onSaveAttendance={handleSaveAttendance}
             onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
             onManualAlert={handleOpenAlertForStudent}

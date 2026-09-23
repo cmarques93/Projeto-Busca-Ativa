@@ -24,7 +24,8 @@ import {
   UserCheck,
   UserX,
   AlertTriangle,
-  RefreshCw
+  RefreshCw,
+  Trash2
 } from 'lucide-react';
 import {
   ParentAlert,
@@ -106,12 +107,47 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
   const [bulkAlertsList, setBulkAlertsList] = useState<ParentAlert[]>([]);
 
   // History tab state
+  const [localAlerts, setLocalAlerts] = useState<ParentAlert[]>(alerts);
+  useEffect(() => {
+    setLocalAlerts(alerts);
+  }, [alerts]);
+
+  const [alertToDelete, setAlertToDelete] = useState<ParentAlert | null>(null);
+  const [isDeletingAlert, setIsDeletingAlert] = useState(false);
+  const [deleteSuccessMsg, setDeleteSuccessMsg] = useState<string | null>(null);
+
   const [filterStatus, setFilterStatus] = useState<string>('todos');
   const [filterChannel, setFilterChannel] = useState<string>('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedAlertForReply, setSelectedAlertForReply] = useState<ParentAlert | null>(null);
   const [customReplyText, setCustomReplyText] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
+
+  // Confirm delete alert handler with storage and Firestore synchronization
+  const handleConfirmDeleteAlert = async () => {
+    if (!alertToDelete) return;
+    const alertId = alertToDelete.id;
+    setIsDeletingAlert(true);
+
+    try {
+      await fetch(`/api/alerts/${alertId}`, { method: 'DELETE' });
+    } catch (err) {
+      console.warn('Backend indisponível, deletando alerta localmente:', err);
+    }
+
+    // Deleta do storage e sincroniza com Firestore
+    storageService.deleteAlert(alertId);
+    setLocalAlerts(prev => prev.filter(a => a.id !== alertId));
+    setAlertToDelete(null);
+    setIsDeletingAlert(false);
+
+    setDeleteSuccessMsg(`Alerta emitido para o responsável de "${alertToDelete.studentName}" foi excluído.`);
+    setTimeout(() => setDeleteSuccessMsg(null), 4000);
+
+    if (onRefresh) {
+      await onRefresh();
+    }
+  };
 
   // Load daily attendance records and gate records for the chosen date
   const loadDailyAbsences = async (date: string) => {
@@ -375,7 +411,7 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
   };
 
   // Filter alerts for general history tab
-  const filteredAlerts = alerts.filter(a => {
+  const filteredAlerts = (localAlerts || []).filter(a => {
     const matchesStatus = filterStatus === 'todos' || a.status === filterStatus;
     const matchesChannel = filterChannel === 'todos' || a.channel === filterChannel;
     const matchesSearch =
@@ -387,11 +423,31 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
     return matchesStatus && matchesChannel && matchesSearch;
   });
 
-  const totalAlerts = alerts.length;
-  const deliveredCount = alerts.filter(a => a.status === 'entregue' || a.status === 'lido' || a.status === 'respondido').length;
-  const readCount = alerts.filter(a => a.status === 'lido' || a.status === 'respondido').length;
-  const respondedCount = alerts.filter(a => a.status === 'respondido' || a.guardianFeedback).length;
+  const totalAlerts = (localAlerts || []).length;
+  const deliveredCount = (localAlerts || []).filter(a => a.status === 'entregue' || a.status === 'lido' || a.status === 'respondido').length;
+  const readCount = (localAlerts || []).filter(a => a.status === 'lido' || a.status === 'respondido').length;
+  const respondedCount = (localAlerts || []).filter(a => a.status === 'respondido' || a.guardianFeedback).length;
   const responseRate = totalAlerts > 0 ? ((respondedCount / totalAlerts) * 100).toFixed(0) : '0';
+
+  // Migrated Attendance Metrics from RealTimeAttendance for the selectedDate
+  const attendanceMetrics = useMemo(() => {
+    const presentCount = (dailyRecords || []).filter(r => r.status === 'presente').length;
+    const unjustifiedCount = (dailyRecords || []).filter(r => r.status === 'falta_injustificada').length;
+    const justifiedCount = (dailyRecords || []).filter(r => r.status === 'falta_justificada').length;
+    const medicalCount = (dailyRecords || []).filter(r => r.status === 'atestado_medico').length;
+    const lateCount =
+      (dailyRecords || []).filter(r => r.status === 'atraso').length +
+      (dailyGateRecords || []).length;
+
+    return {
+      presentes: presentCount,
+      faltasInjust: unjustifiedCount,
+      faltasJustif: justifiedCount,
+      atestados: medicalCount,
+      atrasos: lateCount,
+      totalLancados: (dailyRecords || []).length,
+    };
+  }, [dailyRecords, dailyGateRecords]);
 
   const handleSimulateStatus = async (alertId: string, status: AlertStatus, defaultFeedback?: string) => {
     setIsUpdating(true);
@@ -499,54 +555,97 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
       {/* ============================================================== */}
       {activeSubTab === 'daily_absences' && (
         <div className="space-y-4 animate-in fade-in duration-150">
-          {/* Daily Absence Metric tiles */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-            <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
-              <div className="text-xs text-slate-500 font-semibold flex items-center gap-1.5">
-                <Users className="w-4 h-4 text-slate-600" />
-                <span>Total de Ausências no Dia</span>
+          {/* MIGRATED ATTENDANCE METRICS (Presentes, Faltas Injust., Faltas Justif., Atestados, Atrasos) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+            {/* 1. Presentes */}
+            <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 shadow-2xs">
+              <div className="text-xs text-emerald-800 font-bold flex items-center justify-between">
+                <span>Presentes</span>
+                <UserCheck className="w-4 h-4 text-emerald-600" />
               </div>
-              <div className="text-2xl font-extrabold text-slate-900 mt-1">{totalDailyAbsences}</div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
-                Data: {new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR')}
-              </div>
+              <div className="text-2xl font-black text-emerald-950 mt-1.5">{attendanceMetrics.presentes}</div>
+              <div className="text-[11px] text-emerald-700 mt-0.5 font-medium">Estudantes em sala</div>
             </div>
 
-            <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 shadow-xs">
-              <div className="text-xs text-rose-800 font-bold flex items-center gap-1.5">
+            {/* 2. Faltas Injustificadas */}
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 shadow-2xs">
+              <div className="text-xs text-rose-800 font-bold flex items-center justify-between">
+                <span>Faltas Injust.</span>
                 <UserX className="w-4 h-4 text-rose-600" />
-                <span>Faltas Injustificadas</span>
               </div>
-              <div className="text-2xl font-black text-rose-950 mt-1">{unjustifiedCount}</div>
-              <div className="text-[11px] text-rose-700 mt-0.5">Prioridade de notificação WhatsApp</div>
+              <div className="text-2xl font-black text-rose-950 mt-1.5">{attendanceMetrics.faltasInjust}</div>
+              <div className="text-[11px] text-rose-700 mt-0.5 font-medium">Contam para evasão</div>
             </div>
 
-            <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-4 shadow-xs">
-              <div className="text-xs text-cyan-800 font-bold flex items-center gap-1.5">
+            {/* 3. Faltas Justificadas */}
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 shadow-2xs">
+              <div className="text-xs text-amber-800 font-bold flex items-center justify-between">
+                <span>Faltas Justif.</span>
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+              </div>
+              <div className="text-2xl font-black text-amber-950 mt-1.5">{attendanceMetrics.faltasJustif}</div>
+              <div className="text-[11px] text-amber-700 mt-0.5 font-medium">Avisadas pela família</div>
+            </div>
+
+            {/* 4. Atestados Médicos */}
+            <div className="bg-cyan-50 border border-cyan-200 rounded-2xl p-4 shadow-2xs">
+              <div className="text-xs text-cyan-800 font-bold flex items-center justify-between">
+                <span>Atestados Méd.</span>
                 <Stethoscope className="w-4 h-4 text-cyan-600" />
-                <span>Atestados & Justificadas</span>
               </div>
-              <div className="text-2xl font-black text-cyan-950 mt-1">{justifiedOrMedicalCount}</div>
-              <div className="text-[11px] text-cyan-700 mt-0.5">Formalizados pela família</div>
+              <div className="text-2xl font-black text-cyan-950 mt-1.5">{attendanceMetrics.atestados}</div>
+              <div className="text-[11px] text-cyan-700 mt-0.5 font-medium">Não contam ausência</div>
             </div>
 
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 shadow-xs">
-              <div className="text-xs text-emerald-800 font-bold flex items-center gap-1.5">
-                <Smartphone className="w-4 h-4 text-emerald-600" />
-                <span>Status de Notificação</span>
+            {/* 5. Atrasos / Portaria */}
+            <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4 shadow-2xs col-span-2 sm:col-span-1">
+              <div className="text-xs text-purple-800 font-bold flex items-center justify-between">
+                <span>Atrasos / Portaria</span>
+                <Clock className="w-4 h-4 text-purple-600" />
               </div>
-              <div className="text-2xl font-black text-emerald-950 mt-1">
-                {alreadyNotifiedCount} <span className="text-xs font-normal text-slate-500">enviados</span>
-              </div>
-              <div className="text-[11px] text-emerald-700 mt-0.5">
-                {pendingNotificationCount > 0 ? (
-                  <span className="text-amber-800 font-bold">{pendingNotificationCount} pendentes de envio</span>
-                ) : (
-                  <span className="text-emerald-700 font-semibold">Todos notificados</span>
-                )}
-              </div>
+              <div className="text-2xl font-black text-purple-950 mt-1.5">{attendanceMetrics.atrasos}</div>
+              <div className="text-[11px] text-purple-700 mt-0.5 font-medium">Entradas tardias</div>
             </div>
           </div>
+
+          {/* WhatsApp Notification Dispatch Progress Bar */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3 sm:px-4 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs text-slate-700">
+              <Smartphone className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                <strong>{totalDailyAbsences} ausências totais</strong> nesta data •{' '}
+                <strong className="text-emerald-700">{alreadyNotifiedCount}</strong> alertas enviados via WhatsApp •{' '}
+                <strong className="text-amber-700">{pendingNotificationCount}</strong> pendentes de envio
+              </span>
+            </div>
+            {filteredDailyAbsentees.length > 0 && (
+              <button
+                type="button"
+                onClick={handleOpenBulkForDaily}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+              >
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Disparar para os {filteredDailyAbsentees.length} ausentes</span>
+              </button>
+            )}
+          </div>
+
+          {/* Delete Success Toast */}
+          {deleteSuccessMsg && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-xl flex items-center justify-between gap-2 text-xs font-bold animate-in fade-in">
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-600" />
+                <span>{deleteSuccessMsg}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDeleteSuccessMsg(null)}
+                className="cursor-pointer text-emerald-700 hover:text-emerald-900"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {/* Filter Bar for Daily Absences */}
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
@@ -1042,6 +1141,15 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
                         >
                           Ver Ficha Completa &rarr;
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => setAlertToDelete(alert)}
+                          className="text-xs font-semibold text-rose-600 hover:text-rose-800 hover:bg-rose-50 px-2 py-1 rounded-md transition-colors cursor-pointer flex items-center gap-1"
+                          title="Excluir este alerta do histórico"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Excluir</span>
+                        </button>
                       </div>
                     </div>
 
@@ -1094,6 +1202,63 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
           await onUpdateAlertStatus(alertId, 'entregue');
         }}
       />
+
+      {/* Alert Delete Confirmation Modal */}
+      {alertToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4 shadow-xs">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <h3 className="text-base font-bold text-slate-900 text-center">
+              Excluir Alerta do Histórico
+            </h3>
+
+            <p className="text-xs text-slate-600 text-center mt-2 leading-relaxed">
+              Tem certeza que deseja excluir o registro de alerta enviado para o responsável de{' '}
+              <strong className="text-slate-900">{alertToDelete.studentName}</strong> ({alertToDelete.className})?
+            </p>
+
+            <div className="mt-4 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+              <div className="text-slate-700">
+                <strong>Data de Envio:</strong> {new Date(alertToDelete.sentAt).toLocaleString('pt-BR')}
+              </div>
+              <div className="text-slate-700">
+                <strong>Motivo / Gatilho:</strong> {alertToDelete.triggerLabel || alertToDelete.triggerReason}
+              </div>
+              <div className="text-slate-700">
+                <strong>Responsável:</strong> {alertToDelete.guardianName} ({alertToDelete.guardianPhone})
+              </div>
+            </div>
+
+            <p className="text-[11px] text-rose-600 text-center mt-3 font-medium">
+              Esta ação removerá este alerta da base permanente e atualizará a nuvem.
+            </p>
+
+            <div className="mt-6 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setAlertToDelete(null)}
+                disabled={isDeletingAlert}
+                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmDeleteAlert}
+                disabled={isDeletingAlert}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isDeletingAlert ? 'Excluindo...' : 'Sim, Excluir Alerta'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
