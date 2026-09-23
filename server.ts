@@ -969,6 +969,97 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
     }
   });
 
+  // =========================================================================
+  // PROXIES PARA GOOGLE APPS SCRIPT / GOOGLE SHEETS
+  // Evitam erros de CORS e redirecionamento 302 direto no navegador
+  // =========================================================================
+
+  const OCORRENCIAS_APPS_SCRIPT_URL =
+    'https://script.google.com/macros/s/AKfycbxoaLMtXKdq7sn_NB0U1ROENEmtlfaSe6PwCYCyjmMbmNa3gM2tXHBCDL97tD8G61TW/exec';
+
+  const TABLETS_APPS_SCRIPT_URL =
+    'https://script.google.com/macros/s/AKfycbwV2JJo26LjoraCpo88qOYdna6IO_ornLE1BRXZc86kDcP9QJU_98Ei03i21pTLp1-uZA/exec';
+
+  // --- 1. OCORRÊNCIAS & MEDIAÇÃO ---
+  app.get('/api/sheets-ocorrencias', async (req, res) => {
+    try {
+      const response = await fetch(OCORRENCIAS_APPS_SCRIPT_URL, {
+        headers: { Accept: 'application/json' },
+      });
+      const data = await response.json();
+      res.json(data);
+    } catch (err: any) {
+      console.error('Erro proxy GET ocorrências Apps Script:', err.message);
+      res.status(502).json({
+        erro: 'Erro de comunicação com a planilha do Google Apps Script: ' + err.message,
+        fallback: true,
+      });
+    }
+  });
+
+  app.post('/api/sheets-ocorrencias', async (req, res) => {
+    try {
+      const response = await fetch(OCORRENCIAS_APPS_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+      });
+      const text = await response.text();
+      try {
+        const data = JSON.parse(text);
+        res.json(data);
+      } catch {
+        res.json({ status: 'sucesso', raw: text });
+      }
+    } catch (err: any) {
+      console.error('Erro proxy POST ocorrências Apps Script:', err.message);
+      res.status(502).json({
+        status: 'erro',
+        mensagem: 'Falha ao salvar no Google Sheets: ' + err.message,
+      });
+    }
+  });
+
+  // --- 2. AGENDAMENTO DE TABLETS ---
+  app.get('/api/sheets-tablets', async (req, res) => {
+    try {
+      const response = await fetch(TABLETS_APPS_SCRIPT_URL, {
+        headers: { Accept: 'application/json' },
+      });
+      const data = await response.json();
+      res.json(data);
+    } catch (err: any) {
+      console.error('Erro proxy GET tablets Apps Script:', err.message);
+      res.status(502).json({
+        erro: 'Erro de comunicação com a planilha de tablets: ' + err.message,
+        fallback: true,
+      });
+    }
+  });
+
+  app.post('/api/sheets-tablets', async (req, res) => {
+    try {
+      const response = await fetch(TABLETS_APPS_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body),
+      });
+      const text = await response.text();
+      try {
+        const data = JSON.parse(text);
+        res.json(data);
+      } catch {
+        res.json({ status: 'sucesso', raw: text });
+      }
+    } catch (err: any) {
+      console.error('Erro proxy POST tablets Apps Script:', err.message);
+      res.status(502).json({
+        status: 'erro',
+        msg: 'Falha ao processar reserva no Google Sheets: ' + err.message,
+      });
+    }
+  });
+
   // Reset database to initial seed data
   app.post('/api/reset-data', (req, res) => {
     try {

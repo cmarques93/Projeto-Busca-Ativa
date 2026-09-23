@@ -18,6 +18,8 @@ import { GoogleSheetsModal } from './components/GoogleSheetsModal';
 import { AccessManagement } from './components/AccessManagement';
 import { ClassesManager } from './components/ClassesManager';
 import { LoginScreen } from './components/LoginScreen';
+import { OcorrenciasManager } from './components/OcorrenciasManager';
+import { TabletsManager } from './components/TabletsManager';
 import { RotateCcw, ShieldCheck, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { storageService } from './data/storageService';
 import { firestoreService } from './lib/firestoreService';
@@ -755,6 +757,23 @@ export default function App() {
             report={monthlyReport}
             onSelectMonth={monthIndex => setSelectedMonthIndex(monthIndex)}
             selectedMonthIndex={selectedMonthIndex}
+          />
+        )}
+
+        {/* Registro de Ocorrências & Mediação Disciplinar */}
+        {activeTab === 'ocorrencias' && (
+          <OcorrenciasManager
+            currentUser={currentUser}
+            classes={classes}
+            students={students}
+          />
+        )}
+
+        {/* Agendamento Semanal de Tablets */}
+        {activeTab === 'tablets' && (
+          <TabletsManager
+            currentUser={currentUser}
+            classes={classes}
           />
         )}
       </main>

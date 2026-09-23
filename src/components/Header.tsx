@@ -17,7 +17,9 @@ import {
   ShieldCheck,
   Users,
   LogOut,
-  Smartphone
+  Smartphone,
+  AlertOctagon,
+  Tablet
 } from 'lucide-react';
 import { UserRole, UserSession } from '../types';
 
@@ -29,7 +31,9 @@ export type MainTabType =
   | 'interventions'
   | 'reports'
   | 'teacher_absence'
-  | 'access_management';
+  | 'access_management'
+  | 'ocorrencias'
+  | 'tablets';
 
 interface HeaderProps {
   schoolName: string;
@@ -397,6 +401,34 @@ export const Header: React.FC<HeaderProps> = ({
             <span>Relatórios Pedagógicos Mensais</span>
           </button>
         )}
+
+        {/* TODOS OS PERFIS: Registro de Ocorrências & Mediação Escolar */}
+        <button
+          onClick={() => setActiveTab('ocorrencias')}
+          className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'ocorrencias'
+              ? 'border-indigo-600 text-indigo-700 bg-indigo-50/40'
+              : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+          }`}
+          title="Registro disciplinar, acompanhamento de tutorados, pareceres e mediação com a família"
+        >
+          <AlertOctagon className="w-4 h-4 text-indigo-600" />
+          <span>Ocorrências & Mediação</span>
+        </button>
+
+        {/* TODOS OS PERFIS: Agendamento Semanal de Tablets */}
+        <button
+          onClick={() => setActiveTab('tablets')}
+          className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeTab === 'tablets'
+              ? 'border-sky-600 text-sky-700 bg-sky-50/40'
+              : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+          }`}
+          title="Grade semanal de reserva e controle de tablets escolares"
+        >
+          <Tablet className="w-4 h-4 text-sky-600" />
+          <span>Agendamento de Tablets</span>
+        </button>
       </div>
     </header>
   );
