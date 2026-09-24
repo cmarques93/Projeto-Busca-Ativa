@@ -570,6 +570,87 @@ export const storageService = {
     return records;
   },
 
+  deleteAttendanceByDate: async (dateStr: string, classId?: string): Promise<{ deletedCount: number }> => {
+    if (!dateStr) return { deletedCount: 0 };
+    const allRecords = getStored<AttendanceRecord[]>('school_attendance', []);
+    const allStudents = getStored<Student[]>('school_students', []);
+    const affectedStudentIds = new Set<string>();
+
+    const remainingRecords = allRecords.filter(r => {
+      const matchDate = isSameDay(r.date, dateStr);
+      if (!matchDate) return true;
+      if (classId) {
+        const cleanCId = classId.trim().toLowerCase();
+        const matchClass = (r.classId || '').trim().toLowerCase() === cleanCId || (r.className || '').trim().toLowerCase() === cleanCId;
+        if (!matchClass) return true;
+      }
+      affectedStudentIds.add(r.studentId);
+      return false; // delete
+    });
+
+    const deletedCount = allRecords.length - remainingRecords.length;
+    setStored('school_attendance', remainingRecords);
+
+    // Recalcula totais dos estudantes afetados
+    const updatedStudents: Student[] = [];
+    allStudents.forEach(st => {
+      if (affectedStudentIds.has(st.id)) {
+        const studentHistory = remainingRecords
+          .filter(r => r.studentId === st.id)
+          .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+        const absenceRecords = studentHistory.filter(
+          r => r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico'
+        );
+        st.totalAbsences = absenceRecords.reduce((acc, r) => acc + (r.durationDays || 1), 0);
+
+        let cons = 0;
+        for (const r of studentHistory) {
+          if (r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico') {
+            cons += (r.durationDays || 1);
+          } else if (r.status === 'presente' || (r.status as any) === 'atraso') {
+            break;
+          }
+        }
+        st.consecutiveAbsences = cons;
+
+        const lastPres = studentHistory.find(r => r.status === 'presente' || (r.status as any) === 'atraso');
+        if (lastPres) {
+          st.lastAttendanceDate = lastPres.date;
+        }
+
+        st.attendanceRate = Math.max(0, Math.round(((st.totalSchoolDays - st.totalAbsences) / st.totalSchoolDays) * 100));
+        if (st.consecutiveAbsences >= 4 || st.attendanceRate < 75) {
+          st.riskLevel = 'critico';
+          st.status = 'evasao_iminente';
+        } else if (st.consecutiveAbsences >= 2 || st.attendanceRate < 80) {
+          st.riskLevel = 'alto';
+          st.status = 'alerta';
+        } else {
+          st.riskLevel = 'baixo';
+          st.status = 'regular';
+        }
+        updatedStudents.push(st);
+      }
+    });
+
+    if (updatedStudents.length > 0) {
+      setStored('school_students', allStudents);
+    }
+
+    // Sincroniza exclusão no Firestore
+    try {
+      await firestoreService.deleteAttendanceByDate(dateStr, classId);
+      if (updatedStudents.length > 0) {
+        await firestoreService.batchSaveStudents(updatedStudents);
+      }
+    } catch (e) {
+      console.warn('Erro ao sincronizar exclusão de chamadas no Firestore:', e);
+    }
+
+    return { deletedCount };
+  },
+
   // === PORTARIA ===
   getGateRecords: (date?: string, classId?: string): GateRecord[] => {
     let list = getStored<GateRecord[]>('school_gate_records', []);

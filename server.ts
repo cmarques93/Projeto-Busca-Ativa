@@ -278,6 +278,26 @@ async function startServer() {
     }
   });
 
+  // Excluir registros de frequência por data (e opcionalmente por turma)
+  const handleDeleteAttendance = (req: any, res: any) => {
+    try {
+      const date = (req.query.date || req.body?.date) as string;
+      const classId = (req.query.classId || req.body?.classId) as string;
+      if (!date) {
+        return res.status(400).json({ error: 'Parâmetro de data é obrigatório' });
+      }
+      const result = db.deleteAttendanceByDate(date, classId);
+      res.json({
+        success: true,
+        deletedCount: result.deletedCount,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  };
+  app.delete('/api/attendance', handleDeleteAttendance);
+  app.delete('/api/attendance-records', handleDeleteAttendance);
+
   // Gate pass records (Controle de Entradas e Saídas fora do horário oficial)
   app.get('/api/gate-records', (req, res) => {
     try {

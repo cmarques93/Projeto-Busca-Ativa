@@ -1378,6 +1378,60 @@ export class SchoolDatabase {
     return { recordedCount: items.length, newAlerts };
   }
 
+  public deleteAttendanceByDate(dateStr: string, classId?: string): { deletedCount: number } {
+    if (!dateStr) return { deletedCount: 0 };
+    const beforeCount = this.data.attendanceRecords.length;
+    const affectedStudentIds = new Set<string>();
+
+    this.data.attendanceRecords = this.data.attendanceRecords.filter(r => {
+      const isMatchDate = r.date === dateStr;
+      if (!isMatchDate) return true;
+      if (classId) {
+        const isMatchClass = r.classId === classId || (r.className && r.className.toLowerCase() === classId.toLowerCase());
+        if (!isMatchClass) return true;
+      }
+      affectedStudentIds.add(r.studentId);
+      return false; // remove
+    });
+
+    const deletedCount = beforeCount - this.data.attendanceRecords.length;
+
+    // Recalcula totais para os estudantes afetados
+    affectedStudentIds.forEach(studentId => {
+      const student = this.data.students.find(s => s.id === studentId);
+      if (student) {
+        const studentHistory = this.data.attendanceRecords
+          .filter(r => r.studentId === student.id)
+          .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+        const absenceRecs = studentHistory.filter(
+          r => r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico'
+        );
+        student.totalAbsences = absenceRecs.reduce((acc, r) => acc + (r.durationDays || 1), 0);
+
+        let consAbs = 0;
+        for (const r of studentHistory) {
+          if (r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico') {
+            consAbs += (r.durationDays || 1);
+          } else if (r.status === 'presente' || (r.status as any) === 'atraso') {
+            break;
+          }
+        }
+        student.consecutiveAbsences = consAbs;
+
+        const lastPresRec = studentHistory.find(r => r.status === 'presente' || (r.status as any) === 'atraso');
+        if (lastPresRec) {
+          student.lastAttendanceDate = lastPresRec.date;
+        }
+
+        student.attendanceRate = Number((((student.totalSchoolDays - student.totalAbsences) / student.totalSchoolDays) * 100).toFixed(1));
+      }
+    });
+
+    this.saveToDisk();
+    return { deletedCount };
+  }
+
   public getGateRecords(filters?: { date?: string; classId?: string }): GateRecord[] {
     let records = this.data.gateRecords || [];
     if (filters?.date) {

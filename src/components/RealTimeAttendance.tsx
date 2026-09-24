@@ -17,7 +17,8 @@ import {
   School,
   ArrowRight,
   AlertCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Trash2
 } from 'lucide-react';
 import { Student, SchoolClass, AttendanceStatus, ParentAlert, AttendanceRecord } from '../types';
 import { storageService } from '../data/storageService';
@@ -159,6 +160,53 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
   const [modalStudentSearch, setModalStudentSearch] = useState('');
   const [modalRiskFilter, setModalRiskFilter] = useState<string>('todos');
   const [isSubmittingModal, setIsSubmittingModal] = useState(false);
+
+  // Delete Attendance Modal state
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deleteTargetClass, setDeleteTargetClass] = useState<SchoolClass | null>(null);
+  const [isDeletingRecords, setIsDeletingRecords] = useState(false);
+
+  const handleOpenDeleteModal = (targetClass: SchoolClass | null = null) => {
+    setDeleteTargetClass(targetClass);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDeleteAttendance = async () => {
+    setIsDeletingRecords(true);
+    try {
+      const classId = deleteTargetClass?.id;
+      // 1. Apaga do storageService e atualiza Firebase Firestore
+      await storageService.deleteAttendanceByDate(selectedDate, classId);
+
+      // 2. Apaga da API backend para manter base local e servidor em perfeita sincronia
+      try {
+        await fetch(`/api/attendance?date=${selectedDate}${classId ? `&classId=${encodeURIComponent(classId)}` : ''}`, {
+          method: 'DELETE',
+        });
+      } catch (errApi) {
+        console.warn('Erro na chamada DELETE API backend:', errApi);
+      }
+
+      // 3. Recarrega registros da tela
+      await loadDailyRecords(selectedDate);
+
+      const formattedDate = new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR');
+      const targetText = deleteTargetClass ? `da turma "${deleteTargetClass.name}"` : 'de todas as turmas';
+      setSaveSuccessMsg(`Registros de frequência ${targetText} do dia ${formattedDate} foram excluídos com sucesso e a base do Firebase foi atualizada.`);
+      setTimeout(() => setSaveSuccessMsg(null), 6000);
+
+      setIsDeleteDialogOpen(false);
+      setDeleteTargetClass(null);
+      if (activeModalClass && (!classId || activeModalClass.id === classId)) {
+        setActiveModalClass(null);
+      }
+    } catch (err) {
+      console.error('Erro ao excluir registros de frequência:', err);
+      alert('Ocorreu um erro ao excluir os registros. Tente novamente.');
+    } finally {
+      setIsDeletingRecords(false);
+    }
+  };
 
   // Fetch daily attendance records when date changes
   const loadDailyRecords = async (date: string) => {
@@ -652,6 +700,18 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             )}
+
+            {/* Botão de Excluir Registros do Dia Selecionado */}
+            <button
+              type="button"
+              onClick={() => handleOpenDeleteModal(null)}
+              className="px-3 py-2.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs active:scale-95"
+              title={`Excluir todos os registros de frequência lançados em ${new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR')}`}
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+              <span className="hidden sm:inline">Excluir Registros do Dia</span>
+              <span className="sm:hidden">Excluir Dia</span>
+            </button>
           </div>
         </div>
 
@@ -863,12 +923,12 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
                   </div>
                 </div>
 
-                {/* Action Button to Open Pop-up */}
-                <div className="mt-4 pt-3 border-t border-slate-100">
+                {/* Action Buttons to Open Pop-up / Delete */}
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleOpenAttendanceModal(cls)}
-                    className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shadow-2xs active:scale-98 ${
+                    className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shadow-2xs active:scale-98 ${
                       isRecorded
                         ? 'bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-800'
                         : 'bg-indigo-600 hover:bg-indigo-700 text-white'
@@ -878,6 +938,17 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
                     <span>{isRecorded ? 'Editar Chamada' : 'Lançar Frequência'}</span>
                     <ChevronRight className="w-3.5 h-3.5 opacity-70" />
                   </button>
+
+                  {isRecorded && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenDeleteModal(cls)}
+                      className="p-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 cursor-pointer transition-colors shadow-2xs shrink-0"
+                      title={`Excluir chamada da turma ${cls.name} para a data selecionada`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -1218,16 +1289,95 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
             </div>
 
             {/* Modal Footer */}
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
               <div className="text-xs text-slate-500 hidden sm:block">
                 Após registrar, este pop-up se fechará e a frequência será gravada na nuvem.
               </div>
 
-              <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+              <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                {dailyRecords.some(r => isSameDay(r.date, selectedDate) && isRecordInClass(r, activeModalClass)) && (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenDeleteModal(activeModalClass)}
+                    disabled={isSubmittingModal || isDeletingRecords}
+                    className="px-3 py-2 rounded-xl text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 flex items-center gap-1.5 cursor-pointer transition-colors"
+                    title="Excluir o lançamento de frequência desta turma"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Excluir Chamada</span>
+                  </button>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveModalClass(null)}
+                    disabled={isSubmittingModal || isDeletingRecords}
+                    className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveModalAttendance}
+                    disabled={isSubmittingModal || isDeletingRecords}
+                    className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>{isSubmittingModal ? 'Gravando no Banco...' : 'Registrar Frequência'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL DE CONFIRMAÇÃO: EXCLUIR REGISTROS DO DIA                 */}
+      {/* ============================================================== */}
+      {isDeleteDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-rose-100 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-4">
+                <Trash2 className="w-6 h-6" />
+              </div>
+
+              <h2 className="text-base font-black text-slate-900 mb-2">
+                {deleteTargetClass
+                  ? `Excluir chamada de ${deleteTargetClass.name}?`
+                  : 'Excluir registros da data selecionada?'}
+              </h2>
+
+              <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                {deleteTargetClass ? (
+                  <>
+                    Você está prestes a excluir os registros de frequência da turma <strong>{deleteTargetClass.name}</strong> para o dia <strong>{new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR')}</strong>.
+                  </>
+                ) : (
+                  <>
+                    Você está prestes a excluir <strong>todos os registros de frequência lançados</strong> no dia <strong>{new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR')}</strong> de todas as turmas.
+                  </>
+                )}
+              </p>
+
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 flex items-start gap-2 mb-6">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  Esta ação excluirá os registros da base permanente e atualizará o <strong>Firebase Firestore</strong> em tempo real, recalculando as métricas e faltas dos estudantes.
+                </span>
+              </div>
+
+              <div className="flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setActiveModalClass(null)}
-                  disabled={isSubmittingModal}
+                  onClick={() => {
+                    setIsDeleteDialogOpen(false);
+                    setDeleteTargetClass(null);
+                  }}
+                  disabled={isDeletingRecords}
                   className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 cursor-pointer"
                 >
                   Cancelar
@@ -1235,12 +1385,12 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
 
                 <button
                   type="button"
-                  onClick={handleSaveModalAttendance}
-                  disabled={isSubmittingModal}
-                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                  onClick={handleConfirmDeleteAttendance}
+                  disabled={isDeletingRecords}
+                  className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md cursor-pointer transition-all active:scale-95 disabled:opacity-50"
                 >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{isSubmittingModal ? 'Gravando no Banco...' : 'Registrar Frequência'}</span>
+                  <Trash2 className="w-4 h-4" />
+                  <span>{isDeletingRecords ? 'Excluindo do Firebase...' : 'Confirmar Exclusão'}</span>
                 </button>
               </div>
             </div>

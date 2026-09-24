@@ -280,6 +280,37 @@ export const firestoreService = {
     }
   },
 
+  async deleteAttendanceByDate(dateStr: string, classId?: string): Promise<number> {
+    if (!dateStr) return 0;
+    try {
+      const snap = await getDocs(collection(db, 'attendance_records'));
+      const toDelete: string[] = [];
+      snap.forEach(d => {
+        const data = d.data() as AttendanceRecord;
+        const recordDate = normalizeDateStr(data.date) || data.date;
+        if (isSameDay(recordDate, dateStr)) {
+          if (!classId || data.classId === classId || (data.className && data.className.toLowerCase() === classId.toLowerCase())) {
+            toDelete.push(d.id);
+          }
+        }
+      });
+
+      const chunkSize = 450;
+      for (let i = 0; i < toDelete.length; i += chunkSize) {
+        const chunk = toDelete.slice(i, i + chunkSize);
+        const batch = writeBatch(db);
+        for (const id of chunk) {
+          batch.delete(doc(db, 'attendance_records', id));
+        }
+        await batch.commit();
+      }
+      return toDelete.length;
+    } catch (e) {
+      console.error('Erro ao excluir registros de chamada do Firestore por data:', e);
+      return 0;
+    }
+  },
+
   // === ALERTS ===
   async getAlerts(): Promise<ParentAlert[]> {
     try {
