@@ -28,12 +28,14 @@ import {
   ExternalLink,
   Lock,
   Percent,
-  CheckCircle
+  CheckCircle,
+  Trash2
 } from 'lucide-react';
-import { SchoolClass, Student, AttendanceRecord } from '../types';
+import { SchoolClass, Student, AttendanceRecord, UserAccount } from '../types';
 import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
 import { storageService } from '../data/storageService';
-import { carregarOcorrenciasSeguro, salvarOcorrenciaSeguro } from '../lib/sheetsSyncService';
+import { carregarOcorrenciasSeguro, salvarOcorrenciaSeguro, excluirOcorrenciaSeguro } from '../lib/sheetsSyncService';
+import { firestoreService } from '../lib/firestoreService';
 import ocorrenciasBaseline from '../data/ocorrenciasBaseline.json';
 
 export interface OcorrenciaRecord {
@@ -137,12 +139,55 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
   // Identificação do Usuário
   const userName = currentUser?.name || 'Professor / Servidor';
   const userRole = (currentUser?.role || 'professor').toLowerCase();
+  const isAdmin = userRole === 'admin' || userRole.includes('admin');
   const isGestao =
+    isAdmin ||
     userRole.includes('gest') ||
     userRole.includes('paac') ||
-    userRole.includes('admin') ||
     userRole.includes('diret') ||
     userRole.includes('coord');
+
+  // Modal de Exclusão de Ocorrência (Exclusivo Administrador)
+  const [ocorrenciaParaExcluir, setOcorrenciaParaExcluir] = useState<OcorrenciaRecord | null>(null);
+  const [excluindoOcorrencia, setExcluindoOcorrencia] = useState(false);
+
+  // Lista de Usuários do Sistema para Seleção
+  const [usuariosCadastrados, setUsuariosCadastrados] = useState<UserAccount[]>(() => {
+    try {
+      return storageService.getUsers();
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    firestoreService.getUsers().then(users => {
+      if (users && users.length > 0) {
+        setUsuariosCadastrados(users);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const listaProfessoresDisponiveis = useMemo(() => {
+    const profsUsers = usuariosCadastrados
+      .filter(u => u.active !== false && u.role === 'professor')
+      .map(u => u.name);
+    const profsDb = bancoDeDados.professores || [];
+    const todos = Array.from(new Set([...profsUsers, ...profsDb, userName])).filter(Boolean);
+    return todos.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [usuariosCadastrados, bancoDeDados.professores, userName]);
+
+  const listaMembrosGestaoDisponiveis = useMemo(() => {
+    const gestaoUsers = usuariosCadastrados
+      .filter(u => u.active !== false && u.role !== 'professor')
+      .map(u => u.name);
+    const todos = Array.from(new Set([...gestaoUsers, userName])).filter(Boolean);
+    return todos.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [usuariosCadastrados, userName]);
+
+  // Modo de digitação livre de professor e mediador (útil para migração do sistema antigo)
+  const [modoProfessorAvulso, setModoProfessorAvulso] = useState(false);
+  const [modoMediadorAvulso, setModoMediadorAvulso] = useState(false);
 
   // Abas de Navegação
   const [abaGestao, setAbaGestao] = useState<
@@ -183,7 +228,11 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
   // Modal de Mediação
   const [modalMediacao, setModalMediacao] = useState<OcorrenciaRecord | null>(null);
-  const [formMediacao, setFormMediacao] = useState({ status: 'Resolvido', mediacao: '' });
+  const [formMediacao, setFormMediacao] = useState({
+    status: 'Resolvido',
+    mediacao: '',
+    mediador: userName,
+  });
 
   // Modal de Tratativa com Família
   const [modalFamilia, setModalFamilia] = useState<{
@@ -467,18 +516,31 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     }
   };
 
+  // Abrir Modal de Mediação
+  const abrirMediacao = (r: OcorrenciaRecord) => {
+    setModalMediacao(r);
+    setFormMediacao({
+      status: r.status || 'Resolvido',
+      mediacao: r.mediacao || '',
+      mediador: r.mediador || userName,
+    });
+    setModoMediadorAvulso(false);
+  };
+
   // Salvar Mediação da Gestão
   const handleSalvarMediacao = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!modalMediacao) return;
     setEnviando(true);
 
+    const mediadorFinal = (formMediacao.mediador || userName).trim();
     const payload = {
+      action: 'mediacao',
       acao: 'mediar',
       id: modalMediacao.id,
       status: formMediacao.status,
       mediacao: formMediacao.mediacao,
-      mediador: userName,
+      mediador: mediadorFinal,
     };
 
     await salvarOcorrenciaSeguro(payload);
@@ -491,7 +553,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
               ...r,
               status: formMediacao.status,
               mediacao: formMediacao.mediacao,
-              mediador: userName,
+              mediador: mediadorFinal,
             }
           : r
       );
@@ -503,9 +565,37 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     setEnviando(false);
     setMensagem({ texto: '✅ Parecer de mediação registrado com sucesso!', tipo: 'sucesso' });
     setModalMediacao(null);
-    setFormMediacao({ status: 'Resolvido', mediacao: '' });
+    setFormMediacao({ status: 'Resolvido', mediacao: '', mediador: userName });
     setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
     carregarDados();
+  };
+
+  // Confirmar Exclusão de Ocorrência (Exclusivo Administrador)
+  const handleConfirmarExclusaoOcorrencia = async () => {
+    if (!ocorrenciaParaExcluir || !isAdmin) return;
+    setExcluindoOcorrencia(true);
+    try {
+      await excluirOcorrenciaSeguro(ocorrenciaParaExcluir.id, bancoDeDados);
+
+      // Atualiza base local imediatamente
+      setBancoDeDados(prev => {
+        const registrosAtualizados = prev.registros.filter(r => r.id !== ocorrenciaParaExcluir.id);
+        const novoDb = { ...prev, registros: registrosAtualizados };
+        localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(novoDb));
+        return novoDb;
+      });
+
+      setMensagem({
+        texto: `✅ Ocorrência #${ocorrenciaParaExcluir.id} de ${ocorrenciaParaExcluir.estudante} excluída com sucesso!`,
+        tipo: 'sucesso',
+      });
+      setOcorrenciaParaExcluir(null);
+      setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
+    } catch (err: any) {
+      setMensagem({ texto: 'Erro ao excluir ocorrência: ' + err.message, tipo: 'erro' });
+    } finally {
+      setExcluindoOcorrencia(false);
+    }
   };
 
   // Salvar Tratativa com a Família
@@ -693,7 +783,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
           <div className="mt-3 bg-indigo-50/70 p-3 rounded-xl border border-indigo-100 text-xs">
             <p className="font-bold text-indigo-900 mb-0.5 flex items-center gap-1.5">
               <Shield className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Parecer da Gestão / Mediação:</span>
+              <span>Parecer da Gestão / Mediação{reg.mediador ? ` (${reg.mediador})` : ''}:</span>
             </p>
             <p className="text-indigo-950 whitespace-pre-line">{reg.mediacao}</p>
           </div>
@@ -730,6 +820,19 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             <span>{reg.mediacao ? 'Atualizar Mediação' : 'Mediar Ocorrência'}</span>
           </button>
         )}
+
+        {/* Excluir Ocorrência - Exclusivo Administrador */}
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => setOcorrenciaParaExcluir(reg)}
+            className="w-full sm:w-auto bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-2 px-3 rounded-xl text-xs border border-rose-200 shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+            title="Excluir ocorrência do banco de dados (Exclusivo Administrador)"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+            <span>Excluir</span>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -740,18 +843,66 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       onSubmit={handleSubmit}
       className="space-y-4 bg-white p-6 rounded-2xl shadow-xs border border-slate-200"
     >
-      <div>
-        <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-          Data da Ocorrência
-        </label>
-        <input
-          type="date"
-          name="data"
-          value={form.data}
-          onChange={handleChange}
-          required
-          className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800"
-        />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+            Data da Ocorrência
+          </label>
+          <input
+            type="date"
+            name="data"
+            value={form.data}
+            onChange={handleChange}
+            required
+            className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800"
+          />
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-bold text-slate-700 uppercase">
+              Professor(a) Relator(a) da Ocorrência
+            </label>
+            {(isAdmin || isGestao) && (
+              <button
+                type="button"
+                onClick={() => setModoProfessorAvulso(!modoProfessorAvulso)}
+                className="text-[11px] text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
+              >
+                {modoProfessorAvulso ? 'Selecionar da lista' : 'Ou digitar outro nome (sistema antigo)'}
+              </button>
+            )}
+          </div>
+
+          {modoProfessorAvulso ? (
+            <input
+              type="text"
+              name="professor"
+              value={form.professor}
+              onChange={handleChange}
+              required
+              placeholder="Digite o nome do(a) professor(a)..."
+              className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800"
+            />
+          ) : (
+            <select
+              name="professor"
+              value={form.professor}
+              onChange={handleChange}
+              required
+              className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+            >
+              {form.professor && !listaProfessoresDisponiveis.includes(form.professor) && (
+                <option value={form.professor}>{form.professor} (Atual)</option>
+              )}
+              {listaProfessoresDisponiveis.map(p => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1402,17 +1553,41 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                               </div>
                             )}
 
-                            {isGestao && (
-                              <div className="mt-2 pt-1.5 border-t border-slate-200 flex justify-end">
-                                <button
-                                  type="button"
-                                  onClick={() => abrirWhatsAppOcorrencia(o)}
-                                  className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1 cursor-pointer transition-colors"
-                                  title="Enviar este registro via WhatsApp aos responsáveis"
-                                >
-                                  <Phone className="w-3 h-3 text-emerald-600" />
-                                  <span>WhatsApp Responsáveis</span>
-                                </button>
+                            {(isGestao || isAdmin) && (
+                              <div className="mt-2 pt-1.5 border-t border-slate-200 flex justify-end items-center gap-2 flex-wrap">
+                                {isGestao && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirWhatsAppOcorrencia(o)}
+                                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                      title="Enviar este registro via WhatsApp aos responsáveis"
+                                    >
+                                      <Phone className="w-3 h-3 text-emerald-600" />
+                                      <span>WhatsApp Responsáveis</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirMediacao(o)}
+                                      className="text-[11px] font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                      title="Mediar ou atualizar parecer desta ocorrência"
+                                    >
+                                      <Shield className="w-3 h-3 text-amber-600" />
+                                      <span>{o.mediacao ? 'Editar Mediação' : 'Mediar'}</span>
+                                    </button>
+                                  </>
+                                )}
+                                {isAdmin && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setOcorrenciaParaExcluir(o)}
+                                    className="text-[11px] font-bold text-rose-700 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 px-2 py-1 rounded-lg border border-rose-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                    title="Excluir ocorrência (Exclusivo Administrador)"
+                                  >
+                                    <Trash2 className="w-3 h-3 text-rose-600" />
+                                    <span>Excluir</span>
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1769,7 +1944,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                         key={reg.id}
                         reg={reg}
                         resolvidoEmSala={false}
-                        onMediar={setModalMediacao}
+                        onMediar={abrirMediacao}
                       />
                     ))}
                   </div>
@@ -1789,7 +1964,12 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 ) : (
                   <div className="grid gap-3">
                     {resolvidosEmSala.map(reg => (
-                      <OcorrenciaCard key={reg.id} reg={reg} resolvidoEmSala={true} />
+                      <OcorrenciaCard
+                        key={reg.id}
+                        reg={reg}
+                        resolvidoEmSala={true}
+                        onMediar={abrirMediacao}
+                      />
                     ))}
                   </div>
                 )}
@@ -1894,6 +2074,51 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 <p className="text-slate-600 mt-0.5">{modalMediacao.ocorrencia}</p>
               </div>
               <form onSubmit={handleSalvarMediacao} className="space-y-4">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-700 uppercase">
+                      Responsável pela Mediação (Gestão Escolar)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setModoMediadorAvulso(!modoMediadorAvulso)}
+                      className="text-[11px] text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
+                    >
+                      {modoMediadorAvulso ? 'Selecionar da lista' : 'Ou digitar outro nome (sistema antigo)'}
+                    </button>
+                  </div>
+
+                  {modoMediadorAvulso ? (
+                    <input
+                      type="text"
+                      value={formMediacao.mediador}
+                      onChange={e => setFormMediacao({ ...formMediacao, mediador: e.target.value })}
+                      required
+                      placeholder="Nome do(a) mediador(a)..."
+                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800"
+                    />
+                  ) : (
+                    <select
+                      value={formMediacao.mediador}
+                      onChange={e => setFormMediacao({ ...formMediacao, mediador: e.target.value })}
+                      required
+                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+                    >
+                      {formMediacao.mediador && !listaMembrosGestaoDisponiveis.includes(formMediacao.mediador) && (
+                        <option value={formMediacao.mediador}>{formMediacao.mediador} (Atual)</option>
+                      )}
+                      {listaMembrosGestaoDisponiveis.map(m => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Selecione ou digite o nome de quem conduziu a mediação/atendimento.
+                  </p>
+                </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                     Status após este atendimento
@@ -2356,6 +2581,80 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                   className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold rounded-xl cursor-pointer transition-colors"
                 >
                   Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: CONFIRMAÇÃO DE EXCLUSÃO DE OCORRÊNCIA (EXCLUSIVO ADMINISTRADOR) */}
+      {ocorrenciaParaExcluir && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 animate-in zoom-in-95">
+            <div className="bg-rose-600 px-6 py-4 flex justify-between items-center text-white">
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <Trash2 className="w-4 h-4" />
+                <span>Excluir Registro de Ocorrência</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setOcorrenciaParaExcluir(null)}
+                disabled={excluindoOcorrencia}
+                className="font-bold text-lg cursor-pointer hover:text-rose-200 disabled:opacity-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3.5 text-xs text-rose-900">
+                <p className="font-bold mb-1">Atenção: Ação irreversível!</p>
+                <p>
+                  Esta ocorrência será removida da base oficial de registros e do Firebase.
+                </p>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl border border-slate-200 p-3.5 space-y-1.5 text-xs">
+                <div className="flex justify-between text-slate-500">
+                  <span>Protocolo:</span>
+                  <strong className="font-mono text-slate-800">{ocorrenciaParaExcluir.id}</strong>
+                </div>
+                <div className="flex justify-between text-slate-500">
+                  <span>Estudante:</span>
+                  <strong className="text-slate-800">{ocorrenciaParaExcluir.estudante} ({ocorrenciaParaExcluir.turma})</strong>
+                </div>
+                <div className="flex justify-between text-slate-500">
+                  <span>Data / Aula:</span>
+                  <span className="text-slate-700">{formatarDataBR(ocorrenciaParaExcluir.data)} • {ocorrenciaParaExcluir.aula}</span>
+                </div>
+                <div className="flex justify-between text-slate-500">
+                  <span>Docente Relator:</span>
+                  <span className="text-slate-700">{ocorrenciaParaExcluir.professor}</span>
+                </div>
+                <div className="pt-2 border-t border-slate-200 text-slate-800">
+                  <span className="text-slate-500 block text-[11px]">Infração Relatada:</span>
+                  <span className="font-semibold">{ocorrenciaParaExcluir.ocorrencia}</span>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setOcorrenciaParaExcluir(null)}
+                  disabled={excluindoOcorrencia}
+                  className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50 cursor-pointer disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmarExclusaoOcorrencia}
+                  disabled={excluindoOcorrencia}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 text-white font-bold text-xs hover:bg-rose-700 cursor-pointer flex items-center justify-center gap-1.5 shadow-xs transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{excluindoOcorrencia ? 'Excluindo...' : 'Sim, Excluir'}</span>
                 </button>
               </div>
             </div>

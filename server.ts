@@ -1105,7 +1105,9 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
       if (fs.existsSync(cleanFilePath)) {
         try {
           const currentClean = JSON.parse(fs.readFileSync(cleanFilePath, 'utf-8'));
-          if (body.action === 'salvar_mediacao') {
+          if (body.action === 'excluir' || body.action === 'excluir_ocorrencia') {
+            currentClean.registros = (currentClean.registros || []).filter((r: any) => r.id !== body.id);
+          } else if (body.action === 'salvar_mediacao') {
             const idx = currentClean.registros.findIndex((r: any) => r.id === body.id);
             if (idx >= 0) {
               currentClean.registros[idx].status = body.status || 'Resolvido';

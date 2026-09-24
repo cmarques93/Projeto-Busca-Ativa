@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   X,
   UserPlus,
@@ -17,9 +17,10 @@ import {
   Hash,
   Smartphone
 } from 'lucide-react';
-import { SchoolClass, Student } from '../types';
+import { SchoolClass, Student, UserAccount } from '../types';
 import { InfoTooltip } from './InfoTooltip';
 import { storageService } from '../data/storageService';
+import { firestoreService } from '../lib/firestoreService';
 import { getStudentPhones, parsePhoneNumbers } from '../utils/phoneUtils';
 
 interface StudentRegistrationModalProps {
@@ -48,6 +49,35 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Usuários cadastrados para seleção de tutoria
+  const [registeredUsers, setRegisteredUsers] = useState<UserAccount[]>(() => {
+    return storageService.getUsers();
+  });
+  const [customTutorMode, setCustomTutorMode] = useState(false);
+
+  useEffect(() => {
+    const local = storageService.getUsers();
+    if (local && local.length > 0) {
+      setRegisteredUsers(local);
+    }
+    firestoreService.getUsers().then(cloudUsers => {
+      if (cloudUsers && cloudUsers.length > 0) {
+        setRegisteredUsers(cloudUsers);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const { professoresList, gestaoList } = useMemo(() => {
+    const active = registeredUsers.filter(u => u.active !== false);
+    const profs = active
+      .filter(u => u.role === 'professor')
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    const others = active
+      .filter(u => u.role !== 'professor')
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    return { professoresList: profs, gestaoList: others };
+  }, [registeredUsers]);
 
   // Form states - Batch CSV: Nome; Turma; RA; Telefone
   const [csvText, setCsvText] = useState('');
@@ -514,18 +544,66 @@ Juliana Cristina Vieira;2024-7755;19 95432-1098`;
                       <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
                       <span>Professor(a) Tutor(a):</span>
                     </label>
-                    <InfoTooltip
-                      title="Tutoria Pedagógica"
-                      content="Nome do(a) professor(a) tutor(a) responsável pelo acompanhamento pedagógico e tutoria do estudante."
-                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCustomTutorMode(!customTutorMode)}
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
+                      >
+                        {customTutorMode ? 'Selecionar de usuários' : 'Ou digitar outro nome'}
+                      </button>
+                      <InfoTooltip
+                        title="Tutoria Pedagógica"
+                        content="Selecione o(a) professor(a) tutor(a) responsável pelo acompanhamento pedagógico entre os usuários cadastrados na escola."
+                      />
+                    </div>
                   </div>
-                  <input
-                    type="text"
-                    placeholder="Ex: Profª. Maria Helena, Prof. Carlos Eduardo..."
-                    value={tutor}
-                    onChange={e => setTutor(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
-                  />
+
+                  {!customTutorMode ? (
+                    <select
+                      value={tutor}
+                      onChange={e => setTutor(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                    >
+                      <option value="">(Nenhum / Sem Tutor atribuído)</option>
+
+                      {tutor &&
+                        !registeredUsers.some(
+                          u => u.name.trim().toLowerCase() === tutor.trim().toLowerCase()
+                        ) && (
+                          <option value={tutor}>{tutor} (Personalizado)</option>
+                        )}
+
+                      {professoresList.length > 0 && (
+                        <optgroup label="Professores / Docentes">
+                          {professoresList.map(u => (
+                            <option key={u.id} value={u.name}>
+                              {u.name} ({u.roleLabel || 'Professor'})
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+
+                      {gestaoList.length > 0 && (
+                        <optgroup label="Coordenação Pedagógica & Gestão">
+                          {gestaoList.map(u => (
+                            <option key={u.id} value={u.name}>
+                              {u.name} ({u.roleLabel || 'Gestão'})
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      placeholder="Digite o nome do(a) professor(a) tutor(a)..."
+                      value={tutor}
+                      onChange={e => setTutor(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                      autoFocus
+                    />
+                  )}
                 </div>
 
                 {/* Telefone */}

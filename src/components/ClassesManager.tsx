@@ -22,10 +22,12 @@ import {
   X,
   Lock,
   MessageSquare,
-  Smartphone
+  Smartphone,
+  UserCheck
 } from 'lucide-react';
-import { SchoolClass, Student, UserSession, RiskLevel, AttendanceStatus } from '../types';
+import { SchoolClass, Student, UserSession, RiskLevel, AttendanceStatus, UserAccount } from '../types';
 import { storageService } from '../data/storageService';
+import { firestoreService } from '../lib/firestoreService';
 import { getStudentPhones } from '../utils/phoneUtils';
 
 interface ClassesManagerProps {
@@ -67,6 +69,37 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   const [classToDelete, setClassToDelete] = useState<SchoolClass | null>(null);
   const [editingClass, setEditingClass] = useState<SchoolClass | null>(null);
   const [isNewClassModalOpen, setIsNewClassModalOpen] = useState(false);
+
+  // Usuários cadastrados para seleção de tutores
+  const [registeredUsers, setRegisteredUsers] = useState<UserAccount[]>(() => {
+    return storageService.getUsers();
+  });
+  const [customTutorMode, setCustomTutorMode] = useState(false);
+
+  // Carrega e sincroniza usuários registrados da nuvem Firestore e local
+  React.useEffect(() => {
+    const local = storageService.getUsers();
+    if (local && local.length > 0) {
+      setRegisteredUsers(local);
+    }
+    firestoreService.getUsers().then(cloudUsers => {
+      if (cloudUsers && cloudUsers.length > 0) {
+        setRegisteredUsers(cloudUsers);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Organiza os usuários cadastrados em Professores e Equipe Pedagógica/Gestão
+  const { professoresList, gestaoList } = useMemo(() => {
+    const active = registeredUsers.filter(u => u.active !== false);
+    const profs = active
+      .filter(u => u.role === 'professor')
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    const others = active
+      .filter(u => u.role !== 'professor')
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    return { professoresList: profs, gestaoList: others };
+  }, [registeredUsers]);
 
   // New Class Form State
   const [newClassId, setNewClassId] = useState('');
@@ -766,7 +799,10 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                               {/* Edit student (Admin & Gestão) */}
                               {(isAdmin || isGestao) && (
                                 <button
-                                  onClick={() => setEditingStudent({ ...student })}
+                                  onClick={() => {
+                                    setEditingStudent({ ...student });
+                                    setCustomTutorMode(false);
+                                  }}
                                   className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-colors cursor-pointer"
                                   title="Editar informações do estudante"
                                 >
@@ -861,14 +897,75 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">Professor(a) Tutor(a)</label>
-                <input
-                  type="text"
-                  placeholder="Ex: Profª. Maria Helena, Prof. Carlos Eduardo..."
-                  value={editingStudent.tutor || ''}
-                  onChange={e => setEditingStudent({ ...editingStudent, tutor: e.target.value })}
-                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                    <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Professor(a) Tutor(a)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setCustomTutorMode(!customTutorMode)}
+                    className="text-[11px] text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
+                  >
+                    {customTutorMode ? 'Selecionar de usuários cadastrados' : 'Ou digitar outro nome'}
+                  </button>
+                </div>
+
+                {!customTutorMode ? (
+                  <select
+                    value={editingStudent.tutor || ''}
+                    onChange={e => setEditingStudent({ ...editingStudent, tutor: e.target.value })}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white"
+                  >
+                    <option value="">(Nenhum / Sem Tutor atribuído)</option>
+
+                    {/* Caso o estudante tenha um tutor que não esteja na lista de usuários cadastrados */}
+                    {editingStudent.tutor &&
+                      !registeredUsers.some(
+                        u => u.name.trim().toLowerCase() === editingStudent.tutor?.trim().toLowerCase()
+                      ) && (
+                        <option value={editingStudent.tutor}>
+                          {editingStudent.tutor} (Tutor atual vinculado)
+                        </option>
+                      )}
+
+                    {/* Grupo de Professores Regentes */}
+                    {professoresList.length > 0 && (
+                      <optgroup label="Professores / Docentes">
+                        {professoresList.map(u => (
+                          <option key={u.id} value={u.name}>
+                            {u.name} ({u.roleLabel || 'Professor'})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+
+                    {/* Grupo de Gestão / PAAC / Coordenação */}
+                    {gestaoList.length > 0 && (
+                      <optgroup label="Coordenação Pedagógica & Gestão">
+                        {gestaoList.map(u => (
+                          <option key={u.id} value={u.name}>
+                            {u.name} ({u.roleLabel || 'Gestão'})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder="Digite o nome do(a) tutor(a)..."
+                    value={editingStudent.tutor || ''}
+                    onChange={e => setEditingStudent({ ...editingStudent, tutor: e.target.value })}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    autoFocus
+                  />
+                )}
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {customTutorMode
+                    ? 'Modo de digitação avulsa ativo.'
+                    : 'Selecione o(a) tutor(a) responsável com base nos usuários cadastrados no sistema.'}
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

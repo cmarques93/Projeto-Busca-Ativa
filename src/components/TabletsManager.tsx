@@ -17,6 +17,7 @@ import {
   Users,
   KeyRound,
   ShieldCheck,
+  Shield,
   Calendar
 } from 'lucide-react';
 import { SchoolClass } from '../types';
@@ -113,6 +114,38 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
   const [reservaSelecionadaParaCancelar, setReservaSelecionadaParaCancelar] = useState<string>('');
   const [senhaCancelar, setSenhaCancelar] = useState<string>(currentUser?.pin || '');
   const [enviandoOperacao, setEnviandoOperacao] = useState(false);
+
+  // Perfil e Regras de Permissão
+  const userRole = (currentUser?.role || 'professor').toLowerCase();
+  const isAdmin = userRole === 'admin' || userRole.includes('admin') || userRole.includes('gest') || userRole.includes('diret');
+
+  // Formata nome para exibir Primeiro e Último nome no painel visual
+  const formatarPrimeiroEUltimoNome = (nome: string): string => {
+    if (!nome || !nome.trim()) return '';
+    const partes = nome.trim().split(/\s+/).filter(Boolean);
+    if (partes.length <= 1) return partes[0] || '';
+
+    // Se começar com título/prefixo (Prof., Profª., Profa., etc.), pega o primeiro nome real e o último
+    const prefixos = ['prof.', 'profª.', 'profa.', 'professor', 'professora', 'dr.', 'dra.'];
+    if (prefixos.includes(partes[0].toLowerCase()) && partes.length >= 3) {
+      return `${partes[1]} ${partes[partes.length - 1]}`;
+    }
+
+    return `${partes[0]} ${partes[partes.length - 1]}`;
+  };
+
+  // Verifica se a reserva pertence ao usuário conectado
+  const isMinhaReserva = (ag: AgendamentoTablet | { professor?: string }): boolean => {
+    if (!currentUser?.name) return false;
+    const nomeUser = currentUser.name.trim().toLowerCase();
+    const nomeProf = (ag.professor || '').trim().toLowerCase();
+    if (nomeUser === nomeProf) return true;
+
+    // Comparação tolerante para nomes completos vs primeiro e último nome
+    const p1 = formatarPrimeiroEUltimoNome(nomeUser).toLowerCase();
+    const p2 = formatarPrimeiroEUltimoNome(nomeProf).toLowerCase();
+    return p1 === p2;
+  };
 
   // Normalização de Datas
   const normalizarDataStr = (str: string): string => {
@@ -279,6 +312,10 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
       a => normalizarDataStr(a.data) === dataIso && String(a.aula).trim() === aula
     );
 
+    const permitidasParaCancelar = isAdmin
+      ? agendadosAqui
+      : agendadosAqui.filter(isMinhaReserva);
+
     if (disponiveis > 0) {
       setOperacao('agendar');
       const maxPermitido = disponiveis;
@@ -292,12 +329,13 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
       setOperacao('cancelar');
     }
 
-    if (agendadosAqui.length > 0) {
-      setReservaSelecionadaParaCancelar(JSON.stringify(agendadosAqui[0]));
+    if (permitidasParaCancelar.length > 0) {
+      setReservaSelecionadaParaCancelar(JSON.stringify(permitidasParaCancelar[0]));
     } else {
       setReservaSelecionadaParaCancelar('');
     }
 
+    setSenhaCancelar(currentUser?.pin || '');
     setModalAberto(true);
   };
 
@@ -374,6 +412,16 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
     setEnviandoOperacao(true);
     try {
       const reservaObj: AgendamentoTablet = JSON.parse(reservaSelecionadaParaCancelar);
+
+      // Validação estrita: apenas o Administrador pode excluir ou cancelar agendamentos de outros professores
+      if (!isAdmin && !isMinhaReserva(reservaObj)) {
+        setMensagem({
+          texto: '❌ Permissão restrita: apenas o perfil de Administrador pode cancelar reservas de outros professores.',
+          tipo: 'erro',
+        });
+        return;
+      }
+
       const payload = {
         action: 'cancelar',
         data: reservaObj.data,
@@ -676,7 +724,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                                       className="p-1 rounded bg-white/70 border border-rose-200 leading-tight"
                                     >
                                       <span className="font-bold text-slate-800">
-                                        • {ag.professor.split(' ')[0]} ({ag.tablets} tab.)
+                                        • {formatarPrimeiroEUltimoNome(ag.professor)} ({ag.tablets} tab.)
                                       </span>
                                       <span className="text-[10px] text-rose-700 block font-medium">
                                         Turma: {ag.turma}
@@ -698,7 +746,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                                       className="p-1 rounded bg-white/80 border border-amber-200 leading-tight"
                                     >
                                       <span className="font-bold text-slate-800">
-                                        • {ag.professor.split(' ')[0]} ({ag.tablets} tab.)
+                                        • {formatarPrimeiroEUltimoNome(ag.professor)} ({ag.tablets} tab.)
                                       </span>
                                       <span className="text-[10px] text-slate-600 block">
                                         Turma: {ag.turma}
@@ -889,8 +937,39 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                       );
                     }
 
+                    const permitidasParaCancelar = isAdmin
+                      ? agendadosAqui
+                      : agendadosAqui.filter(isMinhaReserva);
+
+                    if (!isAdmin && permitidasParaCancelar.length === 0) {
+                      return (
+                        <div className="p-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl text-xs space-y-1.5">
+                          <p className="font-bold flex items-center gap-1.5 text-amber-800">
+                            <Lock className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>Cancelamento Restrito</span>
+                          </p>
+                          <p className="text-slate-700">
+                            Este horário possui reserva ativa em nome de:{' '}
+                            <strong>{agendadosAqui.map(a => formatarPrimeiroEUltimoNome(a.professor)).join(', ')}</strong>.
+                          </p>
+                          <p className="text-slate-500 text-[11px] leading-relaxed">
+                            Apenas o(a) próprio(a) professor(a) responsável pelo agendamento ou o <strong>perfil Administrador</strong> têm permissão para cancelar esta reserva.
+                          </p>
+                        </div>
+                      );
+                    }
+
                     return (
                       <>
+                        {isAdmin && (
+                          <div className="bg-rose-50 border border-rose-200 rounded-xl p-2.5 text-xs text-rose-800 flex items-center gap-2">
+                            <Shield className="w-4 h-4 text-rose-600 shrink-0" />
+                            <span>
+                              <strong>Permissão de Administrador:</strong> Você pode excluir qualquer reserva deste horário.
+                            </span>
+                          </div>
+                        )}
+
                         <div>
                           <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                             Agendamento a Cancelar
@@ -899,12 +978,12 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                             value={reservaSelecionadaParaCancelar}
                             onChange={e => setReservaSelecionadaParaCancelar(e.target.value)}
                             required
-                            className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-rose-500 font-semibold text-slate-800"
+                            className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-rose-500 font-semibold text-slate-800 bg-white"
                           >
                             <option value="">Selecione o agendamento...</option>
-                            {agendadosAqui.map((ag, i) => (
+                            {permitidasParaCancelar.map((ag, i) => (
                               <option key={i} value={JSON.stringify(ag)}>
-                                {ag.professor} — Turma: {ag.turma} ({ag.tablets} tab.)
+                                {ag.professor} — Turma: {ag.turma} ({ag.tablets} tab.){isMinhaReserva(ag) ? ' (Sua reserva)' : ''}
                               </option>
                             ))}
                           </select>
@@ -912,7 +991,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
 
                         <div>
                           <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                            Sua Senha / PIN para Confirmar
+                            {isAdmin ? 'Sua Senha / PIN de Administrador' : 'Sua Senha / PIN para Confirmar'}
                           </label>
                           <input
                             type="password"

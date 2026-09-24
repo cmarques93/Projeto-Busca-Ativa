@@ -86,13 +86,13 @@ export async function carregarOcorrenciasSeguro(
   // 1. Tenta Firestore Cloud (Ideal e 100% compatível com Google Sites/iframes sem restrição de cookies)
   try {
     const cloudData = await firestoreService.getOcorrencias();
-    if (cloudData && cloudData.registros && cloudData.registros.length > 0) {
+    if (cloudData && Array.isArray(cloudData.registros)) {
       salvarCacheOcorrencias(cloudData);
       return {
         success: true,
         data: cloudData,
         source: 'firestore',
-        message: 'Base sincronizada em tempo real via Nuvem (Google Sites)',
+        message: 'Base sincronizada diretamente com o Firebase Firestore',
       };
     }
   } catch (err) {
@@ -156,13 +156,13 @@ export async function carregarTabletsSeguro(classes: any[] = []): Promise<SyncRe
   // 1. Tenta Firestore Cloud (Ideal para Google Sites)
   try {
     const cloudData = await firestoreService.getTablets();
-    if (cloudData && cloudData.agendamentos && cloudData.agendamentos.length > 0) {
+    if (cloudData && Array.isArray(cloudData.agendamentos)) {
       salvarCacheTablets(cloudData);
       return {
         success: true,
         data: cloudData,
         source: 'firestore',
-        message: 'Grade sincronizada em tempo real via Nuvem (Google Sites)',
+        message: 'Grade sincronizada diretamente com o Firebase Firestore',
       };
     }
   } catch (err) {
@@ -226,7 +226,10 @@ export async function salvarOcorrenciaSeguro(payload: any, currentDb?: any): Pro
       base = (await firestoreService.getOcorrencias()) || lerCacheOcorrencias() || ocorrenciasBaseline;
     }
     if (base) {
-      if (payload.action === 'mediacao') {
+      if (payload.action === 'excluir' || payload.acao === 'excluir') {
+        const registros = (base.registros || []).filter((r: any) => r.id !== payload.id);
+        base = { ...base, registros };
+      } else if (payload.action === 'mediacao') {
         const registros = (base.registros || []).map((r: any) =>
           r.id === payload.id ? { ...r, status: payload.status, mediacao: payload.mediacao, mediador: payload.mediador } : r
         );
@@ -270,6 +273,13 @@ export async function salvarOcorrenciaSeguro(payload: any, currentDb?: any): Pro
   }).catch(() => {});
 
   return true;
+}
+
+/**
+ * Exclui ocorrência no Firestore e no cache local
+ */
+export async function excluirOcorrenciaSeguro(ocorrenciaId: string, currentDb?: any): Promise<boolean> {
+  return salvarOcorrenciaSeguro({ action: 'excluir', id: ocorrenciaId }, currentDb);
 }
 
 /**
