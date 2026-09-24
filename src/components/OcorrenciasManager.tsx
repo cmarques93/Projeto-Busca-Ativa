@@ -317,7 +317,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
         if (resultado.source === 'api' || resultado.source === 'direct') {
           setMensagem({
-            texto: `✅ Base sincronizada com sucesso com o Google Sheets! (${registrosLimpos.length} ocorrências e ${novoDb.estudantes.length} estudantes carregados)`,
+            texto: `✅ Base sincronizada com sucesso com o Firebase! (${registrosLimpos.length} ocorrências e ${novoDb.estudantes.length} estudantes carregados)`,
             tipo: 'sucesso',
           });
         } else {
@@ -329,7 +329,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
       } else {
         setMensagem({
-          texto: 'Conectado à base local (Google Sheets indisponível no momento)',
+          texto: 'Conectado à base do Firebase',
           tipo: 'info',
         });
       }
@@ -461,7 +461,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       carregarDados();
     } else {
       setMensagem({
-        texto: '⚠️ Registrado na base local da plataforma (sincronização com o Sheets será repetida).',
+        texto: '⚠️ Registrado na base local da plataforma (sincronização com o Firebase será repetida).',
         tipo: 'erro',
       });
     }
@@ -1593,16 +1593,6 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             </p>
           </div>
         </div>
-
-        <button
-          type="button"
-          onClick={carregarDados}
-          disabled={carregando}
-          className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50 self-start md:self-auto"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${carregando ? 'animate-spin' : ''}`} />
-          <span>{carregando ? 'Sincronizando...' : 'Atualizar Dados do Sheets'}</span>
-        </button>
       </div>
 
       {/* Toast de Mensagem */}

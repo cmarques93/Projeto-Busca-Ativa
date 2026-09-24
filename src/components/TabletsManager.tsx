@@ -222,7 +222,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
 
         if (resultado.source === 'api' || resultado.source === 'direct') {
           setMensagem({
-            texto: `✅ Grade de tablets sincronizada com sucesso! (${agendamentosLimpos.length} reservas únicas carregadas da planilha)`,
+            texto: `✅ Grade de tablets sincronizada com sucesso! (${agendamentosLimpos.length} reservas carregadas do Firebase)`,
             tipo: 'sucesso',
           });
         } else {
@@ -471,16 +471,6 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
-
-          <button
-            type="button"
-            onClick={carregarDadosDoSheets}
-            disabled={sincronizando}
-            className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${sincronizando ? 'animate-spin' : ''}`} />
-            <span>{sincronizando ? 'Sincronizando...' : 'Atualizar Grade'}</span>
-          </button>
         </div>
       </div>
 
