@@ -93,21 +93,24 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     let ocorrencias: OcorrenciaItem[] = [];
     let tratativas: TratativaItem[] = [];
 
-    // Tentar via API do servidor
+    // Tentar via API do servidor com proteção contra HTML de autenticação
     try {
       const res = await fetch('/api/sheets-ocorrencias');
-      if (res.ok) {
-        const json = await res.json();
-        const listaRegs = json.registros || [];
-        const listaTrat = json.tratativasFamilia || [];
+      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+        const text = await res.text();
+        if (!text.trim().startsWith('<') && !text.toLowerCase().startsWith('<!doctype')) {
+          const json = JSON.parse(text);
+          const listaRegs = json.registros || [];
+          const listaTrat = json.tratativasFamilia || [];
 
-        ocorrencias = listaRegs.filter(
-          (r: any) => r.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
-        );
-        tratativas = listaTrat.filter(
-          (t: any) => t.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
-        );
-        return { ocorrencias, tratativas };
+          ocorrencias = listaRegs.filter(
+            (r: any) => r.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
+          );
+          tratativas = listaTrat.filter(
+            (t: any) => t.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
+          );
+          return { ocorrencias, tratativas };
+        }
       }
     } catch (e) {
       console.warn('Fallback para cache local de ocorrências:', e);

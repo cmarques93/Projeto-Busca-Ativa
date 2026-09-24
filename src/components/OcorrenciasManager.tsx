@@ -33,6 +33,7 @@ import {
 import { SchoolClass, Student, AttendanceRecord } from '../types';
 import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
 import { storageService } from '../data/storageService';
+import { carregarOcorrenciasSeguro, salvarOcorrenciaSeguro } from '../lib/sheetsSyncService';
 
 export interface OcorrenciaRecord {
   id: string;
@@ -244,101 +245,87 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     );
   };
 
-  // Carregamento via Backend Proxy (elimina CORS do Apps Script)
+  // Carregamento via Serviço Seguro de Sincronização (com tripla redundância)
   const carregarDados = async () => {
     setCarregando(true);
 
-    // Carrega cache local instantâneo
-    const cached = localStorage.getItem('CACHE_OCORRENCIAS_APP');
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        setBancoDeDados(prev => ({
-          ...prev,
-          ...parsed,
-          tratativasFamilia: parsed.tratativasFamilia || [],
-        }));
-      } catch (e) {
-        console.warn('Erro ao ler cache de ocorrências:', e);
-      }
-    }
-
     try {
-      const res = await fetch('/api/sheets-ocorrencias');
-      if (res.ok) {
-        const data = await res.json();
-        if (!data.erro) {
-          if (!data.tratativasFamilia) data.tratativasFamilia = [];
+      const resultado = await carregarOcorrenciasSeguro(classes, students);
+      const data = resultado.data;
 
-          // Mescla estudantes da plataforma com os estudantes da planilha se necessário
-          let listaEstudantes = data.estudantes || [];
-          if (listaEstudantes.length === 0 && students.length > 0) {
-            listaEstudantes = students.map(s => {
-              const cls = classes.find(c => c.id === s.classId);
-              return {
-                nome: s.name,
-                turma: cls ? cls.name : 'Turma Geral',
-                tutor: 'Equipe Pedagógica',
-              };
-            });
+      if (data) {
+        if (!data.tratativasFamilia) data.tratativasFamilia = [];
+
+        // Mescla estudantes da plataforma com os estudantes da planilha se necessário
+        let listaEstudantes = data.estudantes || [];
+        if (listaEstudantes.length === 0 && students.length > 0) {
+          listaEstudantes = students.map(s => {
+            const cls = classes.find(c => c.id === s.classId);
+            return {
+              nome: s.name,
+              turma: cls ? cls.name : 'Turma Geral',
+              tutor: s.tutor || 'Equipe Pedagógica',
+            };
+          });
+        }
+
+        // Desduplicação estrita de registros de ocorrências
+        const registrosUnicosMap = new Map<string, any>();
+        for (const reg of (data.registros || [])) {
+          const key = [
+            (reg.data || '').trim(),
+            (reg.aula || '').trim(),
+            (reg.turma || '').trim(),
+            (reg.estudante || '').trim(),
+            (reg.ocorrencia || '').trim(),
+          ].join('::');
+          if (!registrosUnicosMap.has(key)) {
+            registrosUnicosMap.set(key, reg);
           }
+        }
+        const registrosLimpos = Array.from(registrosUnicosMap.values());
 
-          // Desduplicação estrita de registros de ocorrências
-          const registrosUnicosMap = new Map<string, any>();
-          for (const reg of (data.registros || [])) {
-            const key = [
-              (reg.data || '').trim(),
-              (reg.aula || '').trim(),
-              (reg.turma || '').trim(),
-              (reg.estudante || '').trim(),
-              (reg.ocorrencia || '').trim(),
-            ].join('::');
-            if (!registrosUnicosMap.has(key)) {
-              registrosUnicosMap.set(key, reg);
-            }
-          }
-          const registrosLimpos = Array.from(registrosUnicosMap.values());
+        const novoDb: OcorrenciasDatabase = {
+          estudantes: listaEstudantes,
+          professores: data.professores || [],
+          ocorrencias:
+            data.ocorrencias && data.ocorrencias.length > 0
+              ? data.ocorrencias
+              : bancoDeDados.ocorrencias,
+          medidas:
+            data.medidas && data.medidas.length > 0 ? data.medidas : bancoDeDados.medidas,
+          aulas: data.aulas && data.aulas.length > 0 ? data.aulas : bancoDeDados.aulas,
+          auxilio:
+            data.auxilio && data.auxilio.length > 0 ? data.auxilio : bancoDeDados.auxilio,
+          registros: registrosLimpos,
+          tratativasFamilia: data.tratativasFamilia || [],
+        };
 
-          const novoDb: OcorrenciasDatabase = {
-            estudantes: listaEstudantes,
-            professores: data.professores || [],
-            ocorrencias:
-              data.ocorrencias && data.ocorrencias.length > 0
-                ? data.ocorrencias
-                : bancoDeDados.ocorrencias,
-            medidas:
-              data.medidas && data.medidas.length > 0 ? data.medidas : bancoDeDados.medidas,
-            aulas: data.aulas && data.aulas.length > 0 ? data.aulas : bancoDeDados.aulas,
-            auxilio:
-              data.auxilio && data.auxilio.length > 0 ? data.auxilio : bancoDeDados.auxilio,
-            registros: registrosLimpos,
-            tratativasFamilia: data.tratativasFamilia || [],
-          };
+        setBancoDeDados(novoDb);
 
-          setBancoDeDados(novoDb);
-          localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(novoDb));
+        if (resultado.source === 'api' || resultado.source === 'direct') {
           setMensagem({
             texto: `✅ Base sincronizada com sucesso com o Google Sheets! (${registrosLimpos.length} ocorrências e ${novoDb.estudantes.length} estudantes carregados)`,
             tipo: 'sucesso',
           });
-          setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
         } else {
           setMensagem({
-            texto: 'Conectado à base local (Google Sheets indisponível no momento)',
-            tipo: 'erro',
+            texto: `ℹ️ Modo local ativado: ${registrosLimpos.length} ocorrências disponíveis (${resultado.message || 'offline'})`,
+            tipo: 'info',
           });
         }
+        setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
       } else {
         setMensagem({
-          texto: 'Erro ao consultar planilha de ocorrências (Código: ' + res.status + ')',
-          tipo: 'erro',
+          texto: 'Conectado à base local (Google Sheets indisponível no momento)',
+          tipo: 'info',
         });
       }
     } catch (err: any) {
-      console.warn('Backend proxy offline ou erro ao carregar:', err.message);
+      console.warn('Erro ao carregar ocorrências:', err.message);
       setMensagem({
-        texto: 'Falha ao sincronizar com Google Sheets: ' + err.message,
-        tipo: 'erro',
+        texto: 'Modo de contingência ativado com dados salvos no navegador.',
+        tipo: 'info',
       });
     } finally {
       setCarregando(false);
@@ -409,24 +396,10 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         tutor: est.tutor,
       };
 
-      try {
-        const res = await fetch('/api/sheets-ocorrencias', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          if (data.status === 'sucesso' || !data.erro) {
-            sucessoCount++;
-          } else {
-            erroCount++;
-          }
-        } else {
-          erroCount++;
-        }
-      } catch {
+      const salvo = await salvarOcorrenciaSeguro(payload);
+      if (salvo) {
+        sucessoCount++;
+      } else {
         erroCount++;
       }
 
@@ -496,15 +469,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       mediador: userName,
     };
 
-    try {
-      await fetch('/api/sheets-ocorrencias', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-    } catch (err) {
-      console.warn('Erro ao salvar mediação no Sheets:', err);
-    }
+    await salvarOcorrenciaSeguro(payload);
 
     // Atualiza base local
     setBancoDeDados(prev => {
@@ -545,15 +510,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       mediador: userName,
     };
 
-    try {
-      await fetch('/api/sheets-ocorrencias', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-    } catch (err) {
-      console.warn('Erro ao salvar tratativa no Sheets:', err);
-    }
+    await salvarOcorrenciaSeguro(payload);
 
     // Salva localmente
     const novaTratativa: TratativaFamilia = {

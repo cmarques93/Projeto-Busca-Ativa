@@ -20,6 +20,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { SchoolClass } from '../types';
+import { carregarTabletsSeguro, salvarReservaTabletsSeguro } from '../lib/sheetsSyncService';
 
 export interface AgendamentoTablet {
   data: string;
@@ -167,81 +168,67 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
   const carregarDadosDoSheets = async () => {
     setSincronizando(true);
 
-    // Carrega cache local imediato
-    const cached = localStorage.getItem('CACHE_TABLET_APP');
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached);
-        setBaseDeDados(prev => ({
-          ...prev,
-          ...parsed,
-          agendamentos: parsed.agendamentos || [],
-        }));
-      } catch (e) {
-        console.warn('Erro ao ler cache de tablets:', e);
-      }
-    }
-
     try {
-      const response = await fetch('/api/sheets-tablets');
-      if (response.ok) {
-        const data = await response.json();
-        if (!data.erro) {
-          // Preenche turmas caso venham vazias do Sheets
-          let turmasFinais = data.turmas || [];
-          if (turmasFinais.length === 0 && classes.length > 0) {
-            turmasFinais = classes.map(c => c.name);
+      const resultado = await carregarTabletsSeguro(classes);
+      const data = resultado.data;
+
+      if (data) {
+        // Preenche turmas caso venham vazias do Sheets
+        let turmasFinais = data.turmas || [];
+        if (turmasFinais.length === 0 && classes.length > 0) {
+          turmasFinais = classes.map(c => c.name);
+        }
+
+        // Desduplicação estrita de agendamentos
+        const agendamentosUnicosMap = new Map<string, any>();
+        for (const ag of (data.agendamentos || [])) {
+          const key = [
+            (ag.data || '').trim(),
+            (ag.aula || '').trim(),
+            (ag.professor || '').trim(),
+            (ag.turma || '').trim(),
+            ag.tablets || 0,
+          ].join('::');
+          if (!agendamentosUnicosMap.has(key)) {
+            agendamentosUnicosMap.set(key, ag);
           }
+        }
+        const agendamentosLimpos = Array.from(agendamentosUnicosMap.values());
 
-          // Desduplicação estrita de agendamentos
-          const agendamentosUnicosMap = new Map<string, any>();
-          for (const ag of (data.agendamentos || [])) {
-            const key = [
-              (ag.data || '').trim(),
-              (ag.aula || '').trim(),
-              (ag.professor || '').trim(),
-              (ag.turma || '').trim(),
-              ag.tablets || 0,
-            ].join('::');
-            if (!agendamentosUnicosMap.has(key)) {
-              agendamentosUnicosMap.set(key, ag);
-            }
-          }
-          const agendamentosLimpos = Array.from(agendamentosUnicosMap.values());
+        const novoDb: TabletsDatabase = {
+          agendamentos: agendamentosLimpos,
+          horarios:
+            data.horarios && data.horarios.length > 0 ? data.horarios : baseDeDados.horarios,
+          professores: data.professores || [],
+          turmas: turmasFinais,
+          feriados: data.feriados || [],
+        };
 
-          const novoDb: TabletsDatabase = {
-            agendamentos: agendamentosLimpos,
-            horarios:
-              data.horarios && data.horarios.length > 0 ? data.horarios : baseDeDados.horarios,
-            professores: data.professores || [],
-            turmas: turmasFinais,
-            feriados: data.feriados || [],
-          };
+        setBaseDeDados(novoDb);
 
-          setBaseDeDados(novoDb);
-          localStorage.setItem('CACHE_TABLET_APP', JSON.stringify(novoDb));
+        if (resultado.source === 'api' || resultado.source === 'direct') {
           setMensagem({
             texto: `✅ Grade de tablets sincronizada com sucesso! (${agendamentosLimpos.length} reservas únicas carregadas da planilha)`,
             tipo: 'sucesso',
           });
-          setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
         } else {
           setMensagem({
-            texto: 'Usando dados salvos localmente (Planilha do Google temporariamente inacessível).',
-            tipo: 'erro',
+            texto: `ℹ️ Modo local ativado: ${agendamentosLimpos.length} reservas disponíveis (${resultado.message || 'offline'})`,
+            tipo: 'info',
           });
         }
+        setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
       } else {
         setMensagem({
-          texto: 'Erro ao conectar à planilha do Google. Código: ' + response.status,
-          tipo: 'erro',
+          texto: 'Usando dados salvos localmente na escola.',
+          tipo: 'info',
         });
       }
     } catch (err: any) {
       console.warn('Erro ao sincronizar tablets:', err.message);
       setMensagem({
-        texto: 'Falha na conexão com a planilha do Google: ' + err.message,
-        tipo: 'erro',
+        texto: 'Modo de contingência ativado com dados locais salvos no navegador.',
+        tipo: 'info',
       });
     } finally {
       setSincronizando(false);
@@ -327,15 +314,9 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
     };
 
     try {
-      const response = await fetch('/api/sheets-tablets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const res = await response.json();
-      if (res.status === 'erro') {
-        setMensagem({ texto: 'Erro do Google Sheets: ' + (res.msg || res.mensagem), tipo: 'erro' });
+      const res = await salvarReservaTabletsSeguro(payload);
+      if (!res.ok) {
+        setMensagem({ texto: 'Erro ao registrar reserva: ' + (res.msg || 'Verifique a senha informada.'), tipo: 'erro' });
       } else {
         setMensagem({
           texto: `✅ Agendamento de ${formAgendar.tablets} tablets confirmado com sucesso para ${formAgendar.turma}!`,
@@ -388,16 +369,10 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
         senha: senhaCancelar,
       };
 
-      const response = await fetch('/api/sheets-tablets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const res = await response.json();
-      if (res.status === 'erro') {
+      const res = await salvarReservaTabletsSeguro(payload);
+      if (!res.ok) {
         setMensagem({
-          texto: 'Erro do Google Sheets: ' + (res.msg || res.mensagem),
+          texto: 'Erro ao cancelar: ' + (res.msg || 'Verifique a senha informada.'),
           tipo: 'erro',
         });
       } else {
@@ -427,7 +402,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
         carregarDadosDoSheets();
       }
     } catch (err: any) {
-      setMensagem({ texto: 'Falha ao processar cancelamento: ' + err.message, tipo: 'erro' });
+      setMensagem({ texto: 'Erro ao cancelar reserva: ' + err.message, tipo: 'erro' });
     } finally {
       setEnviandoOperacao(false);
     }

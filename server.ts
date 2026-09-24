@@ -1009,7 +1009,17 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
           headers: { Accept: 'application/json' },
         });
         if (response.ok) {
-          data = await response.json();
+          const text = await response.text();
+          const trimmed = text.trim();
+          if (!trimmed.startsWith('<') && !trimmed.toLowerCase().startsWith('<!doctype')) {
+            try {
+              data = JSON.parse(text);
+            } catch {
+              console.warn('Erro ao decodificar JSON do Apps Script de ocorrências');
+            }
+          } else {
+            console.warn('Google Apps Script de ocorrências retornou HTML (redirecionamento ou login)');
+          }
         }
       } catch (err: any) {
         console.warn('Falha temporária ao consultar Apps Script:', err.message);
@@ -1211,7 +1221,17 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
           headers: { Accept: 'application/json' },
         });
         if (response.ok) {
-          data = await response.json();
+          const text = await response.text();
+          const trimmed = text.trim();
+          if (!trimmed.startsWith('<') && !trimmed.toLowerCase().startsWith('<!doctype')) {
+            try {
+              data = JSON.parse(text);
+            } catch {
+              console.warn('Erro ao decodificar JSON do Apps Script de tablets');
+            }
+          } else {
+            console.warn('Google Apps Script de tablets retornou HTML (redirecionamento ou login)');
+          }
         }
       } catch (err: any) {
         console.warn('Falha temporária ao consultar Apps Script de tablets:', err.message);
