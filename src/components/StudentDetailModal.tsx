@@ -571,16 +571,30 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                               className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase ${
                                 att.status === 'presente'
                                   ? 'bg-emerald-100 text-emerald-800'
+                                  : att.status === 'atestado_medico'
+                                  ? 'bg-cyan-100 text-cyan-800'
                                   : att.status === 'falta_justificada'
                                   ? 'bg-amber-100 text-amber-800'
                                   : 'bg-rose-100 text-rose-800'
                               }`}
                             >
-                              {att.status.replace('_', ' ')}
+                              {att.status === 'atestado_medico' ? 'Atestado Médico' : att.status.replace('_', ' ')}
                             </span>
                           </td>
                           <td className="p-2.5 text-slate-500">{att.recordedBy}</td>
-                          <td className="p-2.5 text-slate-600">{att.justification || '—'}</td>
+                          <td className="p-2.5 text-slate-600">
+                            {att.status === 'atestado_medico' ? (
+                              <span className="font-medium text-cyan-900 bg-cyan-50 px-2 py-0.5 rounded border border-cyan-200 text-[11px] inline-block">
+                                {att.medicalCertificate || att.justification || 'Atestado médico homologado'}
+                              </span>
+                            ) : att.status === 'falta_justificada' ? (
+                              <span className="font-medium text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 text-[11px] inline-block">
+                                {att.justification || 'Falta justificada homologada'}
+                              </span>
+                            ) : (
+                              att.justification || '—'
+                            )}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

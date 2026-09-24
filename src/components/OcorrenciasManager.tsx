@@ -2410,16 +2410,26 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                                 className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase ${
                                   att.status === 'presente'
                                     ? 'bg-emerald-100 text-emerald-800'
+                                    : att.status === 'atestado_medico'
+                                    ? 'bg-cyan-100 text-cyan-800'
                                     : att.status === 'falta_justificada'
                                     ? 'bg-amber-100 text-amber-800'
                                     : 'bg-rose-100 text-rose-800'
                                 }`}
                               >
-                                {att.status === 'presente' ? 'Presente' : att.status === 'falta_justificada' ? 'Justificada' : 'Ausente'}
+                                {att.status === 'presente' ? 'Presente' : att.status === 'atestado_medico' ? 'Atestado' : att.status === 'falta_justificada' ? 'Justificada' : 'Ausente'}
                               </span>
                             </td>
                             <td className="p-2 border-r border-slate-300 text-slate-600">{att.recordedBy || 'Docente'}</td>
-                            <td className="p-2 text-slate-700 italic">{att.justification || '—'}</td>
+                            <td className="p-2 text-slate-700 italic">
+                              {att.status === 'atestado_medico' ? (
+                                <span className="font-semibold text-cyan-900 not-italic">
+                                  {att.medicalCertificate || att.justification || 'Atestado médico homologado'}
+                                </span>
+                              ) : (
+                                att.justification || '—'
+                              )}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

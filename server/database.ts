@@ -46,6 +46,23 @@ const DB_PATH = path.join(DATA_DIR, 'school_database.json');
 // Helper to format date
 const todayStr = new Date().toISOString().split('T')[0];
 
+function addDaysToDateStr(dateStr: string, daysToAdd: number): string {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+
+  const d = new Date(year, month, day);
+  d.setDate(d.getDate() + daysToAdd);
+
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dayOut = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dayOut}`;
+}
+
 function generateSeedData(): DatabaseSchema {
   const classes: SchoolClass[] = [
     { id: '6A', name: '6º Ano A', grade: 'Ensino Fundamental II', shift: 'Manhã', totalStudents: 28, presentToday: 26, absentToday: 2, attendanceRateToday: 92.8, studentsAtRiskCount: 2 },
@@ -1073,36 +1090,121 @@ export class SchoolDatabase {
     }
 
     items.forEach(item => {
-      // Remove existing record for same day & student if any
-      this.data.attendanceRecords = this.data.attendanceRecords.filter(
-        r => !(r.studentId === item.studentId && r.date === recordDate)
-      );
-
       const student = this.data.students.find(s => s.id === item.studentId);
       const studentName = student ? student.name : (item as any).studentName || 'Estudante';
       const targetClassId = classId || (student ? student.classId : '');
       const targetClassName = student ? student.className : (item as any).className || '';
 
       const isCountedAsAbsence = item.status === 'falta_injustificada' || item.status === 'falta_justificada';
-      const duration = item.durationDays && item.durationDays > 1 ? item.durationDays : 1;
+      const duration = item.medicalDays || (item.durationDays && item.durationDays > 1 ? item.durationDays : 1);
 
-      const record: AttendanceRecord = {
-        id: `att-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-        studentId: item.studentId,
-        studentName,
-        classId: targetClassId,
-        className: targetClassName,
-        date: recordDate,
-        status: item.status,
-        durationDays: duration,
-        justification: item.justification,
-        medicalCertificate: item.medicalCertificate || (item.medicalDays ? `${item.medicalDays} dias` : undefined),
-        medicalDays: item.medicalDays,
-        isCountedAsAbsence,
-        recordedBy: recordedBy || 'AOE / Professor',
-        recordedAt: timestamp,
-      };
-      this.data.attendanceRecords.push(record);
+      if (item.status === 'atestado_medico') {
+        const validDays = Math.max(1, duration);
+        const endDate = addDaysToDateStr(recordDate, validDays - 1);
+
+        for (let i = 0; i < validDays; i++) {
+          const recDate = addDaysToDateStr(recordDate, i);
+          const curDay = i + 1;
+          const remDays = validDays - curDay;
+          const infoText = remDays === 0
+            ? `Dia ${curDay} de ${validDays} • Último dia de atestado (conclui hoje)`
+            : remDays === 1
+            ? `Dia ${curDay} de ${validDays} • Resta 1 dia para finalizar o atestado`
+            : `Dia ${curDay} de ${validDays} • Faltam ${remDays} dias para finalizar o atestado`;
+
+          // Remove existing record for that student on recDate
+          this.data.attendanceRecords = this.data.attendanceRecords.filter(
+            r => !(r.studentId === item.studentId && r.date === recDate)
+          );
+
+          this.data.attendanceRecords.push({
+            id: `att-med-${item.studentId}-${recDate}`,
+            studentId: item.studentId,
+            studentName,
+            classId: targetClassId,
+            className: targetClassName,
+            date: recDate,
+            status: 'atestado_medico',
+            durationDays: validDays,
+            medicalDays: validDays,
+            medicalDayCurrent: curDay,
+            medicalDaysRemaining: remDays,
+            medicalStartDate: recordDate,
+            medicalEndDate: endDate,
+            justification: item.justification || `Atestado Médico de ${validDays} dia(s) (${infoText})`,
+            medicalCertificate: `${validDays} dia(s) de atestado • ${infoText}`,
+            isCountedAsAbsence: false,
+            recordedBy: recordedBy || 'AOE / Professor',
+            recordedAt: timestamp,
+          });
+        }
+      } else if (item.status === 'falta_justificada' && duration > 1) {
+        const validDays = Math.max(1, duration);
+        const endDate = addDaysToDateStr(recordDate, validDays - 1);
+        const baseJust = item.justification?.trim() || 'Comunicação familiar prévia homologada';
+
+        for (let i = 0; i < validDays; i++) {
+          const recDate = addDaysToDateStr(recordDate, i);
+          const curDay = i + 1;
+          const remDays = validDays - curDay;
+          const infoText = remDays === 0
+            ? `Dia ${curDay} de ${validDays} • Último dia justificado (conclui hoje)`
+            : remDays === 1
+            ? `Dia ${curDay} de ${validDays} • Resta 1 dia de ausência justificada`
+            : `Dia ${curDay} de ${validDays} • Faltam ${remDays} dias para finalizar a justificativa`;
+
+          // Remove existing record for that student on recDate
+          this.data.attendanceRecords = this.data.attendanceRecords.filter(
+            r => !(r.studentId === item.studentId && r.date === recDate)
+          );
+
+          this.data.attendanceRecords.push({
+            id: `att-just-${item.studentId}-${recDate}`,
+            studentId: item.studentId,
+            studentName,
+            classId: targetClassId,
+            className: targetClassName,
+            date: recDate,
+            status: 'falta_justificada',
+            durationDays: validDays,
+            justificationDays: validDays,
+            justificationDayCurrent: curDay,
+            justificationDaysRemaining: remDays,
+            justificationStartDate: recordDate,
+            justificationEndDate: endDate,
+            justification: `${baseJust} • ${infoText}`,
+            isCountedAsAbsence: true,
+            recordedBy: recordedBy || 'AOE / Professor',
+            recordedAt: timestamp,
+          });
+        }
+      } else {
+        // Remove existing record for same day & student if any
+        this.data.attendanceRecords = this.data.attendanceRecords.filter(
+          r => !(r.studentId === item.studentId && r.date === recordDate)
+        );
+
+        const record: AttendanceRecord = {
+          id: `att-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          studentId: item.studentId,
+          studentName,
+          classId: targetClassId,
+          className: targetClassName,
+          date: recordDate,
+          status: item.status,
+          durationDays: duration,
+          justificationDays: item.status === 'falta_justificada' ? duration : undefined,
+          justificationDayCurrent: item.status === 'falta_justificada' ? 1 : undefined,
+          justificationDaysRemaining: item.status === 'falta_justificada' ? 0 : undefined,
+          justification: item.justification,
+          medicalCertificate: item.medicalCertificate,
+          medicalDays: item.medicalDays,
+          isCountedAsAbsence,
+          recordedBy: recordedBy || 'AOE / Professor',
+          recordedAt: timestamp,
+        };
+        this.data.attendanceRecords.push(record);
+      }
 
       if (student) {
         // Recalculate student stats:

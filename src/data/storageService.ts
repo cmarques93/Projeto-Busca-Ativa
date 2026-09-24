@@ -20,6 +20,7 @@ import {
   DEFAULT_REPORT
 } from './fallbackData';
 import { firestoreService, isSameDay, normalizeDateStr } from '../lib/firestoreService';
+import { generateAtestadoRecordsSequence, generateJustifiedAbsenceSequence } from '../utils/atestadoUtils';
 
 export function getRoleLabel(role: UserRole): string {
   switch (role) {
@@ -428,33 +429,68 @@ export const storageService = {
         justification: 'Frequência da turma registrada',
       }];
     } else {
-      newRecords = items.map(item => {
+      items.forEach(item => {
         const student = allStudents.find(s => s.id === item.studentId);
-        const duration = item.durationDays && item.durationDays > 1 ? item.durationDays : 1;
-        const isCountedAsAbsence = item.status === 'falta_injustificada' || item.status === 'falta_justificada';
+        const duration = item.medicalDays || (item.durationDays && item.durationDays > 1 ? item.durationDays : 1);
 
-        return {
-          id: `att-${Date.now()}-${item.studentId}`,
-          studentId: item.studentId,
-          studentName: item.studentName || student?.name || 'Estudante',
-          classId: classId || student?.classId || '',
-          className: item.className || student?.className || targetClass?.name || '',
-          date: recordDate,
-          status: item.status,
-          durationDays: duration,
-          justification: item.justification || item.notes || '',
-          medicalCertificate: item.medicalCertificate || (item.medicalDays ? `${item.medicalDays} dias` : ''),
-          medicalDays: item.medicalDays || 0,
-          isCountedAsAbsence,
-          recordedBy,
-          recordedAt: new Date().toISOString(),
-        };
+        if (item.status === 'atestado_medico') {
+          const atestadoSeq = generateAtestadoRecordsSequence({
+            studentId: item.studentId,
+            studentName: item.studentName || student?.name || 'Estudante',
+            classId: classId || student?.classId || '',
+            className: item.className || student?.className || targetClass?.name || '',
+            startDate: recordDate,
+            totalDays: duration,
+            justification: item.justification,
+            medicalCertificateNote: item.medicalCertificate,
+            recordedBy,
+          });
+          newRecords.push(...atestadoSeq);
+        } else if (item.status === 'falta_justificada' && duration > 1) {
+          const justifiedSeq = generateJustifiedAbsenceSequence({
+            studentId: item.studentId,
+            studentName: item.studentName || student?.name || 'Estudante',
+            classId: classId || student?.classId || '',
+            className: item.className || student?.className || targetClass?.name || '',
+            startDate: recordDate,
+            totalDays: duration,
+            justification: item.justification,
+            recordedBy,
+          });
+          newRecords.push(...justifiedSeq);
+        } else {
+          const isCountedAsAbsence = item.status === 'falta_injustificada' || item.status === 'falta_justificada';
+          newRecords.push({
+            id: `att-${Date.now()}-${item.studentId}-${recordDate}`,
+            studentId: item.studentId,
+            studentName: item.studentName || student?.name || 'Estudante',
+            classId: classId || student?.classId || '',
+            className: item.className || student?.className || targetClass?.name || '',
+            date: recordDate,
+            status: item.status,
+            durationDays: duration,
+            justificationDays: item.status === 'falta_justificada' ? duration : undefined,
+            justificationDayCurrent: item.status === 'falta_justificada' ? 1 : undefined,
+            justificationDaysRemaining: item.status === 'falta_justificada' ? 0 : undefined,
+            justification: item.justification || item.notes || '',
+            medicalCertificate: item.medicalCertificate,
+            medicalDays: item.medicalDays,
+            isCountedAsAbsence,
+            recordedBy,
+            recordedAt: new Date().toISOString(),
+          });
+        }
       });
     }
 
-    // Replace existing records for same student/class & date
-    const studentIds = new Set(newRecords.map(i => i.studentId));
-    const filteredRecords = records.filter(r => !(isSameDay(r.date, recordDate) && (studentIds.has(r.studentId) || (r.classId === classId && r.studentId.startsWith('cls-marker-')))));
+    // Replace existing records for same student & dates of newRecords
+    const datesAndStudents = new Set(newRecords.map(nr => `${nr.studentId}__${nr.date}`));
+    const filteredRecords = records.filter(r => {
+      const key = `${r.studentId}__${r.date}`;
+      if (datesAndStudents.has(key)) return false;
+      if (isSameDay(r.date, recordDate) && (r.classId === classId && r.studentId.startsWith('cls-marker-'))) return false;
+      return true;
+    });
     filteredRecords.push(...newRecords);
     setStored('school_attendance', filteredRecords);
 

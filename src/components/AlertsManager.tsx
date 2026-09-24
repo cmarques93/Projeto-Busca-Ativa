@@ -41,6 +41,7 @@ import {
 import { BulkWhatsAppModal } from './BulkWhatsAppModal';
 import { storageService } from '../data/storageService';
 import { firestoreService, isSameDay } from '../lib/firestoreService';
+import { findActiveAbsenceForDate } from '../utils/atestadoUtils';
 
 interface DailyAbsenteeItem {
   studentId: string;
@@ -221,9 +222,24 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
     const allAttendanceRecords = storageService.getAttendanceRecords();
 
     // 1. Process attendance records where status is not "presente"
+    const effectiveRecordMap = new Map<string, AttendanceRecord>();
     (dailyRecords || []).forEach(rec => {
-      if (rec.status === 'presente') return;
+      if (rec.status !== 'presente') {
+        effectiveRecordMap.set(rec.studentId, rec);
+      }
+    });
 
+    // Auto-detecta estudantes com atestado ou justificativa vigentes para a data selecionada
+    allStudents.forEach(st => {
+      if (!effectiveRecordMap.has(st.id)) {
+        const activeAbs = findActiveAbsenceForDate(allAttendanceRecords, st.id, selectedDate);
+        if (activeAbs && activeAbs.status !== 'presente') {
+          effectiveRecordMap.set(st.id, activeAbs);
+        }
+      }
+    });
+
+    Array.from(effectiveRecordMap.values()).forEach(rec => {
       const student = allStudents.find(s => s.id === rec.studentId) || storageService.getStudentById(rec.studentId);
       const studentName = rec.studentName || student?.name || 'Estudante';
       const className = student?.className || rec.className || rec.classId;
@@ -234,10 +250,28 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
       let detail = '';
       if (rec.status === 'falta_justificada') {
         absenceLabel = 'Falta Justificada';
-        detail = rec.justification || 'Comunicação familiar';
+        const total = rec.justificationDays || (rec.durationDays && rec.durationDays > 1 ? rec.durationDays : 1);
+        const cur = rec.justificationDayCurrent || 1;
+        const rem = rec.justificationDaysRemaining !== undefined ? rec.justificationDaysRemaining : Math.max(0, total - cur);
+        if (total > 1) {
+          const remText = rem === 0 ? 'Último dia justificado (conclui hoje)' : rem === 1 ? 'Resta 1 dia para finalizar a justificativa' : `Faltam ${rem} dias para finalizar a justificativa`;
+          const cleanJust = rec.justification && !rec.justification.includes('•') ? ` | ${rec.justification}` : '';
+          detail = `Dia ${cur} de ${total} • ${remText}${cleanJust}`;
+        } else {
+          detail = rec.justification || 'Comunicação prévia homologada';
+        }
       } else if (rec.status === 'atestado_medico') {
         absenceLabel = 'Atestado Médico';
-        detail = rec.medicalCertificate || `${rec.medicalDays || 1} dia(s) de afastamento`;
+        const total = rec.medicalDays || rec.durationDays || 1;
+        const cur = rec.medicalDayCurrent || 1;
+        const rem = rec.medicalDaysRemaining !== undefined ? rec.medicalDaysRemaining : Math.max(0, total - cur);
+        if (total > 1) {
+          const remText = rem === 0 ? 'Último dia de atestado (conclui hoje)' : rem === 1 ? 'Resta 1 dia para finalizar o atestado' : `Faltam ${rem} dias para finalizar o atestado`;
+          const cleanCert = rec.medicalCertificate && !rec.medicalCertificate.includes('•') ? ` | ${rec.medicalCertificate}` : '';
+          detail = `Dia ${cur} de ${total} • ${remText}${cleanCert}`;
+        } else {
+          detail = rec.medicalCertificate || rec.justification || 'Atestado médico de 1 dia';
+        }
       } else if (rec.status === 'atraso') {
         absenceLabel = 'Atraso em Sala';
       }
@@ -872,7 +906,12 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
 
                           {/* Details / Justification */}
                           <td className="py-3.5 px-3">
-                            {item.detail ? (
+                            {isMedical ? (
+                              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-50 border border-cyan-200 text-cyan-900 font-medium text-[11px]" title={item.detail}>
+                                <Stethoscope className="w-3 h-3 text-cyan-700 shrink-0" />
+                                <span>{item.detail}</span>
+                              </div>
+                            ) : item.detail ? (
                               <div className="text-xs text-slate-700 max-w-[200px] truncate" title={item.detail}>
                                 {item.detail}
                               </div>

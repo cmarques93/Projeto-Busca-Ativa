@@ -82,8 +82,17 @@ export interface AttendanceRecord {
   status: AttendanceStatus;
   durationDays?: number; // Duração em dias (1, 2, 3...) quando a falta/justificativa for superior a 1 dia
   justification?: string;
+  justificationDays?: number; // Quantidade total de dias da justificativa prévia
+  justificationDayCurrent?: number; // Dia atual da justificativa (ex: 1 para 1º dia, 2 para 2º dia, etc.)
+  justificationDaysRemaining?: number; // Quantidade de dias que faltam para finalizar a justificativa
+  justificationStartDate?: string; // Data de início da justificativa (YYYY-MM-DD)
+  justificationEndDate?: string; // Data final da justificativa (YYYY-MM-DD)
   medicalCertificate?: string; // Informações do atestado médico (dias e motivo)
-  medicalDays?: number; // Quantidade de dias do atestado
+  medicalDays?: number; // Quantidade total de dias do atestado
+  medicalDayCurrent?: number; // Dia atual do atestado (ex: 1 para 1º dia, 2 para 2º dia, etc.)
+  medicalDaysRemaining?: number; // Quantidade de dias que faltam para finalizar o tempo do atestado
+  medicalStartDate?: string; // Data de início do atestado (YYYY-MM-DD)
+  medicalEndDate?: string; // Data final do atestado (YYYY-MM-DD)
   isCountedAsAbsence?: boolean; // false para atestado médico (não contabiliza ausência), true para falta justificada/injustificada
   recordedBy: string;
   recordedAt?: string;

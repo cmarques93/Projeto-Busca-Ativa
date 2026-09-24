@@ -22,6 +22,13 @@ import {
 import { Student, SchoolClass, AttendanceStatus, ParentAlert, AttendanceRecord } from '../types';
 import { storageService } from '../data/storageService';
 import { firestoreService, isSameDay, normalizeDateStr } from '../lib/firestoreService';
+import {
+  generateAtestadoRecordsSequence,
+  generateJustifiedAbsenceSequence,
+  formatMedicalDaysInfo,
+  formatJustificationDaysInfo,
+  findActiveAbsenceForDate
+} from '../utils/atestadoUtils';
 
 // Helper flexível para associar estudante à turma
 export const isStudentInClass = (s: { classId?: string; className?: string }, cls: { id: string; name: string }): boolean => {
@@ -135,8 +142,17 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
         status: AttendanceStatus;
         durationDays?: number;
         justification?: string;
+        justificationDays?: number;
+        justificationDayCurrent?: number;
+        justificationDaysRemaining?: number;
+        justificationStartDate?: string;
+        justificationEndDate?: string;
         medicalDays?: number;
         medicalCertificate?: string;
+        medicalDayCurrent?: number;
+        medicalDaysRemaining?: number;
+        medicalStartDate?: string;
+        medicalEndDate?: string;
       }
     >
   >({});
@@ -196,6 +212,18 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
       }
     }
 
+    // 4. Incorpora ausências ativas por atestado ou justificativa vigentes na data
+    const allStored = storageService.getAttendanceRecords();
+    const existingStudentIds = new Set(records.map(r => r.studentId));
+    students.forEach(st => {
+      if (!existingStudentIds.has(st.id)) {
+        const activeAbs = findActiveAbsenceForDate(allStored, st.id, date);
+        if (activeAbs) {
+          records.push(activeAbs);
+        }
+      }
+    });
+
     setDailyRecords(records);
     setIsLoadingRecords(false);
     return records;
@@ -209,6 +237,7 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
   const handleOpenAttendanceModal = (cls: SchoolClass) => {
     const classStudents = students.filter(s => isStudentInClass(s, cls));
     const existingForClass = dailyRecords.filter(r => isRecordInClass(r, cls));
+    const allStoredRecords = storageService.getAttendanceRecords();
 
     const initialMap: Record<
       string,
@@ -216,27 +245,87 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
         status: AttendanceStatus;
         durationDays?: number;
         justification?: string;
+        justificationDays?: number;
+        justificationDayCurrent?: number;
+        justificationDaysRemaining?: number;
+        justificationStartDate?: string;
+        justificationEndDate?: string;
         medicalDays?: number;
         medicalCertificate?: string;
+        medicalDayCurrent?: number;
+        medicalDaysRemaining?: number;
+        medicalStartDate?: string;
+        medicalEndDate?: string;
       }
     > = {};
 
     classStudents.forEach(s => {
+      // 1. Verifica se já há registro na lista do dia
       const existing = existingForClass.find(r => r.studentId === s.id);
       if (existing) {
         initialMap[s.id] = {
           status: existing.status,
           durationDays: existing.durationDays || 1,
           justification: existing.justification || '',
-          medicalDays: existing.medicalDays,
+          justificationDays: existing.justificationDays || (existing.status === 'falta_justificada' ? existing.durationDays || 1 : undefined),
+          justificationDayCurrent: existing.justificationDayCurrent || 1,
+          justificationDaysRemaining: existing.justificationDaysRemaining,
+          justificationStartDate: existing.justificationStartDate,
+          justificationEndDate: existing.justificationEndDate,
+          medicalDays: existing.medicalDays || (existing.status === 'atestado_medico' ? existing.durationDays || 1 : undefined),
           medicalCertificate: existing.medicalCertificate,
+          medicalDayCurrent: existing.medicalDayCurrent || 1,
+          medicalDaysRemaining: existing.medicalDaysRemaining,
+          medicalStartDate: existing.medicalStartDate,
+          medicalEndDate: existing.medicalEndDate,
         };
       } else {
-        // Baseline: if student has chronic absence risk, highlight or default presente
-        initialMap[s.id] = {
-          status: s.consecutiveAbsences >= 3 ? 'falta_injustificada' : 'presente',
-          durationDays: 1,
-        };
+        // 2. Verifica se o estudante possui atestado médico ou falta justificada em vigência na data selecionada
+        const activeAbsence = findActiveAbsenceForDate(allStoredRecords, s.id, selectedDate);
+
+        if (activeAbsence) {
+          const isMed = activeAbsence.status === 'atestado_medico';
+          const totalDays = isMed
+            ? (activeAbsence.medicalDays || activeAbsence.durationDays || 1)
+            : (activeAbsence.justificationDays || activeAbsence.durationDays || 1);
+          const curDay = isMed
+            ? (activeAbsence.medicalDayCurrent || 1)
+            : (activeAbsence.justificationDayCurrent || 1);
+          const remDays = isMed
+            ? (activeAbsence.medicalDaysRemaining !== undefined ? activeAbsence.medicalDaysRemaining : Math.max(0, totalDays - curDay))
+            : (activeAbsence.justificationDaysRemaining !== undefined ? activeAbsence.justificationDaysRemaining : Math.max(0, totalDays - curDay));
+
+          if (isMed) {
+            initialMap[s.id] = {
+              status: 'atestado_medico',
+              durationDays: totalDays,
+              justification: activeAbsence.justification || '',
+              medicalDays: totalDays,
+              medicalCertificate: activeAbsence.medicalCertificate,
+              medicalDayCurrent: curDay,
+              medicalDaysRemaining: remDays,
+              medicalStartDate: activeAbsence.medicalStartDate,
+              medicalEndDate: activeAbsence.medicalEndDate,
+            };
+          } else {
+            initialMap[s.id] = {
+              status: 'falta_justificada',
+              durationDays: totalDays,
+              justification: activeAbsence.justification || '',
+              justificationDays: totalDays,
+              justificationDayCurrent: curDay,
+              justificationDaysRemaining: remDays,
+              justificationStartDate: activeAbsence.justificationStartDate,
+              justificationEndDate: activeAbsence.justificationEndDate,
+            };
+          }
+        } else {
+          // Baseline: if student has chronic absence risk, highlight or default presente
+          initialMap[s.id] = {
+            status: s.consecutiveAbsences >= 3 ? 'falta_injustificada' : 'presente',
+            durationDays: 1,
+          };
+        }
       }
     });
 
@@ -248,18 +337,29 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
 
   // Status changes inside modal
   const handleModalStatusChange = (studentId: string, status: AttendanceStatus) => {
-    setModalAttendanceState(prev => ({
-      ...prev,
-      [studentId]: {
-        ...prev[studentId],
-        status,
-        durationDays: prev[studentId]?.durationDays || 1,
-        medicalDays:
-          status === 'atestado_medico'
-            ? prev[studentId]?.medicalDays || 1
-            : prev[studentId]?.medicalDays,
-      },
-    }));
+    setModalAttendanceState(prev => {
+      const current = prev[studentId];
+      const medDays = current?.medicalDays || (current?.status === 'atestado_medico' ? current?.durationDays : 1) || 1;
+      const justDays = current?.justificationDays || (current?.status === 'falta_justificada' ? current?.durationDays : 1) || 1;
+
+      return {
+        ...prev,
+        [studentId]: {
+          ...current,
+          status,
+          durationDays: status === 'atestado_medico' ? medDays : status === 'falta_justificada' ? justDays : 1,
+          medicalDays: status === 'atestado_medico' ? medDays : undefined,
+          medicalDayCurrent: status === 'atestado_medico' ? (current?.medicalDayCurrent || 1) : undefined,
+          medicalDaysRemaining: status === 'atestado_medico' ? Math.max(0, medDays - (current?.medicalDayCurrent || 1)) : undefined,
+          medicalCertificate: status === 'atestado_medico' 
+            ? (current?.medicalCertificate || formatMedicalDaysInfo(current?.medicalDayCurrent || 1, medDays))
+            : undefined,
+          justificationDays: status === 'falta_justificada' ? justDays : undefined,
+          justificationDayCurrent: status === 'falta_justificada' ? (current?.justificationDayCurrent || 1) : undefined,
+          justificationDaysRemaining: status === 'falta_justificada' ? Math.max(0, justDays - (current?.justificationDayCurrent || 1)) : undefined,
+        },
+      };
+    });
   };
 
   const handleModalJustificationChange = (studentId: string, text: string) => {
@@ -272,17 +372,43 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
     }));
   };
 
+  const handleModalJustificationDaysChange = (studentId: string, days: number) => {
+    const cleanDays = Math.max(1, days);
+    setModalAttendanceState(prev => {
+      const current = prev[studentId];
+      const curDay = current?.justificationDayCurrent || 1;
+      const rem = Math.max(0, cleanDays - curDay);
+      return {
+        ...prev,
+        [studentId]: {
+          ...current,
+          justificationDays: cleanDays,
+          durationDays: cleanDays,
+          justificationDayCurrent: curDay,
+          justificationDaysRemaining: rem,
+        },
+      };
+    });
+  };
+
   const handleModalMedicalDaysChange = (studentId: string, days: number) => {
     const cleanDays = Math.max(1, days);
-    setModalAttendanceState(prev => ({
-      ...prev,
-      [studentId]: {
-        ...prev[studentId],
-        medicalDays: cleanDays,
-        durationDays: cleanDays,
-        medicalCertificate: `${cleanDays} dia(s) de atestado médico`,
-      },
-    }));
+    setModalAttendanceState(prev => {
+      const current = prev[studentId];
+      const curDay = current?.medicalDayCurrent || 1;
+      const rem = Math.max(0, cleanDays - curDay);
+      return {
+        ...prev,
+        [studentId]: {
+          ...current,
+          medicalDays: cleanDays,
+          durationDays: cleanDays,
+          medicalDayCurrent: curDay,
+          medicalDaysRemaining: rem,
+          medicalCertificate: `${cleanDays} dia(s) de atestado • ${formatMedicalDaysInfo(curDay, cleanDays)}`,
+        },
+      };
+    });
   };
 
   const handleModalMarkAllPresent = () => {
@@ -303,13 +429,20 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
     const classStudents = students.filter(s => isStudentInClass(s, activeModalClass));
     const items = classStudents.map(s => {
       const entry = modalAttendanceState[s.id] || { status: 'presente' as AttendanceStatus, durationDays: 1 };
+      const duration = entry.status === 'atestado_medico'
+        ? (entry.medicalDays || entry.durationDays || 1)
+        : entry.status === 'falta_justificada'
+        ? (entry.justificationDays || entry.durationDays || 1)
+        : 1;
+
       return {
         studentId: s.id,
         studentName: s.name,
         className: s.className || activeModalClass.name,
         status: entry.status,
-        durationDays: entry.durationDays || 1,
+        durationDays: duration,
         justification: entry.justification,
+        justificationDays: entry.justificationDays,
         medicalCertificate: entry.medicalCertificate,
         medicalDays: entry.medicalDays,
       };
@@ -327,6 +460,7 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
           status: item.status,
           durationDays: item.durationDays,
           justification: item.justification,
+          justificationDays: item.justificationDays,
           medicalCertificate: item.medicalCertificate,
           medicalDays: item.medicalDays,
           recordedBy: teacherName,
@@ -919,58 +1053,122 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
 
                       {/* Expandable fields for Falta Justificada */}
                       {currentItem.status === 'falta_justificada' && (
-                        <div className="mt-2.5 pt-2 border-t border-amber-200/60 flex items-center gap-2">
-                          <label className="text-[11px] font-bold text-amber-900 shrink-0">
-                            Motivo / Comunicação:
-                          </label>
-                          <input
-                            type="text"
-                            value={currentItem.justification || ''}
-                            onChange={e => handleModalJustificationChange(student.id, e.target.value)}
-                            placeholder="Ex: Mãe avisou consulta odontológica"
-                            className="w-full text-xs px-2.5 py-1 bg-white border border-amber-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-amber-500 text-slate-900"
-                          />
+                        <div className="mt-2.5 pt-2 border-t border-amber-200/60 space-y-2 text-xs">
+                          {/* Banner informativo de contagem regressiva para Falta Justificada */}
+                          <div className="bg-amber-100/80 border border-amber-300 rounded-lg p-2.5 text-[11px] text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs font-medium">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-amber-700 shrink-0" />
+                              <span>
+                                <strong>Justificativa de {currentItem.justificationDays || 1} dia(s):</strong>{' '}
+                                {currentItem.justificationDayCurrent ? `Dia ${currentItem.justificationDayCurrent} de ${currentItem.justificationDays || 1}` : `Dia 1 de ${currentItem.justificationDays || 1}`} •{' '}
+                                <span className="font-extrabold text-amber-900">
+                                  {currentItem.justificationDaysRemaining !== undefined
+                                    ? (currentItem.justificationDaysRemaining === 0 ? 'Último dia justificado (conclui hoje)' : currentItem.justificationDaysRemaining === 1 ? 'Resta 1 dia de ausência justificada' : `Faltam ${currentItem.justificationDaysRemaining} dias para finalizar a justificativa`)
+                                    : (currentItem.justificationDays || 1) <= 1 ? 'Ausência justificada de 1 dia' : `Faltam ${(currentItem.justificationDays || 1) - 1} dias para finalizar a justificativa`}
+                                </span>
+                              </span>
+                            </div>
+                            {(currentItem.justificationDays || 1) > 1 && (
+                              <span className="text-[10px] text-amber-900 bg-white/90 px-2 py-0.5 rounded-full border border-amber-300 font-semibold shrink-0">
+                                📅 Lançamento automático para os próximos {(currentItem.justificationDays || 1) - 1} dias
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex items-center gap-1.5">
+                              <label className="text-[11px] font-bold text-amber-900 shrink-0">
+                                Total de Dias:
+                              </label>
+                              <input
+                                type="number"
+                                min={1}
+                                max={30}
+                                value={currentItem.justificationDays || 1}
+                                onChange={e =>
+                                  handleModalJustificationDaysChange(student.id, parseInt(e.target.value) || 1)
+                                }
+                                className="w-16 px-2 py-1 bg-white border border-amber-300 rounded-md font-bold text-slate-900 text-center"
+                              />
+                            </div>
+
+                            <div className="flex-1 flex items-center gap-1.5">
+                              <label className="text-[11px] font-bold text-amber-900 shrink-0">
+                                Motivo / Comunicação:
+                              </label>
+                              <input
+                                type="text"
+                                value={currentItem.justification || ''}
+                                onChange={e => handleModalJustificationChange(student.id, e.target.value)}
+                                placeholder="Ex: Comunicação prévia dos responsáveis / Consulta agendada"
+                                className="w-full text-xs px-2.5 py-1 bg-white border border-amber-300 rounded-md focus:outline-hidden focus:ring-1 focus:ring-amber-500 text-slate-900"
+                              />
+                            </div>
+                          </div>
                         </div>
                       )}
 
                       {/* Expandable fields for Atestado Médico */}
                       {currentItem.status === 'atestado_medico' && (
-                        <div className="mt-2.5 pt-2 border-t border-cyan-200/60 flex flex-wrap items-center gap-3 text-xs">
-                          <div className="flex items-center gap-1.5">
-                            <label className="text-[11px] font-bold text-cyan-900 shrink-0">
-                              Dias de afastamento:
-                            </label>
-                            <input
-                              type="number"
-                              min={1}
-                              max={30}
-                              value={currentItem.medicalDays || 1}
-                              onChange={e =>
-                                handleModalMedicalDaysChange(student.id, parseInt(e.target.value) || 1)
-                              }
-                              className="w-16 px-2 py-1 bg-white border border-cyan-300 rounded-md font-bold text-slate-900 text-center"
-                            />
+                        <div className="mt-2.5 pt-2 border-t border-cyan-200/60 space-y-2 text-xs">
+                          {/* Banner informativo de contagem regressiva e dias restantes */}
+                          <div className="bg-cyan-100/80 border border-cyan-300 rounded-lg p-2.5 text-[11px] text-cyan-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs font-medium">
+                            <div className="flex items-center gap-2">
+                              <Stethoscope className="w-4 h-4 text-cyan-700 shrink-0" />
+                              <span>
+                                <strong>Atestado de {currentItem.medicalDays || 1} dia(s):</strong>{' '}
+                                {currentItem.medicalDayCurrent ? `Dia ${currentItem.medicalDayCurrent} de ${currentItem.medicalDays || 1}` : `Dia 1 de ${currentItem.medicalDays || 1}`} •{' '}
+                                <span className="font-extrabold text-cyan-900">
+                                  {currentItem.medicalDaysRemaining !== undefined
+                                    ? (currentItem.medicalDaysRemaining === 0 ? 'Último dia de atestado (conclui hoje)' : currentItem.medicalDaysRemaining === 1 ? 'Resta 1 dia para finalizar' : `Faltam ${currentItem.medicalDaysRemaining} dias para finalizar`)
+                                    : (currentItem.medicalDays || 1) <= 1 ? 'Afastamento de 1 dia' : `Faltam ${(currentItem.medicalDays || 1) - 1} dias para finalizar`}
+                                </span>
+                              </span>
+                            </div>
+                            {(currentItem.medicalDays || 1) > 1 && (
+                              <span className="text-[10px] text-cyan-800 bg-white/90 px-2 py-0.5 rounded-full border border-cyan-200 font-semibold shrink-0">
+                                📅 Lançamento automático para os próximos {(currentItem.medicalDays || 1) - 1} dias
+                              </span>
+                            )}
                           </div>
 
-                          <div className="flex-1 flex items-center gap-1.5">
-                            <label className="text-[11px] font-bold text-cyan-900 shrink-0">
-                              CID / Motivo:
-                            </label>
-                            <input
-                              type="text"
-                              value={currentItem.medicalCertificate || ''}
-                              onChange={e =>
-                                setModalAttendanceState(prev => ({
-                                  ...prev,
-                                  [student.id]: {
-                                    ...prev[student.id],
-                                    medicalCertificate: e.target.value,
-                                  },
-                                }))
-                              }
-                              placeholder="Ex: Sintomas gripais / Repouso médico"
-                              className="w-full px-2.5 py-1 bg-white border border-cyan-300 rounded-md text-slate-900 focus:outline-hidden"
-                            />
+                          <div className="flex flex-wrap items-center gap-3">
+                            <div className="flex items-center gap-1.5">
+                              <label className="text-[11px] font-bold text-cyan-900 shrink-0">
+                                Total de Dias:
+                              </label>
+                              <input
+                                type="number"
+                                min={1}
+                                max={30}
+                                value={currentItem.medicalDays || 1}
+                                onChange={e =>
+                                  handleModalMedicalDaysChange(student.id, parseInt(e.target.value) || 1)
+                                }
+                                className="w-16 px-2 py-1 bg-white border border-cyan-300 rounded-md font-bold text-slate-900 text-center"
+                              />
+                            </div>
+
+                            <div className="flex-1 flex items-center gap-1.5">
+                              <label className="text-[11px] font-bold text-cyan-900 shrink-0">
+                                CID / Observação:
+                              </label>
+                              <input
+                                type="text"
+                                value={currentItem.medicalCertificate || ''}
+                                onChange={e =>
+                                  setModalAttendanceState(prev => ({
+                                    ...prev,
+                                    [student.id]: {
+                                      ...prev[student.id],
+                                      medicalCertificate: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="Ex: Sintomas gripais / Repouso médico"
+                                className="w-full px-2.5 py-1 bg-white border border-cyan-300 rounded-md text-slate-900 focus:outline-hidden text-xs"
+                              />
+                            </div>
                           </div>
                         </div>
                       )}
