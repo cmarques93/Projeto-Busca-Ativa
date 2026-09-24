@@ -206,6 +206,67 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     };
   }, [studentId]);
 
+  // Estatísticas calculadas dinamicamente a partir do histórico real de chamadas
+  const computedStats = React.useMemo(() => {
+    if (!data) {
+      return {
+        totalAbsences: 0,
+        consecutiveAbsences: 0,
+        lastPresenceDate: null,
+        attendanceRate: 100,
+      };
+    }
+
+    const history = data.attendanceHistory || [];
+
+    // Se ainda não houver histórico de chamadas no diário, utiliza os dados cadastrais
+    if (history.length === 0) {
+      return {
+        totalAbsences: data.student.totalAbsences || 0,
+        consecutiveAbsences: data.student.consecutiveAbsences || 0,
+        lastPresenceDate: data.student.lastAttendanceDate || null,
+        attendanceRate: data.student.attendanceRate ?? 100,
+      };
+    }
+
+    // Ordena do mais recente para o mais antigo cronologicamente
+    const sorted = [...history].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+    // Faltas reais registradas no diário eletrônico (contabiliza cada registro de ausência)
+    const absenceRecords = sorted.filter(
+      r => r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico'
+    );
+    const calculatedTotalAbsences = absenceRecords.length;
+
+    // Faltas consecutivas a partir da chamada mais recente
+    let calculatedConsecutive = 0;
+    for (const r of sorted) {
+      if (r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico') {
+        calculatedConsecutive++;
+      } else if (r.status === 'presente' || (r.status as any) === 'atraso') {
+        break;
+      }
+    }
+
+    // Última data em que o estudante esteve presente ('presente' ou 'atraso')
+    const lastPresenceRecord = sorted.find(
+      r => r.status === 'presente' || (r.status as any) === 'atraso'
+    );
+    const lastPresenceDate = lastPresenceRecord ? lastPresenceRecord.date : null;
+
+    // Taxa de presença calculada sobre os dias letivos e faltas reais registradas
+    const totalSchoolDays = data.student.totalSchoolDays || 46;
+    const finalAbsences = calculatedTotalAbsences;
+    const calculatedRate = Math.max(0, Math.min(100, Math.round(((totalSchoolDays - finalAbsences) / totalSchoolDays) * 100)));
+
+    return {
+      totalAbsences: finalAbsences,
+      consecutiveAbsences: calculatedConsecutive,
+      lastPresenceDate,
+      attendanceRate: calculatedRate,
+    };
+  }, [data]);
+
   if (!studentId) return null;
 
   return (
@@ -308,28 +369,28 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                 <div className="bg-white border border-slate-200 rounded-lg p-3">
                   <div className="text-slate-500">Taxa de Presença</div>
-                  <div className={`text-xl font-extrabold mt-0.5 ${data.student.attendanceRate < 75 ? 'text-rose-600' : 'text-slate-900'}`}>
-                    {data.student.attendanceRate}%
+                  <div className={`text-xl font-extrabold mt-0.5 ${computedStats.attendanceRate < 75 ? 'text-rose-600' : 'text-slate-900'}`}>
+                    {computedStats.attendanceRate}%
                   </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">Mínimo legal: 75%</div>
                 </div>
 
                 <div className="bg-white border border-slate-200 rounded-lg p-3">
                   <div className="text-slate-500">Faltas Acumuladas</div>
-                  <div className="text-xl font-extrabold text-slate-900 mt-0.5">{data.student.totalAbsences}</div>
+                  <div className="text-xl font-extrabold text-slate-900 mt-0.5">{computedStats.totalAbsences}</div>
                   <div className="text-[10px] text-slate-400 mt-0.5">Em {data.student.totalSchoolDays} dias letivos</div>
                 </div>
 
                 <div className="bg-white border border-slate-200 rounded-lg p-3">
                   <div className="text-slate-500">Faltas Consecutivas</div>
-                  <div className="text-xl font-extrabold text-rose-600 mt-0.5">{data.student.consecutiveAbsences}</div>
+                  <div className="text-xl font-extrabold text-rose-600 mt-0.5">{computedStats.consecutiveAbsences}</div>
                   <div className="text-[10px] text-slate-400 mt-0.5">Gatilho ativo aos 3 dias</div>
                 </div>
 
                 <div className="bg-white border border-slate-200 rounded-lg p-3">
                   <div className="text-slate-500">Última Presença</div>
-                  <div className="text-base font-bold text-slate-800 mt-1">
-                    {data.student.lastAttendanceDate || 'Não registrada'}
+                  <div className="text-sm font-bold text-slate-800 mt-1">
+                    {computedStats.lastPresenceDate ? formatarDataBR(computedStats.lastPresenceDate) : 'Sem presença recente'}
                   </div>
                 </div>
               </div>
@@ -487,7 +548,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                     <span>Histórico de Frequência Escolar</span>
                   </span>
                   <span className="text-[11px] font-semibold text-slate-500">
-                    Taxa: <strong>{data.student.attendanceRate.toFixed(1)}%</strong>
+                    Taxa: <strong>{computedStats.attendanceRate.toFixed(1)}%</strong>
                   </span>
                 </div>
 

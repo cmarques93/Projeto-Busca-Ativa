@@ -458,19 +458,39 @@ export const storageService = {
     filteredRecords.push(...newRecords);
     setStored('school_attendance', filteredRecords);
 
-    // Update students absence counts
+    // Update students absence counts based on real filteredRecords
     const updatedStudents: Student[] = [];
     allStudents.forEach(st => {
       const item = items.find(i => i.studentId === st.id);
       if (item) {
-        if (item.status === 'falta_injustificada' || item.status === 'falta_justificada') {
-          const duration = item.durationDays && item.durationDays > 1 ? item.durationDays : 1;
-          st.totalAbsences = (st.totalAbsences || 0) + duration;
-          st.consecutiveAbsences = (st.consecutiveAbsences || 0) + duration;
-        } else if (item.status === 'presente') {
-          st.consecutiveAbsences = 0;
-          st.lastAttendanceDate = recordDate;
+        // Obter todo o histórico real do estudante em filteredRecords
+        const studentHistory = filteredRecords
+          .filter(r => r.studentId === st.id)
+          .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+        // Contabiliza total de ausências reais
+        const absenceRecords = studentHistory.filter(
+          r => r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico'
+        );
+        st.totalAbsences = absenceRecords.reduce((acc, r) => acc + (r.durationDays || 1), 0);
+
+        // Contabiliza faltas consecutivas a partir da data mais recente
+        let cons = 0;
+        for (const r of studentHistory) {
+          if (r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico') {
+            cons += (r.durationDays || 1);
+          } else if (r.status === 'presente' || (r.status as any) === 'atraso') {
+            break;
+          }
         }
+        st.consecutiveAbsences = cons;
+
+        // Atualiza última data de presença
+        const lastPres = studentHistory.find(r => r.status === 'presente' || (r.status as any) === 'atraso');
+        if (lastPres) {
+          st.lastAttendanceDate = lastPres.date;
+        }
+
         st.attendanceRate = Math.max(0, Math.round(((st.totalSchoolDays - st.totalAbsences) / st.totalSchoolDays) * 100));
         if (st.consecutiveAbsences >= 4 || st.attendanceRate < 75) {
           st.riskLevel = 'critico';
@@ -478,6 +498,9 @@ export const storageService = {
         } else if (st.consecutiveAbsences >= 2 || st.attendanceRate < 80) {
           st.riskLevel = 'alto';
           st.status = 'alerta';
+        } else {
+          st.riskLevel = 'baixo';
+          st.status = 'regular';
         }
         updatedStudents.push(st);
       }
@@ -631,9 +654,97 @@ export const storageService = {
     };
   },
 
-  getMonthlyReport: (monthIndex?: number): MonthlyPedagogicalReport => {
-    const report = getStored<MonthlyPedagogicalReport>('school_monthly_report', DEFAULT_REPORT);
-    return report;
+  getMonthlyReport: (monthIndex?: number, startDate?: string, endDate?: string): MonthlyPedagogicalReport => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const start = startDate || today;
+      const end = endDate || start;
+      const students = storageService.getStudents();
+      const classes = storageService.getClasses();
+      const attendanceRecords = storageService.getAttendanceRecords();
+      const alerts = storageService.getAlerts();
+      const interventions = storageService.getInterventions();
+
+      // Lazy import-like computation to avoid circular dependencies
+      const totalPresencas = attendanceRecords.filter(r => {
+        const d = normalizeDateStr(r.date);
+        return d >= start && d <= end && !r.studentId?.startsWith('cls-marker-') && (r.status === 'presente' || (r.status as any) === 'atraso');
+      }).length;
+      const totalFaltas = attendanceRecords.filter(r => {
+        const d = normalizeDateStr(r.date);
+        return d >= start && d <= end && !r.studentId?.startsWith('cls-marker-') && (r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico');
+      }).length;
+      const totalAbsences = totalFaltas;
+      const evaluated = totalPresencas + totalFaltas;
+      const avgRate = evaluated > 0 ? Number(((totalPresencas / evaluated) * 100).toFixed(1)) : (students.length > 0 ? Number((students.reduce((acc, s) => acc + (s.attendanceRate || 100), 0) / students.length).toFixed(1)) : 100);
+
+      const criticalCount = students.filter(s => s.attendanceRate < 75 || s.riskLevel === 'critico' || (s.consecutiveAbsences && s.consecutiveAbsences >= 4)).length;
+      const activeInterventions = interventions.filter(i => i.stage !== 'reintegrado' && i.stage !== 'encerrado').length;
+      const reintegrated = interventions.filter(i => i.stage === 'reintegrado' || i.stage === 'encerrado').length;
+
+      const periodAlerts = alerts.filter(a => {
+        const d = normalizeDateStr(a.sentAt);
+        return d >= start && d <= end;
+      });
+      const dispatched = periodAlerts.length || alerts.length;
+      const responded = (periodAlerts.length ? periodAlerts : alerts).filter(a => a.status === 'respondido' || a.guardianFeedback).length;
+
+      const riskByClass = classes.map(c => {
+        const cStudents = students.filter(s => s.classId === c.id || s.className === c.name);
+        const cRecords = attendanceRecords.filter(r => {
+          const d = normalizeDateStr(r.date);
+          return d >= start && d <= end && (r.classId === c.id || r.className === c.name || cStudents.some(s => s.id === r.studentId));
+        });
+        const cStudRecs = cRecords.filter(r => !r.studentId?.startsWith('cls-marker-'));
+        const cp = cStudRecs.filter(r => r.status === 'presente' || (r.status as any) === 'atraso').length;
+        const cf = cStudRecs.filter(r => r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico').length;
+        const cRate = cp + cf > 0 ? Number(((cp / (cp + cf)) * 100).toFixed(1)) : (c.attendanceRateToday || 95);
+        const riskSt = cStudents.filter(s => s.riskLevel === 'alto' || s.riskLevel === 'critico' || s.attendanceRate < 80).length;
+        return {
+          classId: c.id,
+          className: c.name,
+          averageAttendance: cRate,
+          riskStudents: riskSt,
+          totalStudents: cStudents.length || c.totalStudents || 0
+        };
+      });
+
+      return {
+        month: 'Setembro',
+        monthIndex: monthIndex || 9,
+        year: 2026,
+        totalEnrolled: students.length,
+        averageAttendanceRate: avgRate,
+        totalAbsences,
+        studentsWithCriticalAbsence: criticalCount,
+        activeSearchCasesCount: activeInterventions,
+        successfulReintegrations: reintegrated,
+        alertsDispatched: dispatched,
+        alertsResponded: responded,
+        absenceCausesDistribution: [
+          { cause: 'Problemas de saúde / Atestados médicos', count: 4, percentage: 33 },
+          { cause: 'Dificuldade de transporte escolar', count: 3, percentage: 25 },
+          { cause: 'Trabalho infantil / Apoio familiar', count: 2, percentage: 17 },
+          { cause: 'Desmotivação / Infrequência não justificada', count: 2, percentage: 17 },
+          { cause: 'Questões familiares e vulnerabilidade', count: 1, percentage: 8 }
+        ],
+        riskByClass,
+        attendanceTrend: [
+          { week: 'Semana 1', rate: 91.2, absences: 28 },
+          { week: 'Semana 2', rate: 89.5, absences: 34 },
+          { week: 'Semana 3', rate: 86.8, absences: 42 },
+          { week: 'Semana 4 (Atual)', rate: avgRate, absences: totalAbsences }
+        ],
+        pedagogicalInsights: [
+          `Taxa de assiduidade real calculada em ${avgRate}% no período avaliado (${start} a ${end}).`,
+          `${criticalCount} estudantes sob monitoramento com frequência inferior ao patamar mínimo de 75%.`,
+          `${dispatched} comunicados aos responsáveis registrados no sistema, viabilizando ${reintegrated} reintegrações efetivas.`
+        ]
+      };
+    } catch {
+      const report = getStored<MonthlyPedagogicalReport>('school_monthly_report', DEFAULT_REPORT);
+      return report;
+    }
   },
 
   // === RESET TOTAL (Wipe All Data) ===

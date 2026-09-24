@@ -101,7 +101,10 @@ export default function App() {
           storageService.setAlerts(res.alerts);
         }
         if (res.attendance && res.attendance.length > 0) {
-          storageService.setAttendanceRecords(res.attendance);
+          const localAttendance = storageService.getAttendanceRecords();
+          const cloudIds = new Set(res.attendance.map((a: any) => a.id));
+          const localOnly = localAttendance.filter(a => !cloudIds.has(a.id));
+          storageService.setAttendanceRecords([...res.attendance, ...localOnly]);
         }
         if (res.interventions && res.interventions.length > 0) {
           setInterventions(res.interventions);
@@ -316,9 +319,9 @@ export default function App() {
         setSchoolInfo(await infoRes.json());
         hasServerInfo = true;
       }
-      if (classesRes && classesRes.ok && classesRes.headers.get('content-type')?.includes('application/json')) {
+      if (!hasServerClasses && classesRes && classesRes.ok && classesRes.headers.get('content-type')?.includes('application/json')) {
         const clsList = await classesRes.json();
-        if (Array.isArray(clsList)) {
+        if (Array.isArray(clsList) && clsList.length > 0) {
           setClasses(clsList);
           hasServerClasses = true;
           if (clsList.length > 0) {
@@ -330,9 +333,9 @@ export default function App() {
           }
         }
       }
-      if (studentsRes && studentsRes.ok && studentsRes.headers.get('content-type')?.includes('application/json')) {
+      if (!hasServerStudents && studentsRes && studentsRes.ok && studentsRes.headers.get('content-type')?.includes('application/json')) {
         const stList = await studentsRes.json();
-        if (Array.isArray(stList)) {
+        if (Array.isArray(stList) && stList.length > 0) {
           setStudents(stList);
           hasServerStudents = true;
         }
@@ -918,12 +921,17 @@ export default function App() {
           />
         )}
 
-        {/* Gestão/PAAC & Admin: Monthly Reports */}
-        {activeTab === 'reports' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin') && (
+        {/* Gestão/PAAC, Admin & AOE: Monthly Reports */}
+        {activeTab === 'reports' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin' || currentUser.role === 'aoe') && (
           <MonthlyReport
             report={monthlyReport}
+            classes={classes}
+            students={students}
+            alerts={alerts}
+            interventions={interventions}
             onSelectMonth={monthIndex => setSelectedMonthIndex(monthIndex)}
             selectedMonthIndex={selectedMonthIndex}
+            onRefreshData={fetchData}
           />
         )}
 

@@ -543,7 +543,9 @@ async function startServer() {
     try {
       const month = req.query.month ? Number(req.query.month) : 9;
       const year = req.query.year ? Number(req.query.year) : 2026;
-      const report = db.getMonthlyReport(month, year);
+      const startDate = req.query.startDate ? String(req.query.startDate) : undefined;
+      const endDate = req.query.endDate ? String(req.query.endDate) : undefined;
+      const report = db.getMonthlyReport(month, year, startDate, endDate);
       res.json(report);
     } catch (e: any) {
       res.status(500).json({ error: e.message });

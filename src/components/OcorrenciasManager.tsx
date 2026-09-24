@@ -689,9 +689,40 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       }
     }
 
+    // Calcula as estatísticas de ausências fielmente a partir do histórico real de registros
+    let computedTotalAbsences = stObj?.totalAbsences || 0;
+    let computedConsecutive = stObj?.consecutiveAbsences || 0;
+    let computedRate = stObj?.attendanceRate ?? 100;
+
+    if (freqHistory.length > 0) {
+      const absenceRecs = freqHistory.filter(
+        r => r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico'
+      );
+      computedTotalAbsences = absenceRecs.length;
+
+      let cons = 0;
+      for (const r of freqHistory) {
+        if (r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico') {
+          cons++;
+        } else if (r.status === 'presente' || (r.status as any) === 'atraso') {
+          break;
+        }
+      }
+      computedConsecutive = cons;
+      const totalDays = stObj?.totalSchoolDays || 46;
+      computedRate = Math.max(0, Math.min(100, Math.round(((totalDays - computedTotalAbsences) / totalDays) * 100)));
+    }
+
+    const synchronizedStudent = stObj ? {
+      ...stObj,
+      totalAbsences: computedTotalAbsences,
+      consecutiveAbsences: computedConsecutive,
+      attendanceRate: computedRate,
+    } : undefined;
+
     setDossieAluno({
       ...aluno,
-      estudanteObj: stObj,
+      estudanteObj: synchronizedStudent,
       historicoFrequencia: freqHistory,
     });
   };

@@ -401,8 +401,8 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         )}
 
-        {/* GESTÃO e ADMIN: Relatórios Mensais */}
-        {(isGestao || isAdmin) && (
+        {/* GESTÃO, AOE e ADMIN: Relatórios Mensais */}
+        {(isGestao || isAdmin || isAOE) && (
           <button
             onClick={() => setActiveTab('reports')}
             className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${

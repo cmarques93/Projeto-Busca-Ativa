@@ -319,35 +319,26 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
   const justifiedOrMedicalCount = dailyAbsentees.filter(
     i => i.absenceType === 'falta_justificada' || i.absenceType === 'atestado_medico'
   ).length;
-  const alreadyNotifiedCount = dailyAbsentees.filter(i => Boolean(i.existingAlert)).length;
-  const pendingNotificationCount = totalDailyAbsences - alreadyNotifiedCount;
+  const alreadyNotifiedCount = dailyAbsentees.filter(
+    i => i.absenceType === 'falta_injustificada' && Boolean(i.existingAlert)
+  ).length;
+  const pendingNotificationCount = Math.max(0, unjustifiedCount - alreadyNotifiedCount);
 
-  // Generate WhatsApp message text for a specific absentee
+  // Generate WhatsApp message text for a specific absentee (exclusivo para falta injustificada)
   const generateWhatsAppMessage = (item: DailyAbsenteeItem): string => {
     const formattedDate = new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR');
 
-    if (item.absenceType === 'atestado_medico') {
-      return `Prezado(a) ${item.guardianName}, confirmamos o recebimento e registro de atestado médico/justificativa de saúde do(a) estudante ${item.studentName} (${item.className}) para a data de ${formattedDate}. Informamos que as ausências amparadas por laudo de saúde não prejudicam seu cômputo legal de frequência. EE Professor Arlindo Silvestre.`;
-    }
-
-    if (item.absenceType === 'falta_justificada') {
-      return `Prezado(a) ${item.guardianName}, informamos que registramos a justificativa ("${item.detail || 'comunicação familiar'}") referente à ausência do(a) estudante ${item.studentName} (${item.className}) no dia ${formattedDate}. Lembramos que, conforme legislação da SEDUC-SP, a presença diária às aulas é fundamental para a aprendizagem. EE Professor Arlindo Silvestre.`;
-    }
-
-    if (item.absenceType === 'atraso_portaria') {
-      return `Prezado(a) ${item.guardianName}, informamos que o(a) estudante ${item.studentName} (${item.className}) deu entrada tardia na unidade escolar no dia ${formattedDate} (${item.detail}). Solicitamos atenção aos horários regulares das aulas. EE Professor Arlindo Silvestre.`;
-    }
-
-    // Padrão: Falta Injustificada
     if (item.consecutiveAbsences >= 3) {
       return `Prezado(a) ${item.guardianName}, a EE Professor Arlindo Silvestre comunica com URGÊNCIA que o(a) estudante ${item.studentName} (${item.className}) não compareceu à escola no dia ${formattedDate}, acumulando ${item.consecutiveAbsences} ausências consecutivas (índice atual de ${item.attendanceRate}%). Solicitamos entrar em contato imediatamente com a Coordenação/Direção Escolar para justificar a ausência e evitar o acionamento do Conselho Tutelar via Sistema de Busca Ativa SEDUC-SP.`;
     }
 
-    return `Prezado(a) ${item.guardianName}, informamos que o(a) estudante ${item.studentName} (${item.className}) registrou ausência às aulas no dia ${formattedDate}. Solicitamos que entre em contato com a escola ou envie a justificativa. A frequência escolar diária é essencial para o desenvolvimento pedagógico. EE Professor Arlindo Silvestre.`;
+    return `Prezado(a) ${item.guardianName}, informamos que o(a) estudante ${item.studentName} (${item.className}) registrou ausência injustificada às aulas no dia ${formattedDate}. Solicitamos que entre em contato com a escola ou envie a devida justificativa. A frequência escolar diária é essencial para o desenvolvimento pedagógico. EE Professor Arlindo Silvestre.`;
   };
 
-  // Direct WhatsApp single dispatch
+  // Direct WhatsApp single dispatch (restrito estritamente a faltas injustificadas)
   const handleDirectWhatsApp = async (item: DailyAbsenteeItem) => {
+    if (item.absenceType !== 'falta_injustificada') return;
+
     const message = generateWhatsAppMessage(item);
     const rawPhone = item.guardianPhone.replace(/\D/g, '');
     const cleanPhone = rawPhone.startsWith('55') ? rawPhone : `55${rawPhone}`;
@@ -394,15 +385,19 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
 
   // Copy message to clipboard
   const handleCopyMessage = (item: DailyAbsenteeItem) => {
+    if (item.absenceType !== 'falta_injustificada') return;
     const text = generateWhatsAppMessage(item);
     navigator.clipboard.writeText(text);
     setCopiedId(item.studentId);
     setTimeout(() => setCopiedId(null), 2500);
   };
 
-  // Open Bulk WhatsApp Modal populated with the day's absences
+  // Open Bulk WhatsApp Modal populated with the day's unjustified absences only
   const handleOpenBulkForDaily = () => {
-    const preparedAlerts: ParentAlert[] = filteredDailyAbsentees.map(item => {
+    // Filtragem estrita: Envio via WhatsApp ocorre exclusivamente para Ausência Injustificada
+    const unjustifiedOnly = filteredDailyAbsentees.filter(item => item.absenceType === 'falta_injustificada');
+
+    const preparedAlerts: ParentAlert[] = unjustifiedOnly.map(item => {
       if (item.existingAlert) {
         return item.existingAlert;
       }
@@ -499,15 +494,17 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-            {activeSubTab === 'daily_absences' && filteredDailyAbsentees.length > 0 && (
+            {activeSubTab === 'daily_absences' && filteredDailyAbsentees.some(i => i.absenceType === 'falta_injustificada') && (
               <button
                 type="button"
                 onClick={handleOpenBulkForDaily}
                 className="px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xs transition-all cursor-pointer"
-                title="Disparar mensagens em lote no WhatsApp para todos os ausentes desta data"
+                title="Disparar mensagens em lote no WhatsApp para estudantes com ausência injustificada"
               >
                 <Smartphone className="w-4 h-4" />
-                <span>Disparo em Lote WhatsApp ({filteredDailyAbsentees.length})</span>
+                <span>
+                  Disparo em Lote WhatsApp ({filteredDailyAbsentees.filter(i => i.absenceType === 'falta_injustificada').length} injustificadas)
+                </span>
               </button>
             )}
 
@@ -631,19 +628,19 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
             <div className="flex items-center gap-2 text-xs text-slate-700">
               <Smartphone className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>
-                <strong>{totalDailyAbsences} ausências totais</strong> nesta data •{' '}
-                <strong className="text-emerald-700">{alreadyNotifiedCount}</strong> alertas enviados via WhatsApp •{' '}
+                <strong>{totalDailyAbsences} ausências totais</strong> nesta data ({unjustifiedCount} injustificadas, {justifiedOrMedicalCount} justificadas/atestados) •{' '}
+                <strong className="text-emerald-700">{alreadyNotifiedCount}</strong> avisos enviados via WhatsApp •{' '}
                 <strong className="text-amber-700">{pendingNotificationCount}</strong> pendentes de envio
               </span>
             </div>
-            {filteredDailyAbsentees.length > 0 && (
+            {filteredDailyAbsentees.some(i => i.absenceType === 'falta_injustificada') && (
               <button
                 type="button"
                 onClick={handleOpenBulkForDaily}
                 className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
               >
                 <Smartphone className="w-3.5 h-3.5" />
-                <span>Disparar para os {filteredDailyAbsentees.length} ausentes</span>
+                <span>Disparar WhatsApp ({filteredDailyAbsentees.filter(i => i.absenceType === 'falta_injustificada').length} injustificadas)</span>
               </button>
             )}
           </div>
@@ -864,7 +861,14 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
 
                           {/* Notification Status */}
                           <td className="py-3.5 px-3">
-                            {isNotified ? (
+                            {!isUnjustified ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md"
+                                title="Ausências justificadas ou com atestado não geram envio de cobrança por WhatsApp"
+                              >
+                                <span>Não requer WhatsApp</span>
+                              </span>
+                            ) : isNotified ? (
                               <div className="flex flex-col">
                                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
                                   <CheckCheck className="w-3 h-3 text-emerald-600" />
@@ -888,41 +892,49 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
                           {/* Actions: Send WhatsApp, Copy, View Details */}
                           <td className="py-3.5 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
-                              {/* WhatsApp Direct Button */}
-                              <button
-                                type="button"
-                                onClick={() => handleDirectWhatsApp(item)}
-                                className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
-                                title="Abrir conversa no WhatsApp com texto formatado pronto para envio"
-                              >
-                                <Smartphone className="w-3.5 h-3.5" />
-                                <span>{isNotified ? 'Reenviar WhatsApp' : 'Enviar WhatsApp'}</span>
-                              </button>
+                              {/* WhatsApp Direct Button - Exclusivo para Falta Injustificada */}
+                              {isUnjustified ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDirectWhatsApp(item)}
+                                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                                    title="Abrir conversa no WhatsApp com texto de ausência injustificada pronto para envio"
+                                  >
+                                    <Smartphone className="w-3.5 h-3.5" />
+                                    <span>{isNotified ? 'Reenviar WhatsApp' : 'Enviar WhatsApp'}</span>
+                                  </button>
 
-                              {/* Copy message button */}
-                              <button
-                                type="button"
-                                onClick={() => handleCopyMessage(item)}
-                                className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
-                                  copiedId === item.studentId
-                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                                    : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
-                                }`}
-                                title="Copiar texto da mensagem de ausência"
-                              >
-                                {copiedId === item.studentId ? (
-                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                                ) : (
-                                  <Copy className="w-3.5 h-3.5" />
-                                )}
-                              </button>
+                                  {/* Copy message button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyMessage(item)}
+                                    className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                                      copiedId === item.studentId
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                                        : 'bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200'
+                                    }`}
+                                    title="Copiar texto da mensagem de ausência injustificada"
+                                  >
+                                    {copiedId === item.studentId ? (
+                                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                </>
+                              ) : (
+                                <span className="text-[11px] text-slate-400 font-medium px-2 py-1 bg-slate-50 rounded-lg border border-slate-200">
+                                  {isMedical ? 'Atestado Médico' : isJustified ? 'Justificada' : 'Entrada Tardia'}
+                                </span>
+                              )}
 
                               {/* Student dossier */}
                               <button
                                 type="button"
                                 onClick={() => onOpenStudentDetail(item.studentId)}
                                 className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors cursor-pointer"
-                                title="Ver ficha completa do estudante"
+                                title="Ver ficha e dossiê completo do estudante"
                               >
                                 <Eye className="w-3.5 h-3.5" />
                               </button>

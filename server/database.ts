@@ -1117,9 +1117,6 @@ export class SchoolDatabase {
             student.status = 'regular';
             student.riskLevel = 'moderado';
           }
-        } else if (item.status === 'falta_injustificada' || item.status === 'falta_justificada') {
-          student.totalAbsences += duration;
-          student.consecutiveAbsences += duration;
         } else if (item.status === 'atestado_medico') {
           // Atestado médico ampara o aluno: NÃO contabiliza como falta nem penaliza índice
           const diasAtestado = item.medicalDays || duration;
@@ -1129,11 +1126,36 @@ export class SchoolDatabase {
             : `Atestado médico (${recordDate} - ${diasAtestado} dias): ${docInfo}`;
         }
 
+        // Recalcula totais reais do estudante a partir de todos os seus registros
+        const studentHistory = this.data.attendanceRecords
+          .filter(r => r.studentId === student.id)
+          .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+        const absenceRecs = studentHistory.filter(
+          r => r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico'
+        );
+        student.totalAbsences = absenceRecs.reduce((acc, r) => acc + (r.durationDays || 1), 0);
+
+        let consAbs = 0;
+        for (const r of studentHistory) {
+          if (r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico') {
+            consAbs += (r.durationDays || 1);
+          } else if (r.status === 'presente' || (r.status as any) === 'atraso') {
+            break;
+          }
+        }
+        student.consecutiveAbsences = consAbs;
+
+        const lastPresRec = studentHistory.find(r => r.status === 'presente' || (r.status as any) === 'atraso');
+        if (lastPresRec) {
+          student.lastAttendanceDate = lastPresRec.date;
+        }
+
         // Recompute rate
         student.attendanceRate = Number((((student.totalSchoolDays - student.totalAbsences) / student.totalSchoolDays) * 100).toFixed(1));
 
-        // Automated Alert Triggers (only for unexcused/justified absences, NOT for legal medical certificates)
-        if (item.status !== 'atestado_medico' && item.status !== 'presente') {
+        // Automated Alert Triggers (EXCLUSIVAMENTE para ausências injustificadas)
+        if (item.status === 'falta_injustificada') {
           let shouldAlert = false;
           let triggerReason: AlertTrigger = 'alerta_manual';
           let triggerLabel = '';
@@ -1571,16 +1593,44 @@ export class SchoolDatabase {
     return intervention;
   }
 
-  public getMonthlyReport(monthIndex: number = 9, year: number = 2026): MonthlyPedagogicalReport {
+  public getMonthlyReport(monthIndex: number = 9, year: number = 2026, startDate?: string, endDate?: string): MonthlyPedagogicalReport {
     const students = this.data.students;
     const totalEnrolled = students.length;
-    const totalAbsences = students.reduce((acc, s) => acc + s.totalAbsences, 0);
-    const avgAttendance = Number((students.reduce((acc, s) => acc + s.attendanceRate, 0) / (totalEnrolled || 1)).toFixed(1));
+    const sDate = startDate || (endDate ? endDate : '');
+    const eDate = endDate || (startDate ? startDate : '');
+
+    let periodRecords = this.data.attendanceRecords;
+    if (sDate && eDate) {
+      periodRecords = periodRecords.filter(r => {
+        const d = r.date ? r.date.split('T')[0] : '';
+        return d >= sDate && d <= eDate;
+      });
+    }
+
+    const studentRecords = periodRecords.filter(r => !r.studentId?.startsWith('cls-marker-'));
+    const totalPresencas = studentRecords.filter(r => r.status === 'presente' || (r.status as any) === 'atraso').length;
+    const totalFaltas = studentRecords.filter(r => r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico').length;
+    const totalEvaluated = totalPresencas + totalFaltas;
+
+    const avgAttendance = totalEvaluated > 0
+      ? Number(((totalPresencas / totalEvaluated) * 100).toFixed(1))
+      : Number((students.reduce((acc, s) => acc + s.attendanceRate, 0) / (totalEnrolled || 1)).toFixed(1));
+
+    const totalAbsences = totalFaltas > 0 ? totalFaltas : students.reduce((acc, s) => acc + s.totalAbsences, 0);
     const studentsWithCriticalAbsence = students.filter(s => s.attendanceRate < 75 || s.riskLevel === 'critico').length;
     const activeSearchCases = this.data.interventions;
     const successfulReintegrations = activeSearchCases.filter(i => i.stage === 'reintegrado' || i.stage === 'encerrado').length;
-    const alertsDispatched = this.data.alerts.length;
-    const alertsResponded = this.data.alerts.filter(a => a.status === 'respondido' || a.guardianFeedback).length;
+
+    let periodAlerts = this.data.alerts;
+    if (sDate && eDate) {
+      const filteredA = periodAlerts.filter(a => {
+        const d = a.sentAt ? a.sentAt.split('T')[0] : '';
+        return d >= sDate && d <= eDate;
+      });
+      if (filteredA.length > 0) periodAlerts = filteredA;
+    }
+    const alertsDispatched = periodAlerts.length;
+    const alertsResponded = periodAlerts.filter(a => a.status === 'respondido' || a.guardianFeedback).length;
 
     const absenceCauses = [
       { cause: 'Trabalho infantil / Apoio à renda familiar', count: 4, percentage: 33 },
@@ -1592,9 +1642,14 @@ export class SchoolDatabase {
 
     const riskByClass = this.data.classes.map(c => {
       const classStudents = students.filter(s => s.classId === c.id);
-      const classAvg = classStudents.length > 0
-        ? Number((classStudents.reduce((acc, s) => acc + s.attendanceRate, 0) / classStudents.length).toFixed(1))
-        : 90;
+      const cRecords = studentRecords.filter(r => r.classId === c.id || classStudents.some(s => s.id === r.studentId));
+      const cp = cRecords.filter(r => r.status === 'presente' || (r.status as any) === 'atraso').length;
+      const cf = cRecords.filter(r => r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico').length;
+      const classAvg = cp + cf > 0
+        ? Number(((cp / (cp + cf)) * 100).toFixed(1))
+        : (classStudents.length > 0
+          ? Number((classStudents.reduce((acc, s) => acc + s.attendanceRate, 0) / classStudents.length).toFixed(1))
+          : 90);
       const riskCount = classStudents.filter(s => s.riskLevel === 'alto' || s.riskLevel === 'critico').length;
       return {
         classId: c.id,
@@ -1609,15 +1664,15 @@ export class SchoolDatabase {
       { week: 'Semana 1', rate: 91.2, absences: 28 },
       { week: 'Semana 2', rate: 89.5, absences: 34 },
       { week: 'Semana 3', rate: 86.8, absences: 42 },
-      { week: 'Semana 4 (Atual)', rate: avgAttendance, absences: 31 },
+      { week: 'Semana 4 (Atual)', rate: avgAttendance, absences: totalAbsences },
     ];
 
     const pedagogicalInsights = [
-      `A taxa média de frequência global encontra-se em ${avgAttendance}%, ligeiramente acima da meta do MEC (75% mínimo individual).`,
+      `A taxa média de frequência global encontra-se em ${avgAttendance}%, com dados consolidados da rotina escolar.`,
       `Foram identificados ${studentsWithCriticalAbsence} estudantes em situação crítica de infrequência com risco de abandono escolar imediato.`,
       `O principal fator de evasão registrado no período foi o trabalho informal/apoio familiar (33%), seguido pela barreira de transporte em dias chuvosos (25%).`,
       `O sistema de alertas automáticos aos responsáveis obteve taxa de retorno de ${Number(((alertsResponded / (alertsDispatched || 1)) * 100).toFixed(0))}%, viabilizando ${successfulReintegrations} reintegrações pedagógicas com sucesso.`,
-      `Recomenda-se intensificar a articulação intersetorial com o CRAS e o Conselho Tutelar para os 3 casos em estágio crítico de infrequência no Ensino Médio e 9º Ano.`
+      `Recomenda-se intensificar a articulação intersetorial com o CRAS e o Conselho Tutelar para os casos em estágio crítico de infrequência.`
     ];
 
     return {

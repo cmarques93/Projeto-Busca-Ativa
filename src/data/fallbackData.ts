@@ -96,20 +96,25 @@ export const DEFAULT_PINS: Record<string, { pin: string; user: any }> = {
 export const DEFAULT_SCHOOL_INFO = {
   schoolName: 'EE Professor Arlindo Silvestre',
   lastUpdated: new Date().toISOString(),
-  totalStudents: 214,
-  totalClasses: 7,
+  totalStudents: 367,
+  totalClasses: 12,
   activeAlertsCount: 4,
   activeCasesCount: 3,
 };
 
 export const DEFAULT_CLASSES: SchoolClass[] = [
-  { id: '6A', name: '6º Ano A', grade: 'Ensino Fundamental II', shift: 'Manhã', totalStudents: 28, presentToday: 26, absentToday: 2, attendanceRateToday: 92.8, studentsAtRiskCount: 2 },
-  { id: '7B', name: '7º Ano B', grade: 'Ensino Fundamental II', shift: 'Tarde', totalStudents: 30, presentToday: 25, absentToday: 5, attendanceRateToday: 83.3, studentsAtRiskCount: 4 },
-  { id: '8A', name: '8º Ano A', grade: 'Ensino Fundamental II', shift: 'Manhã', totalStudents: 29, presentToday: 27, absentToday: 2, attendanceRateToday: 93.1, studentsAtRiskCount: 1 },
-  { id: '9A', name: '9º Ano A', grade: 'Ensino Fundamental II', shift: 'Manhã', totalStudents: 32, presentToday: 26, absentToday: 6, attendanceRateToday: 81.2, studentsAtRiskCount: 5 },
-  { id: '1EM-A', name: '1º Ano EM - A', grade: 'Ensino Médio', shift: 'Integral', totalStudents: 34, presentToday: 28, absentToday: 6, attendanceRateToday: 82.3, studentsAtRiskCount: 6 },
-  { id: '2EM-B', name: '2º Ano EM - B', grade: 'Ensino Médio', shift: 'Tarde', totalStudents: 31, presentToday: 28, absentToday: 3, attendanceRateToday: 90.3, studentsAtRiskCount: 3 },
-  { id: '3EM-A', name: '3º Ano EM - A', grade: 'Ensino Médio', shift: 'Manhã', totalStudents: 30, presentToday: 29, absentToday: 1, attendanceRateToday: 96.6, studentsAtRiskCount: 1 },
+  { id: '1A', name: '1ª Série A', grade: 'Ensino Médio', shift: 'Integral', totalStudents: 33, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0 },
+  { id: '1B', name: '1ª Série B', grade: 'Ensino Médio', shift: 'Integral', totalStudents: 14, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0 },
+  { id: '2A', name: '2ª Série A', grade: 'Ensino Médio', shift: 'Integral', totalStudents: 15, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0 },
+  { id: '3A', name: '3ª Série A', grade: 'Ensino Médio', shift: 'Integral', totalStudents: 30, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0 },
+  { id: '6A', name: '6º Ano A', grade: 'Ensino Fundamental II', shift: 'Manhã', totalStudents: 35, presentToday: 26, absentToday: 2, attendanceRateToday: 92.8, studentsAtRiskCount: 2 },
+  { id: '6B', name: '6º Ano B', grade: 'Ensino Fundamental II', shift: 'Integral', totalStudents: 35, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0 },
+  { id: '6C', name: '6º Ano C', grade: 'Ensino Fundamental II', shift: 'Integral', totalStudents: 35, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0 },
+  { id: '7A', name: '7º Ano A', grade: 'Ensino Fundamental II', shift: 'Integral', totalStudents: 35, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0 },
+  { id: '8A', name: '8º Ano A', grade: 'Ensino Fundamental II', shift: 'Manhã', totalStudents: 35, presentToday: 27, absentToday: 2, attendanceRateToday: 93.1, studentsAtRiskCount: 1 },
+  { id: '8B', name: '8º Ano B', grade: 'Ensino Fundamental II', shift: 'Integral', totalStudents: 33, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0 },
+  { id: '9A', name: '9º Ano A', grade: 'Ensino Fundamental II', shift: 'Manhã', totalStudents: 35, presentToday: 26, absentToday: 6, attendanceRateToday: 81.2, studentsAtRiskCount: 5 },
+  { id: '9B', name: '9º Ano B', grade: 'Ensino Fundamental II', shift: 'Integral', totalStudents: 28, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0 },
 ];
 
 export const DEFAULT_STUDENTS: Student[] = [
