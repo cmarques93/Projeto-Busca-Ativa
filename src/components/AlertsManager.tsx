@@ -218,6 +218,7 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
   const dailyAbsentees: DailyAbsenteeItem[] = useMemo(() => {
     const list: DailyAbsenteeItem[] = [];
     const allStudents = students.length > 0 ? students : storageService.getStudents();
+    const allAttendanceRecords = storageService.getAttendanceRecords();
 
     // 1. Process attendance records where status is not "presente"
     (dailyRecords || []).forEach(rec => {
@@ -246,6 +247,30 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
         a => a.studentId === rec.studentId && isSameDay(a.sentAt, selectedDate)
       );
 
+      // Histórico real do estudante até a data selecionada para cômputo fidedigno
+      const studentHistory = allAttendanceRecords
+        .filter(r => r.studentId === rec.studentId && (r.date || '') <= selectedDate)
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+      const hasSelectedDateInHistory = studentHistory.some(r => isSameDay(r.date, selectedDate));
+      const effectiveHistory = hasSelectedDateInHistory ? studentHistory : [rec, ...studentHistory];
+
+      let consAbs = 0;
+      for (const r of effectiveHistory) {
+        if (r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico') {
+          consAbs++;
+        } else if (r.status === 'presente' || (r.status as any) === 'atraso') {
+          break;
+        }
+      }
+      if (consAbs === 0) consAbs = 1;
+
+      const totalSchoolDays = student?.totalSchoolDays || 46;
+      const totalAbsences = effectiveHistory.filter(
+        r => r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico'
+      ).length;
+      const calculatedRate = Math.max(0, Math.min(100, Math.round(((totalSchoolDays - totalAbsences) / totalSchoolDays) * 100)));
+
       list.push({
         studentId: rec.studentId,
         studentName,
@@ -258,8 +283,8 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
         guardianName,
         guardianPhone,
         guardianRelationship: student?.guardianRelationship || 'Responsável',
-        consecutiveAbsences: student?.consecutiveAbsences || 1,
-        attendanceRate: student?.attendanceRate || 85,
+        consecutiveAbsences: consAbs,
+        attendanceRate: calculatedRate,
         existingAlert,
       });
     });
@@ -808,8 +833,14 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
                                 <div className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
                                   <span className="font-semibold text-slate-700">{item.className}</span>
                                   {item.ra && <span>• RA: {item.ra}</span>}
-                                  {item.consecutiveAbsences >= 3 && (
-                                    <span className="bg-rose-100 text-rose-800 font-extrabold px-1.5 py-0.2 rounded text-[10px]">
+                                  {item.consecutiveAbsences >= 2 && (
+                                    <span
+                                      className={`font-extrabold px-1.5 py-0.2 rounded text-[10px] ${
+                                        item.consecutiveAbsences >= 3
+                                          ? 'bg-rose-100 text-rose-800'
+                                          : 'bg-amber-100 text-amber-800'
+                                      }`}
+                                    >
                                       {item.consecutiveAbsences} seguidas
                                     </span>
                                   )}
