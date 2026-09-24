@@ -22,9 +22,17 @@ import {
   Sparkles,
   BookOpen,
   TrendingUp,
-  Inbox
+  Inbox,
+  Phone,
+  MessageSquare,
+  ExternalLink,
+  Lock,
+  Percent,
+  CheckCircle
 } from 'lucide-react';
-import { SchoolClass, Student } from '../types';
+import { SchoolClass, Student, AttendanceRecord } from '../types';
+import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
+import { storageService } from '../data/storageService';
 
 export interface OcorrenciaRecord {
   id: string;
@@ -179,6 +187,16 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     tutor: string;
     ocorrencias: OcorrenciaRecord[];
     tratativas: TratativaFamilia[];
+    estudanteObj?: Student;
+    historicoFrequencia?: AttendanceRecord[];
+  } | null>(null);
+
+  // Modal de Disparo de WhatsApp de Ocorrência para os Responsáveis (Exclusivo Gestão)
+  const [modalWhatsApp, setModalWhatsApp] = useState<{
+    ocorrencia: OcorrenciaRecord;
+    estudanteObj?: Student;
+    guardianPhones: Array<{ formatted: string; whatsAppUrl: string; digits: string }>;
+    mensagemPadrao: string;
   } | null>(null);
 
   // Alerta de Reincidência no mesmo dia
@@ -265,6 +283,22 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             });
           }
 
+          // Desduplicação estrita de registros de ocorrências
+          const registrosUnicosMap = new Map<string, any>();
+          for (const reg of (data.registros || [])) {
+            const key = [
+              (reg.data || '').trim(),
+              (reg.aula || '').trim(),
+              (reg.turma || '').trim(),
+              (reg.estudante || '').trim(),
+              (reg.ocorrencia || '').trim(),
+            ].join('::');
+            if (!registrosUnicosMap.has(key)) {
+              registrosUnicosMap.set(key, reg);
+            }
+          }
+          const registrosLimpos = Array.from(registrosUnicosMap.values());
+
           const novoDb: OcorrenciasDatabase = {
             estudantes: listaEstudantes,
             professores: data.professores || [],
@@ -277,21 +311,35 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             aulas: data.aulas && data.aulas.length > 0 ? data.aulas : bancoDeDados.aulas,
             auxilio:
               data.auxilio && data.auxilio.length > 0 ? data.auxilio : bancoDeDados.auxilio,
-            registros: data.registros || [],
+            registros: registrosLimpos,
             tratativasFamilia: data.tratativasFamilia || [],
           };
 
           setBancoDeDados(novoDb);
           localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(novoDb));
+          setMensagem({
+            texto: `✅ Base sincronizada com sucesso com o Google Sheets! (${registrosLimpos.length} ocorrências e ${novoDb.estudantes.length} estudantes carregados)`,
+            tipo: 'sucesso',
+          });
+          setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
         } else {
           setMensagem({
             texto: 'Conectado à base local (Google Sheets indisponível no momento)',
             tipo: 'erro',
           });
         }
+      } else {
+        setMensagem({
+          texto: 'Erro ao consultar planilha de ocorrências (Código: ' + res.status + ')',
+          tipo: 'erro',
+        });
       }
     } catch (err: any) {
       console.warn('Backend proxy offline ou erro ao carregar:', err.message);
+      setMensagem({
+        texto: 'Falha ao sincronizar com Google Sheets: ' + err.message,
+        tipo: 'erro',
+      });
     } finally {
       setCarregando(false);
     }
@@ -534,7 +582,18 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     carregarDados();
   };
 
-  // Gerador de Dossiê Oficial
+  // Helper para localizar o objeto completo do estudante
+  const encontrarEstudante = (nomeEstudante: string, turmaEstudante?: string): Student | undefined => {
+    const nomeNorm = nomeEstudante.trim().toLowerCase();
+    // Procura na lista de estudantes fornecida pelas props
+    let match = students.find(s => s.name.trim().toLowerCase() === nomeNorm);
+    if (!match && storageService) {
+      match = storageService.getStudents().find(s => s.name.trim().toLowerCase() === nomeNorm);
+    }
+    return match;
+  };
+
+  // Gerador de Dossiê Geral Oficial Completo (Frequência + Ocorrências + Reuniões/Tratativas)
   const abrirDossie = (aluno: {
     nome: string;
     turma: string;
@@ -542,7 +601,66 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     ocorrencias: OcorrenciaRecord[];
     tratativas: TratativaFamilia[];
   }) => {
-    setDossieAluno(aluno);
+    const stObj = encontrarEstudante(aluno.nome, aluno.turma);
+    let freqHistory: AttendanceRecord[] = [];
+
+    if (stObj) {
+      try {
+        freqHistory = storageService.getAttendanceRecords()
+          .filter(r => r.studentId === stObj.id || r.studentName.toLowerCase() === aluno.nome.toLowerCase())
+          .sort((a, b) => b.date.localeCompare(a.date));
+      } catch (err) {
+        console.warn('Erro ao carregar frequência para o dossiê:', err);
+      }
+    }
+
+    setDossieAluno({
+      ...aluno,
+      estudanteObj: stObj,
+      historicoFrequencia: freqHistory,
+    });
+  };
+
+  // Abrir Modal de Disparo de WhatsApp para os Pais (Exclusivo Gestão)
+  const abrirWhatsAppOcorrencia = (reg: OcorrenciaRecord) => {
+    if (!isGestao) return;
+
+    const stObj = encontrarEstudante(reg.estudante, reg.turma);
+    const rawPhone = stObj?.guardianPhone || '';
+    const parsedPhones = getStudentPhones(rawPhone);
+
+    const responsavelNome = stObj?.guardianName || 'Responsável Legal';
+    const parentesco = stObj?.guardianRelationship || 'Família';
+    const dataFmt = formatarDataBR(reg.data);
+
+    let msg = `Olá, ${responsavelNome} (${parentesco}).\n`;
+    msg += `Aqui é da Gestão Escolar da *EE Professor Arlindo Silvestre*.\n\n`;
+    msg += `Informamos que no dia *${dataFmt}* (${reg.aula}), foi registrado um comunicado escolar referente ao(à) estudante *${reg.estudante}* (${reg.turma}):\n\n`;
+    msg += `📌 *Ocorrência:* ${reg.ocorrencia}\n`;
+    msg += `👤 *Professor(a) responsável:* ${reg.professor}\n`;
+    msg += `📋 *Medida pedagógica tomada:* ${reg.medida}\n`;
+
+    if (reg.descricao && reg.descricao.trim()) {
+      msg += `📝 *Relato da aula:* "${reg.descricao.trim()}"\n`;
+    }
+
+    if (reg.mediacao && reg.mediacao.trim()) {
+      msg += `🤝 *Parecer da Gestão/Coordenação:* ${reg.mediacao.trim()}\n`;
+    }
+
+    msg += `\nSolicitamos que dialogue com o(a) estudante para fortalecermos juntos a convivência escolar. Permanecemos à disposição para qualquer esclarecimento.\n\n`;
+    msg += `Atenciosamente,\n*Equipe Gestora Escolar*`;
+
+    setModalWhatsApp({
+      ocorrencia: reg,
+      estudanteObj: stObj,
+      guardianPhones: parsedPhones.map(p => ({
+        formatted: p.formatted,
+        whatsAppUrl: `https://wa.me/${p.digits}?text=${encodeURIComponent(msg)}`,
+        digits: p.digits,
+      })),
+      mensagemPadrao: msg,
+    });
   };
 
   // Card de Ocorrência Reutilizável
@@ -620,17 +738,30 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         )}
       </div>
 
-      {onMediar && (
-        <div className="flex items-center sm:items-start shrink-0">
+      <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 shrink-0">
+        {/* Envio via WhatsApp aos Responsáveis - Restrito para Perfil de Gestão */}
+        {isGestao && (
+          <button
+            type="button"
+            onClick={() => abrirWhatsAppOcorrencia(reg)}
+            className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3.5 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+            title="Enviar comunicado da ocorrência via WhatsApp aos responsáveis"
+          >
+            <Phone className="w-3.5 h-3.5" />
+            <span>Enviar aos Pais</span>
+          </button>
+        )}
+
+        {onMediar && (
           <button
             type="button"
             onClick={() => onMediar(reg)}
-            className="w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-5 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+            className="w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
           >
             <span>{reg.mediacao ? 'Atualizar Mediação' : 'Mediar Ocorrência'}</span>
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 
@@ -1301,6 +1432,20 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                                 <p className="text-indigo-950 whitespace-pre-line">{o.mediacao}</p>
                               </div>
                             )}
+
+                            {isGestao && (
+                              <div className="mt-2 pt-1.5 border-t border-slate-200 flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => abrirWhatsAppOcorrencia(o)}
+                                  className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                  title="Enviar este registro via WhatsApp aos responsáveis"
+                                >
+                                  <Phone className="w-3 h-3 text-emerald-600" />
+                                  <span>WhatsApp Responsáveis</span>
+                                </button>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -1474,7 +1619,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium">
-              Conectado ao Google Sheets oficial • Usuário ativo:{' '}
+              Base Unificada do Sistema • Usuário ativo:{' '}
               <strong className="text-slate-800">{userName}</strong>
             </p>
           </div>
@@ -1941,25 +2086,102 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 </p>
               </div>
 
-              <div className="bg-indigo-50/60 p-4 rounded-xl border border-indigo-100 flex justify-between items-center">
+              <div className="bg-indigo-50/60 p-4 rounded-xl border border-indigo-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
                   <h3 className="text-base font-extrabold text-indigo-950">{dossieAluno.nome}</h3>
                   <p className="text-slate-600 text-xs mt-0.5">
-                    Professor(a) Tutor(a): <strong>{dossieAluno.tutor}</strong>
+                    Professor(a) Tutor(a): <strong>{dossieAluno.tutor || 'Não informado'}</strong>
                   </p>
+                  {dossieAluno.estudanteObj?.guardianName && (
+                    <p className="text-slate-600 text-xs mt-0.5">
+                      Responsável: <strong>{dossieAluno.estudanteObj.guardianName}</strong> ({dossieAluno.estudanteObj.guardianRelationship || 'Família'})
+                    </p>
+                  )}
                 </div>
-                <span className="font-bold text-indigo-700 bg-white px-3 py-1 rounded-lg border border-indigo-200">
-                  Turma: {dossieAluno.turma}
-                </span>
+                <div className="flex flex-col items-end gap-1">
+                  <span className="font-bold text-indigo-700 bg-white px-3 py-1 rounded-lg border border-indigo-200">
+                    Turma: {dossieAluno.turma}
+                  </span>
+                  {dossieAluno.estudanteObj && (
+                    <span className="text-[11px] font-medium text-slate-500">
+                      RA: {dossieAluno.estudanteObj.id}
+                    </span>
+                  )}
+                </div>
               </div>
 
-              {/* Seção 1 */}
+              {/* Seção 1: Relatório de Frequência Escolar */}
+              <div>
+                <div className="flex justify-between items-center border-b border-slate-300 pb-1 mb-2">
+                  <h4 className="font-bold text-slate-900 text-xs uppercase tracking-wide flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>1. Relatório de Frequência Escolar & Assiduidade</span>
+                  </h4>
+                  {dossieAluno.estudanteObj && (
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                        dossieAluno.estudanteObj.attendanceRate >= 75
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-rose-100 text-rose-800'
+                      }`}>
+                        Frequência Geral: {dossieAluno.estudanteObj.attendanceRate.toFixed(1)}%
+                      </span>
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        (Faltas: {dossieAluno.estudanteObj.consecutiveAbsences} consec. / {dossieAluno.estudanteObj.totalAbsences} total)
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {!dossieAluno.historicoFrequencia || dossieAluno.historicoFrequencia.length === 0 ? (
+                  <p className="text-slate-500 italic p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    Nenhum registro detalhado de frequência localizado no banco escolar até o momento.
+                  </p>
+                ) : (
+                  <div className="border border-slate-300 rounded-xl overflow-hidden">
+                    <table className="w-full border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 text-slate-700">
+                          <th className="p-2 border-b border-r border-slate-300 text-left w-24">Data</th>
+                          <th className="p-2 border-b border-r border-slate-300 text-center w-28">Status</th>
+                          <th className="p-2 border-b border-r border-slate-300 text-left w-36">Lançado Por</th>
+                          <th className="p-2 border-b border-slate-300 text-left">Justificativa / Motivo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dossieAluno.historicoFrequencia.slice(0, 10).map((att, i) => (
+                          <tr key={att.id || i} className="border-b border-slate-200">
+                            <td className="p-2 border-r border-slate-300 font-semibold">{formatarDataBR(att.date)}</td>
+                            <td className="p-2 border-r border-slate-300 text-center">
+                              <span
+                                className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase ${
+                                  att.status === 'presente'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : att.status === 'falta_justificada'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-rose-100 text-rose-800'
+                                }`}
+                              >
+                                {att.status === 'presente' ? 'Presente' : att.status === 'falta_justificada' ? 'Justificada' : 'Ausente'}
+                              </span>
+                            </td>
+                            <td className="p-2 border-r border-slate-300 text-slate-600">{att.recordedBy || 'Docente'}</td>
+                            <td className="p-2 text-slate-700 italic">{att.justification || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Seção 2 */}
               <div>
                 <h4 className="font-bold text-slate-900 border-b border-slate-300 pb-1 mb-2 text-xs uppercase tracking-wide">
-                  1. Resumo de Ocorrências Registradas ({dossieAluno.ocorrencias.length})
+                  2. Resumo de Ocorrências Registradas ({dossieAluno.ocorrencias.length})
                 </h4>
                 {dossieAluno.ocorrencias.length === 0 ? (
-                  <p className="text-slate-500 italic">
+                  <p className="text-slate-500 italic p-3 bg-slate-50 rounded-xl border border-slate-200">
                     O estudante não possui ocorrências disciplinares na base de dados.
                   </p>
                 ) : (
@@ -2010,13 +2232,13 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 )}
               </div>
 
-              {/* Seção 2 */}
+              {/* Seção 3: Tratativas Realizadas em Reunião com a Família */}
               <div>
                 <h4 className="font-bold text-slate-900 border-b border-slate-300 pb-1 mb-2 text-xs uppercase tracking-wide">
-                  2. Registros de Tratativas e Acordos com a Família ({dossieAluno.tratativas.length})
+                  3. Tratativas e Acordos Firmados em Reunião com a Família ({dossieAluno.tratativas.length})
                 </h4>
                 {dossieAluno.tratativas.length === 0 ? (
-                  <p className="text-slate-500 italic">
+                  <p className="text-slate-500 italic p-3 bg-slate-50 rounded-xl border border-slate-200">
                     Nenhuma reunião ou acordo oficializado no sistema até o momento.
                   </p>
                 ) : (
@@ -2040,9 +2262,9 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
               <div className="p-3 bg-amber-50 border border-dashed border-amber-300 rounded-xl text-[11px] text-justify leading-relaxed text-amber-950">
                 <strong>TERMO DE CIÊNCIA E COMPROMISSO:</strong> Pelo presente termo, nós,
                 responsáveis legais e o(a) estudante acima identificado, declaramos total ciência do
-                histórico disciplinar e concordamos expressamente com as diretrizes e acordos
-                firmados com a equipe gestora da escola. Assumimos o compromisso mútuo de cooperar
-                para a melhoria contínua da convivência escolar.
+                histórico escolar de frequência e disciplina, bem como concordamos expressamente com
+                as diretrizes e acordos firmados com a equipe gestora da escola em reunião. Assumimos
+                o compromisso mútuo de cooperar ativamente para a melhoria contínua da assiduidade e convivência.
               </div>
 
               {/* Linhas de Assinatura */}
@@ -2064,6 +2286,118 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                   <p className="font-bold text-slate-800">Estudante</p>
                   <span className="text-[10px] text-slate-500">Assinatura do(a) Aluno(a)</span>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: ENVIO DE OCORRÊNCIA AOS RESPONSÁVEIS VIA WHATSAPP (EXCLUSIVO GESTÃO) */}
+      {modalWhatsApp && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border-t-4 border-emerald-500 animate-in zoom-in-95">
+            <div className="bg-emerald-700 px-6 py-4 flex justify-between items-center text-white">
+              <div className="flex items-center gap-2">
+                <Phone className="w-5 h-5 text-emerald-200" />
+                <h3 className="font-bold text-sm">
+                  Enviar Ocorrência via WhatsApp aos Pais
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalWhatsApp(null)}
+                className="font-bold text-lg cursor-pointer hover:text-emerald-200"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+                <p className="font-extrabold text-slate-900 text-sm">
+                  {modalWhatsApp.ocorrencia.estudante}{' '}
+                  <span className="text-indigo-600 text-xs font-semibold">
+                    ({modalWhatsApp.ocorrencia.turma})
+                  </span>
+                </p>
+                <p className="text-slate-600 mt-0.5">
+                  <strong>Ocorrência:</strong> {modalWhatsApp.ocorrencia.ocorrencia} • Prof: {modalWhatsApp.ocorrencia.professor}
+                </p>
+              </div>
+
+              {/* Informação do Responsável */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Contato dos Responsáveis
+                </label>
+                {modalWhatsApp.guardianPhones.length === 0 ? (
+                  <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700 text-xs">
+                    <p className="font-bold">Nenhum telefone de responsável cadastrado para este estudante.</p>
+                    <p className="mt-1 text-[11px] text-rose-600">
+                      Cadastre o número do responsável na ficha do estudante para permitir o envio direto via WhatsApp.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {modalWhatsApp.guardianPhones.map((phone, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl flex items-center justify-between"
+                      >
+                        <div>
+                          <p className="font-bold text-xs text-emerald-950 flex items-center gap-1.5">
+                            <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>{modalWhatsApp.estudanteObj?.guardianName || 'Responsável'} ({modalWhatsApp.estudanteObj?.guardianRelationship || 'Família'})</span>
+                          </p>
+                          <p className="text-xs text-emerald-800 font-mono mt-0.5">{phone.formatted}</p>
+                        </div>
+                        <a
+                          href={phone.whatsAppUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>Abrir WhatsApp</span>
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Prévia da Mensagem */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1 flex items-center justify-between">
+                  <span>Mensagem Pronta para Envio</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(modalWhatsApp.mensagemPadrao);
+                      setMensagem({ texto: '📋 Mensagem copiada com sucesso!', tipo: 'sucesso' });
+                      setTimeout(() => setMensagem({ texto: '', tipo: '' }), 3000);
+                    }}
+                    className="text-emerald-700 hover:text-emerald-800 text-[11px] font-bold cursor-pointer"
+                  >
+                    Copiar Texto
+                  </button>
+                </label>
+                <textarea
+                  readOnly
+                  rows={6}
+                  value={modalWhatsApp.mensagemPadrao}
+                  className="w-full p-3 text-xs bg-slate-50 border border-slate-300 rounded-xl font-mono text-slate-800 leading-relaxed resize-none"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setModalWhatsApp(null)}
+                  className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold rounded-xl cursor-pointer transition-colors"
+                >
+                  Fechar
+                </button>
               </div>
             </div>
           </div>

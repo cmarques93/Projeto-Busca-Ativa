@@ -12,6 +12,7 @@ import {
   Sparkles,
   Phone,
   User,
+  UserCheck,
   GraduationCap,
   Hash,
   Smartphone
@@ -38,10 +39,11 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
 }) => {
   const [tab, setTab] = useState<'individual' | 'batch' | 'class'>('individual');
 
-  // Form states - Individual: Only Nome, Turma, RA, Telefone
+  // Form states - Individual: Only Nome, Turma, RA, Telefone, Tutor
   const [name, setName] = useState('');
   const [ra, setRa] = useState('');
   const [classId, setClassId] = useState(classes[0]?.id || '9A');
+  const [tutor, setTutor] = useState('');
   const [guardianPhone, setGuardianPhone] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -92,6 +94,7 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
       ra: ra.trim() || undefined,
       classId,
       className: selectedClassObj ? selectedClassObj.name : classId,
+      tutor: tutor.trim() || undefined,
       guardianPhone: guardianPhone.trim() || '(11) 90000-0000',
       guardianName: 'Responsável',
       guardianRelationship: 'Responsável',
@@ -128,6 +131,7 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
     setSuccessMessage(`Estudante "${cleanName}" cadastrado(a) com sucesso no banco de dados!`);
     setName('');
     setRa('');
+    setTutor('');
     setGuardianPhone('');
     setIsSubmitting(false);
   };
@@ -148,13 +152,14 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
         return;
       }
 
-      // Supports semicolon, comma, or tab: Nome; Turma (opcional); RA; Telefone ou Nome; RA; Telefone
+      // Supports semicolon, comma, or tab: Nome; Turma (opcional); RA; Telefone; Tutor (opcional)
       const parts = line.includes(';') ? line.split(';') : line.includes('\t') ? line.split('\t') : line.split(',');
       if (parts.length >= 1) {
         const studentName = parts[0]?.trim();
         let studentClass = batchTargetClass;
         let studentRa = '';
         let studentPhone = '';
+        let studentTutor = '';
 
         if (parts.length === 2) {
           studentPhone = parts[1]?.trim();
@@ -162,8 +167,8 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
         } else if (parts.length === 3) {
           studentRa = parts[1]?.trim() || `2024-${Math.floor(1000 + Math.random() * 9000)}`;
           studentPhone = parts[2]?.trim() || '';
-        } else if (parts.length >= 4) {
-          // Could be Nome ; Turma ; RA ; Telefone OR Nome ; RA ; Telefone ; Outro
+        } else if (parts.length === 4) {
+          // Could be Nome ; Turma ; RA ; Telefone OR Nome ; RA ; Telefone ; Tutor
           const part1Cls = classes.find(c => c.id.toLowerCase() === parts[1]?.trim().toLowerCase());
           if (part1Cls) {
             studentClass = part1Cls.id;
@@ -171,7 +176,21 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
             studentPhone = parts[3]?.trim();
           } else {
             studentRa = parts[1]?.trim();
-            studentPhone = parts[2]?.trim() || parts[3]?.trim();
+            studentPhone = parts[2]?.trim();
+            studentTutor = parts[3]?.trim();
+          }
+        } else if (parts.length >= 5) {
+          // Nome ; Turma ; RA ; Telefone ; Tutor
+          const part1Cls = classes.find(c => c.id.toLowerCase() === parts[1]?.trim().toLowerCase());
+          if (part1Cls) {
+            studentClass = part1Cls.id;
+            studentRa = parts[2]?.trim();
+            studentPhone = parts[3]?.trim();
+            studentTutor = parts[4]?.trim();
+          } else {
+            studentRa = parts[1]?.trim();
+            studentPhone = parts[2]?.trim();
+            studentTutor = parts[3]?.trim();
           }
         }
 
@@ -182,6 +201,7 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
             guardianPhone: studentPhone || '(11) 90000-0000',
             guardianName: 'Responsável',
             classId: studentClass,
+            tutor: studentTutor || '',
           });
         }
       }
@@ -487,6 +507,27 @@ Juliana Cristina Vieira;2024-7755;19 95432-1098`;
                   />
                 </div>
 
+                {/* Professor(a) Tutor(a) */}
+                <div className="sm:col-span-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-slate-700 flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Professor(a) Tutor(a):</span>
+                    </label>
+                    <InfoTooltip
+                      title="Tutoria Pedagógica"
+                      content="Nome do(a) professor(a) tutor(a) responsável pelo acompanhamento pedagógico e tutoria do estudante."
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Ex: Profª. Maria Helena, Prof. Carlos Eduardo..."
+                    value={tutor}
+                    onChange={e => setTutor(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                  />
+                </div>
+
                 {/* Telefone */}
                 <div className="sm:col-span-2">
                   <div className="flex items-center justify-between mb-1">
@@ -643,6 +684,7 @@ Juliana Cristina Vieira;2024-7755;19 95432-1098`;
                           <th className="p-2">Nome</th>
                           <th className="p-2">Turma</th>
                           <th className="p-2">RA</th>
+                          <th className="p-2">Tutor(a)</th>
                           <th className="p-2">Telefone</th>
                         </tr>
                       </thead>
@@ -654,6 +696,9 @@ Juliana Cristina Vieira;2024-7755;19 95432-1098`;
                               <td className="p-2 font-bold text-slate-900">{item.name}</td>
                               <td className="p-2 text-slate-700">{item.classId}</td>
                               <td className="p-2 text-slate-500">{item.ra}</td>
+                              <td className="p-2 text-slate-700 font-medium">
+                                {item.tutor || <span className="text-slate-400 italic">Não informado</span>}
+                              </td>
                               <td className="p-2">
                                 {phones.length > 1 ? (
                                   <div className="space-y-1">

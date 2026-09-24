@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { migrateToFirebase } from './data/migration';
 import { Header, MainTabType } from './components/Header';
 import { RealTimeAttendance } from './components/RealTimeAttendance';
@@ -78,6 +78,18 @@ export default function App() {
   const [interventions, setInterventions] = useState<InterventionCase[]>([]);
   const [monthlyReport, setMonthlyReport] = useState<MonthlyPedagogicalReport | null>(null);
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number>(9);
+
+  // Usuários com perfil de Professor jamais têm acesso a telefones de responsáveis (LGPD escolar)
+  // Podem apenas visualizar o status de frequência, turma, ausências e justificativas
+  const visibleStudents = useMemo(() => {
+    if (currentUser?.role === 'professor') {
+      return students.map(s => ({
+        ...s,
+        guardianPhone: '',
+      }));
+    }
+    return students;
+  }, [students, currentUser?.role]);
 
   // Modals state
   const [selectedStudentDetailId, setSelectedStudentDetailId] = useState<string | null>(null);
@@ -671,7 +683,7 @@ export default function App() {
         {activeTab === 'classes' && (
           <ClassesManager
             classes={classes}
-            students={students}
+            students={visibleStudents}
             currentUser={currentUser}
             onRefresh={fetchData}
             onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
@@ -687,7 +699,7 @@ export default function App() {
         {activeTab === 'teacher_absence' && (
           <TeacherAbsenceView
             classes={classes}
-            students={students}
+            students={visibleStudents}
             teacherName={currentUser.name}
           />
         )}
@@ -765,7 +777,7 @@ export default function App() {
           <OcorrenciasManager
             currentUser={currentUser}
             classes={classes}
-            students={students}
+            students={visibleStudents}
           />
         )}
 
@@ -792,6 +804,7 @@ export default function App() {
         isOpen={isSeducReportModalOpen}
         onClose={() => setIsSeducReportModalOpen(false)}
         classes={classes}
+        currentUser={currentUser}
       />
 
       {/* Student Registration Modal */}
@@ -814,6 +827,7 @@ export default function App() {
         studentId={selectedStudentDetailId}
         onClose={() => setSelectedStudentDetailId(null)}
         onOpenManualAlert={handleOpenAlertForStudent}
+        currentUser={currentUser}
       />
 
       {/* New Manual Alert Modal */}
@@ -823,7 +837,7 @@ export default function App() {
           setIsNewAlertModalOpen(false);
           setPreSelectedStudentForAlert(null);
         }}
-        students={students}
+        students={visibleStudents}
         preSelectedStudent={preSelectedStudentForAlert}
         onSendAlert={handleSendManualAlert}
       />

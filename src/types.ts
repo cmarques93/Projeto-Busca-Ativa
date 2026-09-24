@@ -54,6 +54,7 @@ export interface Student {
   ra: string; // Registro do Aluno
   classId: string;
   className: string;
+  tutor?: string; // Professor(a) Tutor(a) responsável pelo estudante
   guardianName: string;
   guardianPhone: string;
   guardianRelationship: string;

@@ -91,6 +91,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
         !q ||
         student.name.toLowerCase().includes(q) ||
         student.ra.toLowerCase().includes(q) ||
+        (student.tutor && student.tutor.toLowerCase().includes(q)) ||
         (student.guardianName && student.guardianName.toLowerCase().includes(q)) ||
         (student.className && student.className.toLowerCase().includes(q));
 
@@ -612,7 +613,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                       <th className="py-3 px-3">Turma</th>
                       <th className="py-3 px-3 text-center">Frequência</th>
                       <th className="py-3 px-3 text-center">Faltas</th>
-                      <th className="py-3 px-3">Responsável & Contato</th>
+                      <th className="py-3 px-3">{isProfessor ? 'Responsável' : 'Responsável & Contato'}</th>
                       <th className="py-3 px-3">Status</th>
                       <th className="py-3 px-4 text-right">Ações</th>
                     </tr>
@@ -633,7 +634,14 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                               </div>
                               <div>
                                 <span className="font-bold text-slate-900 block">{student.name}</span>
-                                <span className="text-[11px] text-slate-500">RA: {student.ra}</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-[11px] text-slate-500">RA: {student.ra}</span>
+                                  {student.tutor && (
+                                    <span className="inline-flex items-center text-[10px] bg-indigo-50 text-indigo-700 font-medium px-1.5 py-0.2 rounded border border-indigo-200">
+                                      Tutor(a): {student.tutor}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </td>
@@ -674,7 +682,11 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                             <span className="font-medium text-slate-800 block text-xs truncate max-w-[160px]">
                               {student.guardianName || 'Não informado'}
                             </span>
-                            {(() => {
+                            {isProfessor ? (
+                              <span className="text-[10px] text-slate-400 font-medium block mt-0.5">
+                                Telefone restrito à gestão
+                              </span>
+                            ) : (() => {
                               const phones = getStudentPhones(student.guardianPhone);
                               if (phones.length === 0) {
                                 return <span className="text-[11px] text-slate-400">Sem telefone</span>;
@@ -846,6 +858,17 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                     ))}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">Professor(a) Tutor(a)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Profª. Maria Helena, Prof. Carlos Eduardo..."
+                  value={editingStudent.tutor || ''}
+                  onChange={e => setEditingStudent({ ...editingStudent, tutor: e.target.value })}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">

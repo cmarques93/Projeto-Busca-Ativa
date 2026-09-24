@@ -1,0 +1,3003 @@
+{
+  "estudantes": [
+    {
+      "nome": "ANNA LUIZA GUERREIRO FERREIRA",
+      "turma": "6ºA",
+      "tutor": "Mônica Cristina da Silva Tozatti"
+    },
+    {
+      "nome": "ARTHUR HENRIQUE JUSTI CAMARGO",
+      "turma": "6ºA",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "BERNARDO EMANUEL DIOTTO",
+      "turma": "6ºA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "EMANUELLA DA SILVA BATISTA",
+      "turma": "6ºA",
+      "tutor": "Jacqueline"
+    },
+    {
+      "nome": "HELOISA MAXIMIANO ZACHARIAS",
+      "turma": "6ºA",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "ISAAC PEREIRA SIRINO",
+      "turma": "6ºA",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "IZABEL VALENTINA SANTONINO DE SOUZA",
+      "turma": "6ºA",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "JOSE ARTHUR SANTOS MENDONÇA",
+      "turma": "6ºA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "JOÃO PEDRO DOS SANTOS MAURO",
+      "turma": "6ºA",
+      "tutor": "Márcia"
+    },
+    {
+      "nome": "KIARA HELOYSA LOPES SOARES",
+      "turma": "6ºA",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "LIVIA ALINE DOS SANTOS",
+      "turma": "6ºA",
+      "tutor": "Mônica Cristina da Silva Tozatti"
+    },
+    {
+      "nome": "LIVIA VOLPATO",
+      "turma": "6ºA",
+      "tutor": "Márcia"
+    },
+    {
+      "nome": "LORENA VITORIA BERTANHA DOS SANTOS",
+      "turma": "6ºA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "LORENZO SOUZA MARCELINO",
+      "turma": "6ºA",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "LUCAS HENRIQUE DA SILVA NASCIMENTO",
+      "turma": "6ºA",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "MANUELA PERES",
+      "turma": "6ºA",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "MANUELLE ELOISA DOS REIS MÁXIMO",
+      "turma": "6ºA",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "MARIA EDUARDA ANDRE DE LIMA",
+      "turma": "6ºA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "MARIA EDUARDA GOMES MOREIRA",
+      "turma": "6ºA",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "MARIA EDUARDA SILVA",
+      "turma": "6ºA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "MARIAH FERNANDA ALVES DE SOUZA",
+      "turma": "6ºA",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "MIGUEL DA SILVA SOUZA",
+      "turma": "6ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "MIRELLA DEFENDENTE CALVO",
+      "turma": "6ºA",
+      "tutor": "Jacqueline"
+    },
+    {
+      "nome": "NICOLAS RODRIGUES DE CAMPOS",
+      "turma": "6ºA",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "NICOLLAS MIGUEL LOPES NASCIMENTO",
+      "turma": "6ºA",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "NICOLLY CARDOSO FERREIRA BATISTA",
+      "turma": "6ºA",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "PEDRO HENRIQUE CARVALHO DOS SANTOS",
+      "turma": "6ºA",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "PHELLIPE LUIS FERNANDES DA SILVA",
+      "turma": "6ºA",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "RAFAELLA AMARO",
+      "turma": "6ºA",
+      "tutor": "Mônica Cristina da Silva Tozatti"
+    },
+    {
+      "nome": "REBECA GOMES ALMEIDA",
+      "turma": "6ºA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "SAMUEL CARVALHO",
+      "turma": "6ºA",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "VALENTINA BREDER LEAL",
+      "turma": "6ºA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "VITORIA BEATRIZ ARAUJO DE SOUZA",
+      "turma": "6ºA",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "VITÓRIA SILVÉRIO DA SILVA",
+      "turma": "6ºA",
+      "tutor": "Mônica Cristina da Silva Tozatti"
+    },
+    {
+      "nome": "JOÃO MIGUEL GOMES - M/S 03-06",
+      "turma": "6ºA",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "ALICE CRISTINA CALABRIA",
+      "turma": "6ºB",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "ALLAN NASCIMENTO DE PAULA",
+      "turma": "6ºB",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "ANA JULIA BOTELHO",
+      "turma": "6ºB",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "ANA JULIA FUZATO SCAVARIELLO",
+      "turma": "6ºB",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "ANDREW GABRIEL LOPES NASCIMENTO",
+      "turma": "6ºB",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "BRIAN THOMAS MAXIMIANO ZACHARIAS",
+      "turma": "6ºB",
+      "tutor": "Mônica Cristina da Silva Tozatti"
+    },
+    {
+      "nome": "BRUNO CECHET",
+      "turma": "6ºB",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "DAVI LUCCA PIO",
+      "turma": "6ºB",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "ELOAH REBECKA CAZON",
+      "turma": "6ºB",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "ENJHOLLY LORRANY FERNANDES DE SOUZA",
+      "turma": "6ºB",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "ENZO BENEDITO PEREIRA FLORIANO",
+      "turma": "6ºB",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "FERNANDA APARECIDA DE PAULA SILVA",
+      "turma": "6ºB",
+      "tutor": "Mônica Cristina da Silva Tozatti"
+    },
+    {
+      "nome": "GABRIEL GOMES DA SILVA",
+      "turma": "6ºB",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "GIULIA SILVA VIANA",
+      "turma": "6ºB",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "GUILHERME HENRIQUE DE CARVALHO",
+      "turma": "6ºB",
+      "tutor": "Márcia"
+    },
+    {
+      "nome": "KAIO EDUARDO PAMPLONA DA SILVA",
+      "turma": "6ºB",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "KAUANY SANTOS SACRAMENTO",
+      "turma": "6ºB",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "KETHELLYN VICTORIA BENEDITO DE OLIVEIRA",
+      "turma": "6ºB",
+      "tutor": "Mônica Cristina da Silva Tozatti"
+    },
+    {
+      "nome": "LAVÍNIA RAMOS",
+      "turma": "6ºB",
+      "tutor": "Mônica Cristina da Silva Tozatti"
+    },
+    {
+      "nome": "LINDSEY MARIAH ALVES DA SILVA",
+      "turma": "6ºB",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "LUDMILLA DOS SANTOS",
+      "turma": "6ºB",
+      "tutor": "Mônica Cristina da Silva Tozatti"
+    },
+    {
+      "nome": "MARIA EDUARDA DA SILVA VICENTE",
+      "turma": "6ºB",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "MARIA LUIZA APARECIDA DA SILVA",
+      "turma": "6ºB",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "MARIA VITORIA FUZATO SCAVARIELLO",
+      "turma": "6ºB",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "MIGUEL FERREIRA MARQUES",
+      "turma": "6ºB",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "MIGUEL GRAL FERNANDES",
+      "turma": "6ºB",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "MYKAELLE SANTOS CRUZ",
+      "turma": "6ºB",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "MYLENA SOPHIA MOREIRA LOPES DE LIMA",
+      "turma": "6ºB",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "PEDRO LUIS PEREIRA SANTOS",
+      "turma": "6ºB",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "VICTOR HUGO CARVALHO DA SILVA",
+      "turma": "6ºB",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "VITOR HUGO HUBNEL DE SOUZA",
+      "turma": "6ºB",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "WILLIAN GABRIEL DE SANTANA PAIVA",
+      "turma": "6ºB",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "ANA CLARA RAMOS DE OLIVEIRA",
+      "turma": "6ºB",
+      "tutor": "Mônica Cristina da Silva Tozatti"
+    },
+    {
+      "nome": "DAVI LUCAS SOUZA FREIRE",
+      "turma": "6ºB",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "OTAVIO TEIXEIRA CONEGUNDES",
+      "turma": "6ºB",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "ANA JULIA PRIMO RAMOS",
+      "turma": "6ºC",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "ANA JULIA SANTANA",
+      "turma": "6ºC",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "BLENDHA ASSUNCAO ANDRADE DA SILVA",
+      "turma": "6ºC",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "CAIO PIETRO MENOSSI SILVA BRUNO",
+      "turma": "6ºC",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "DANIEL PEREIRA ALVES",
+      "turma": "6ºC",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "DAVI OLIVEIRA FISCHER",
+      "turma": "6ºC",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "ENRICO BENTO DE CAMARGO",
+      "turma": "6ºC",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "ENZO GABRIEL ARAGÃO SILVA",
+      "turma": "6ºC",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "ENZO LUCIANO GUNTENDORFER NASCIMENTO",
+      "turma": "6ºC",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "ESTHER BARBOSA FERNANDES DA SILVA",
+      "turma": "6ºC",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "GABRIEL FERNANDO ALVES DE JESUS",
+      "turma": "6ºC",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "GABRIEL LUCAS TEIXEIRA",
+      "turma": "6ºC",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "ICARO FRANCA MACIEL",
+      "turma": "6ºC",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "JOAO PEDRO SIMOES",
+      "turma": "6ºC",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "KAMILLY OLIVEIRA THOMAZ",
+      "turma": "6ºC",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "KAUA MARTINS ROSA",
+      "turma": "6ºC",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "LARYSSA MANUELY SOARES DA ROCHA",
+      "turma": "6ºC",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "LUIZA VITORIA DE OLIVEIRA AUGUSTO",
+      "turma": "6ºC",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "MARIA LIVIA RODRIGUES",
+      "turma": "6ºC",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "MIGUEL RODRIGUES DOS SANTOS",
+      "turma": "6ºC",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "MIGUEL VICTOR GIMENES",
+      "turma": "6ºC",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "NICOLAS FERNANDO DE OLIVEIRA MARTINS",
+      "turma": "6ºC",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "NICOLY PEREIRA DE OLIVEIRA",
+      "turma": "6ºC",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "PEDRO CORREA DA SILVA",
+      "turma": "6ºC",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "SAMUEL SOUSA MENDES",
+      "turma": "6ºC",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "SAMUEL VITOR PINTO DE ASSIS",
+      "turma": "6ºC",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "SAULO EMANUEL DE FREITAS MACIEL",
+      "turma": "6ºC",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "VICTOR BAUSTARK BEZERRA",
+      "turma": "6ºC",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "YASMIN MENDES CORDEIRO TOZIN",
+      "turma": "6ºC",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "LUCAS GABRIEL CAMPOS ABREU",
+      "turma": "6ºC",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "MIGUEL ANTONY CANDIDO BUENO",
+      "turma": "6ºC",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "OTAVIO GABRIEL MARQUES DAVID",
+      "turma": "6ºC",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "VICTOR GABRIEL FERREIRA DOS SANTOS",
+      "turma": "6ºC",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "STELLA BEATRIZ ALVES DE BRITO GONÇALVES",
+      "turma": "6ºC",
+      "tutor": "Márcia"
+    },
+    {
+      "nome": "ANA LUIZA INÁCIO -24/07",
+      "turma": "6ºC",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "ANA CLARA PESSOA COSTA",
+      "turma": "7ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "ANA JULIA BATISTA DE SOUZA",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "BENÍCIO DELBONI BARRETO",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "CAIO PEIXOTO DOS SANTOS",
+      "turma": "7ºA",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "DAVÍ JUNIO ALVES DE SÁ",
+      "turma": "7ºA",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "ENZO LOGAN DA SILVA",
+      "turma": "7ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "GUILHERME HENRIQUE MOURA SANTOS",
+      "turma": "7ºA",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "HELOÍSA FERNANDA PIO",
+      "turma": "7ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "ISABELLA DE SOUSA SILVA",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "LARA EDUARDA CORDEIRO",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "LAÍS DE ALMEIDA PINTO",
+      "turma": "7ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "LORENA VON ZUBEN DE SOUZA",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "LUARA FERNANDA SAMPAIO MIRANDA",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "LUIZ LORENZO TESTA SILVA",
+      "turma": "7ºA",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "LUÍS HENRIQUE DOMINGOS ARAUJO",
+      "turma": "7ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "LÍVIA DE ALMEIDA GONÇALVES",
+      "turma": "7ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "MARIA EDUARDA CAMARGO DOS SANTOS",
+      "turma": "7ºA",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "MARIA FERNANDA BERNARDO DA SILVA",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "MARIANA PENÃ CARVALHAR",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "MARIANA SOUZA",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "MIGUEL MAURIZACK DE OLIVEIRA LUZ",
+      "turma": "7ºA",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "MIKAELLI VITÓRIA BORGES BENEDITO",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "MURILO CARDOSO HUBNER",
+      "turma": "7ºA",
+      "tutor": "Danilo Silvestre da Silva"
+    },
+    {
+      "nome": "PEDRO HENRIQUE BENETTI DA COSTA",
+      "turma": "7ºA",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "RENAN FERNANDO DE ABREU",
+      "turma": "7ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "RYAN DOS SANTOS RODRIGUES",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "RYCHARD FAGUNDES DOS SANTOS",
+      "turma": "7ºA",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "SOFIA FERREIRA PONTES",
+      "turma": "7ºA",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "SOPHIA MARIA OLIVEIRA RODRIGUES",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "SOPHIA VITÓRIA DOS SANTOS RODRIGUES",
+      "turma": "7ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "TAYNA FERNANDA MOREIRA DA SILVA",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "VICTOR HUGO SOUZA DA SILVA",
+      "turma": "7ºA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "VINÍCIUS CARVALHO PAPAES",
+      "turma": "7ºA",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "RAFAEL HONORIO FONSECA",
+      "turma": "7ºA",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "LUCAS SILVA VIANA",
+      "turma": "7ºA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "JHULIA STELLA BENITES USURIAGA - MS 03/08",
+      "turma": "7ºA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "ANA BEATRIZ SILVA DE LIMA",
+      "turma": "8ºA",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "ANA CLAUDIA ALVES LAURENTINO",
+      "turma": "8ºA",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "ANA JULIA ALVES DA SILVA",
+      "turma": "8ºA",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "BRENDA FERREIRA PONTES",
+      "turma": "8ºA",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "DAVI RODRIGUES PEREIRA",
+      "turma": "8ºA",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "DÉBORA DOS SANTOS FERREIRA",
+      "turma": "8ºA",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "ELOÁ EVELLYN ARAÚJO SILVA",
+      "turma": "8ºA",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "EMANUELLY VITÓRIA CARVALHO DOS SANTOS",
+      "turma": "8ºA",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "ENZO TONIATO SIQUEIRA",
+      "turma": "8ºA",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "ESTER BEATRIZ DE SOUZA PIRES",
+      "turma": "8ºA",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "GEOVANA EMANUELLY SALINAS COLETTI",
+      "turma": "8ºA",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "HEITOR LOPES",
+      "turma": "8ºA",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "HELENA BAZILIUS",
+      "turma": "8ºA",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "KAUANY ISABELY LOPES DE BRITO",
+      "turma": "8ºA",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "KAUÊ RAPHAEL CAMPOS DE OLIVEIRA",
+      "turma": "8ºA",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "LARISSA CRISTINA DOS SANTOS MOURA - TR 01/09",
+      "turma": "8ºA",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "LUIZ FELIPE SIMÕES",
+      "turma": "8ºA",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "MARIA EDUARDA BOLETTI ADÃO",
+      "turma": "8ºA",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "MARIA EDUARDA DA SILVA NASCIMENTO",
+      "turma": "8ºA",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "MARIA JÚLIA RIBEIRO RAMOS",
+      "turma": "8ºA",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "MIGUEL DE OLIVEIRA SILVA",
+      "turma": "8ºA",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "MIGUEL DOS SANTOS BEVENUTO",
+      "turma": "8ºA",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "MIGUEL HAYTMAN DE ALMEIDA",
+      "turma": "8ºA",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "MIGUEL HENRIQUE NICOLAU DOS SANTOS",
+      "turma": "8ºA",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "MIGUEL HIPOLITO GUSMÃO",
+      "turma": "8ºA",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "NATALYN DA SILVA DELFINO",
+      "turma": "8ºA",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "PAULO SÉRGIO AMBILI ALVES",
+      "turma": "8ºA",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "RAFAEL APARECIDO DE PAULA SILVA",
+      "turma": "8ºA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "RAÍSSA SORG ROCHA",
+      "turma": "8ºA",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "SARAH SORG ROCHA",
+      "turma": "8ºA",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "VICTOR HUGO DA SILVA SANTOS",
+      "turma": "8ºA",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "VICTOR OLIVEIRA DA FONSECA",
+      "turma": "8ºA",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "VINICIUS EDUARDO DA CUNHA PRADO",
+      "turma": "8ºA",
+      "tutor": "Mônica Cristina da Silva Tozatti"
+    },
+    {
+      "nome": "ARTHUR MENDES LOPES",
+      "turma": "8ºA",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "LAVÍNIA SANTOS VON ZUBEN - MS 18/09",
+      "turma": "8ºA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "ANA JULIA SILVA DE JESUS - MS 18/09",
+      "turma": "8ºA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "ADRYAN DE MOURA SILVA",
+      "turma": "8ºB",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "ADRYAN GABRIEL DE OLIVEIRA MORAIS",
+      "turma": "8ºB",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "ANA LUIZA BIAGIONI JESUS",
+      "turma": "8ºB",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "ARTHUR JOSÉ DE ARAUJO RANGEL",
+      "turma": "8ºB",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "ARTHUR ROSA ZACHARIAS",
+      "turma": "8ºB",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "BEATRIZ ISABELLY DOS REIS SOUZA",
+      "turma": "8ºB",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "CAUÃ SIQUEIRA",
+      "turma": "8ºB",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "ENZO GABRIEL PEREIRA GOMES - 70%",
+      "turma": "8ºB",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "ENZO RIQUELME MACEDO DE FREITAS",
+      "turma": "8ºB",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "GUSTAVO LUCAS DA SILVA",
+      "turma": "8ºB",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "HELLEM CAROLLINY BALIONI",
+      "turma": "8ºB",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "LORENA VITÓRIA BORGES GERMANO",
+      "turma": "8ºB",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "LORENZO PABLO LOGAREZI PASQUALETTO",
+      "turma": "8ºB",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "LUCAS GABRIEL SANTOS SOARES",
+      "turma": "8ºB",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "LUCAS HENRIQUE GUEDES SALDANHA",
+      "turma": "8ºB",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "LUÍS OTÁVIO MENDES",
+      "turma": "8ºB",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "LUÍS RODOLFO ROCHA DAMICO",
+      "turma": "8ºB",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "LÍVIA DE CAIRES",
+      "turma": "8ºB",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "MATHEUS RAMOS FÉRRO",
+      "turma": "8ºB",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "MELISSA DE PAULA COVAIS",
+      "turma": "8ºB",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "MIRELLA RODRIGUES MARTINS",
+      "turma": "8ºB",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "PEDRO HENRIQUE REIS DE SOUZA",
+      "turma": "8ºB",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "PEDRO MIGUEL JORGE",
+      "turma": "8ºB",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "RAIZA VITÓRIA SILVA",
+      "turma": "8ºB",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "SAMUEL OTÁVIO SOARES DELGADO",
+      "turma": "8ºB",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "SOPHIA ARAUJO ROCHA",
+      "turma": "8ºB",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "SOPHIA KAPP ROSA",
+      "turma": "8ºB",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "THIAGO DE PAULA COVAIS",
+      "turma": "8ºB",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "ANNA CLARA SANTANA MATIAS",
+      "turma": "8ºB",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "LAUANE VITORIA DA COSTA PENTEADO",
+      "turma": "8ºB",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "GUSTAVO CORSI SCHMIDT",
+      "turma": "8ºB",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "JOAQUIM ANTONIO GIRALDE - M/S EM 05/08",
+      "turma": "8ºB",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "ALEX PEIXOTO DOS SANTOS",
+      "turma": "9ºA",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "ALICE BORGES DE ALMEIDA",
+      "turma": "9ºA",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "ALICIA BEATRIZ MORGADO DOS SANTOS",
+      "turma": "9ºA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "ALLANA SANTOS DE OLIVEIRA",
+      "turma": "9ºA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "ANA CLARA GASQUES",
+      "turma": "9ºA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "ARTHUR ENRICO INACIO",
+      "turma": "9ºA",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "BEATRIZ PEIXOTO DOS SANTOS",
+      "turma": "9ºA",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "BRYAN SCALZITTI GOMES",
+      "turma": "9ºA",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "CAROLINA CARDONA FERREIRA",
+      "turma": "9ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "DAVI VITOR PINTO DE ASSIS",
+      "turma": "9ºA",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "DYANNA REBECA SILVA ALVES",
+      "turma": "9ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "EDUARDO GABRIEL NUNES PAIVA",
+      "turma": "9ºA",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "ELOAH CARDOSO LIMA",
+      "turma": "9ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "GIOVANNA DE SOUZA MARTINS",
+      "turma": "9ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "GIULIA GALVÃO LAVANDOSKY",
+      "turma": "9ºA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "HELOÁ VITÓRIA DE ANDRADE SILVA OLIVEIRA",
+      "turma": "9ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "ISABELA OLIVEIRA DA SILVA SENA",
+      "turma": "9ºA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "JOÃO FELIPE DE MORAES ALVES",
+      "turma": "9ºA",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "JULIA COUTINHO RODRIGUES",
+      "turma": "9ºA",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "JULIO CÉSAR FERREIRA",
+      "turma": "9ºA",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "LAURA FERNANDA BARBOSA ALBINO",
+      "turma": "9ºA",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "LOHANNA ALEXIA CAZON",
+      "turma": "9ºA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "LORENA ALMEIDA DA SILVA",
+      "turma": "9ºA",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "LUIS OTÁVIO DOS REIS MAXIMO",
+      "turma": "9ºA",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "MARIA ALICE RODRIGUES",
+      "turma": "9ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "MARIA EDUARDA GONÇALVES RODRIGUES",
+      "turma": "9ºA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "MARIANA SANTOS VERONEZI RANGEL",
+      "turma": "9ºA",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "NATHALY RAPHAELY LOPES NASCIMENTO",
+      "turma": "9ºA",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "NATTAN BOA SORTE",
+      "turma": "9ºA",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "NYCOLE CARVALHO DA SILVA",
+      "turma": "9ºA",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "RAFAEL CHAGAS TEIXEIRA",
+      "turma": "9ºA",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "TÂNIA CECHET",
+      "turma": "9ºA",
+      "tutor": "Danilo Silvestre da Silva"
+    },
+    {
+      "nome": "VICTOR HUGO DE OLIVEIRA PRADO",
+      "turma": "9ºA",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "MIGUEL ARTHUR HUBNEL BARBOZA - M/S 05-08",
+      "turma": "9ºA",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "PEDRO HENRIQUE TAVARES DE MELO - ms em 04/09",
+      "turma": "9ºA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "ALICIA PEREIRA LOURENÇO",
+      "turma": "9ºB",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "ANA CLARA SOUSA FERREIRA",
+      "turma": "9ºB",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "ANA LÍVIA BARBOSA FERNANDES DA SILVA",
+      "turma": "9ºB",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "BRENDA VICTÓRIA MONTEIRO DE SOUZA",
+      "turma": "9ºB",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "DAVI LUÍS GIROTI DA SILVA",
+      "turma": "9ºB",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "ELOAH CRISTINE PIO",
+      "turma": "9ºB",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "ESTHER MANFRINI STRAPASSON DE CASTRO",
+      "turma": "9ºB",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "FELIPE ABNER DE CAMPOS SILVA",
+      "turma": "9ºB",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "FELIPE MELO DE CAMARGO",
+      "turma": "9ºB",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "FERNANDO MULINARI PARENTE",
+      "turma": "9ºB",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "GABRIELLY STHEFANY PIRES PARDINHO",
+      "turma": "9ºB",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "ISABELLE KYARA GIMENEZ DOS SANTOS",
+      "turma": "9ºB",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "ISADORA MARIA ANDRADE VENTURA",
+      "turma": "9ºB",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "LAURA BEATRIZ GOMES MESTRINIER",
+      "turma": "9ºB",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "LUIGI MATHEUS LOIOLA DE SANTANA",
+      "turma": "9ºB",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "LUIZ HENRIQUE MARINHO DOS SANTOS",
+      "turma": "9ºB",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "MIGUEL MARQUES LICIONI",
+      "turma": "9ºB",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "MIGUEL NASCIMENTO AFONSO",
+      "turma": "9ºB",
+      "tutor": "José Costa da Silva"
+    },
+    {
+      "nome": "PEDRO EDUARDO DE JESUS",
+      "turma": "9ºB",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "PEDRO HENRIQUE DIAS RODRIGUES",
+      "turma": "9ºB",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "RAISSA EMANUELLY SILVA",
+      "turma": "9ºB",
+      "tutor": "Adriana Forti"
+    },
+    {
+      "nome": "RALPH ANDRE CARDOZO PEREIRA",
+      "turma": "9ºB",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "SARA VIEIRA POSCIDONIO",
+      "turma": "9ºB",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "SOFIA DA SILVA DEMO",
+      "turma": "9ºB",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "STEFANY DA SILVA OLIVEIRA",
+      "turma": "9ºB",
+      "tutor": "Eli Oliveira Dias"
+    },
+    {
+      "nome": "JAIR RICARDO SANTOS BATISTA - M/S 03-06",
+      "turma": "9ºB",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "MARY JANE MORAES OLIVEIRA - 22-07",
+      "turma": "9ºB",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "ARTUR CARVALHO CASTRO - MS 23/09",
+      "turma": "9ºB",
+      "tutor": "Equipe Pedagógica"
+    },
+    {
+      "nome": "AMANDA VITÓRIA ROCHA DE ALMEIDA",
+      "turma": "1ªA",
+      "tutor": "Mônica Cristina da Silva Tozatti"
+    },
+    {
+      "nome": "ANDRÉ RICARDO DELGADO FILHO",
+      "turma": "1ªA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "ANNA JULYA MARTINI DE OLIVEIRA",
+      "turma": "1ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "ANTHONY DE PAULA",
+      "turma": "1ªA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "ARIANE CRISTINA DOS SANTOS MOURA",
+      "turma": "1ªA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "ARIELLE NASCIMENTO DE PAULA",
+      "turma": "1ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "DAVI BOLETTI ADÃO",
+      "turma": "1ªA",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "FERNANDO GABRIEL SILVA ARANTES",
+      "turma": "1ªA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "GABRIELLY VITÓRIA DOS SANTOS BASETTO",
+      "turma": "1ªA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "GIOVANNA ANTONELLA VOIGT",
+      "turma": "1ªA",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "HUGO CESAR REIS SILVA",
+      "turma": "1ªA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "LETÍCIA FERREIRA DA SILVA",
+      "turma": "1ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "PABLO DANIEL FRATTA",
+      "turma": "1ªA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "PEDRO IGOR MIRANDA FELIX DOMINGOS",
+      "turma": "1ªA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "SAMANTHA NICOLAU",
+      "turma": "1ªA",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "LYNCON CARVALHO DA SILVA",
+      "turma": "1ªA",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "JOAO PEDRO DE LIMA ASSIS",
+      "turma": "1ªA",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "ISAAC DE LIMA SANTOS",
+      "turma": "1ªA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "NATALIA DANIEL FRATTA",
+      "turma": "1ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "JULIA ALVES DE OLIVEIRA",
+      "turma": "1ªA",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "MARIA EDUARDA FERNANDES FERREIRA",
+      "turma": "1ªA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "EDUARDA PRUDENCIO DOS SANTOS",
+      "turma": "1ªA",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "BIANCA CRISTINA DIOTTO",
+      "turma": "1ªA",
+      "tutor": "Margarete Fernandes de Camargo"
+    },
+    {
+      "nome": "ESMERALDA COSTA PEREIRA",
+      "turma": "1ªA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "KAUÃ DOS SANTOS JERÔNIMO - MS 26/06",
+      "turma": "1ªA",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "VICTOR HENRIQUE DA CUNHA PRADO",
+      "turma": "1ªA",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "JULIA ARAGÃO MASSOLA - 24-07",
+      "turma": "1ªA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "RAUL ABRAHÃO ALVES",
+      "turma": "1ªA",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "BEATTRIZ VICTORIA SINI",
+      "turma": "1ªA",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "MARIA EDUARDA MARCELLY MUNIS DIAS",
+      "turma": "1ªA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "ANNA KAROLINA DA SILVA JOAQUIM",
+      "turma": "1ªA",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "ANA JULIA DOS SANTOS PEDRO",
+      "turma": "1ªA",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "ANA BEATRIZ BORGES DA PAZ",
+      "turma": "1ªA",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "SAMARA SANTOS MARINHO",
+      "turma": "1ªA",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "YASMIM OLIVEIRA DA SILVA - MS 09/09 - REM P/ 1B EM 14/09",
+      "turma": "1ªA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "ANA BEATRIZ BORGES DA PAZ - rem p 1A em 02/09",
+      "turma": "1ªB",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "ANA CAROLINA BORGES DA PAZ",
+      "turma": "1ªB",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "ANA JÚLIA DOS SANTOS PEDRO - rem p 1A em 02/09",
+      "turma": "1ªB",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "ANNA KAROLINA DA SILVA JOAQUIM - rem p 1A em 02/09",
+      "turma": "1ªB",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "BEATTRIZ VICTÓRIA SINI - rem p 1 A em 02/09",
+      "turma": "1ªB",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "CAROLINA FANIS CLARO",
+      "turma": "1ªB",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "EMANUELLY PRIMO RAMOS",
+      "turma": "1ªB",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "GABRIEL NATHAN DA SILVA",
+      "turma": "1ªB",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "HELIO PYETRO CARDOSO",
+      "turma": "1ªB",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "JOÃO GUILHERME SILVA FERREIRA",
+      "turma": "1ªB",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "LARISSA APARECIDA DE PAULA SILVA",
+      "turma": "1ªB",
+      "tutor": "Rosângela Ap. Mamédio Botechia"
+    },
+    {
+      "nome": "LORENA VITÓRIA DE A GUEDES CHIMENTÃO",
+      "turma": "1ªB",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "MARIA EDUARDA MARCELLY MUNIZ DIAS -rem 1A em 02/09",
+      "turma": "1ªB",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "NATÃ DOS SANTOS FERREIRA",
+      "turma": "1ªB",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "PAULO GABRIEL SERAFIM DA SILVA",
+      "turma": "1ªB",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "nome": "SAMARA SANTOS MARINHO - rem p 1A em 02/09",
+      "turma": "1ªB",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "CAUA GABRIEL BORTOLAN DOS SANTOS",
+      "turma": "1ªB",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "JOAO VITOR DE MELO LIMA- 25/02",
+      "turma": "1ªB",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "FERNANDA REGINA SANTOS - 02/03",
+      "turma": "1ªB",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "MARIA EDUARDA VIEIRA TREVIZAN - 22-07",
+      "turma": "1ªB",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "YASMIM OLIVEIRA DA SILVA - REM DO 1A EM 14/09",
+      "turma": "1ªB",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "ANDRÉ LUÍS VIEIRA POSCIDONIO",
+      "turma": "2ªA",
+      "tutor": "Rogério José Aragão"
+    },
+    {
+      "nome": "CAUÃ ANTUNES TOLEDO",
+      "turma": "2ªA",
+      "tutor": "Beatriz Rabesco"
+    },
+    {
+      "nome": "EDUARDO DE OLIVEIRA SANCHES",
+      "turma": "2ªA",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "ENRICO GABRIEL BOLETTI NASCIMENTO",
+      "turma": "2ªA",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "ENZO ARISTHEU BOLETTI NASCIMENTO",
+      "turma": "2ªA",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "GABRIEL GUSTAVO GOMES FERREIRA",
+      "turma": "2ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "JOÃO GABRIEL DA SILVA BEZERRA",
+      "turma": "2ªA",
+      "tutor": "Leonice Aparecida Cardoso"
+    },
+    {
+      "nome": "JULIANA DOS SANTOS DE OLIVEIRA",
+      "turma": "2ªA",
+      "tutor": "Patricia Maria Americo"
+    },
+    {
+      "nome": "LUIZ GUILHERME SANTOS CRUZ",
+      "turma": "2ªA",
+      "tutor": "Robinson Tadeu Bragotto"
+    },
+    {
+      "nome": "MATHEUS ANTONY VICENTE",
+      "turma": "2ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "MIGUEL MARSON",
+      "turma": "2ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "PEDRO ANTONIO GASQUES",
+      "turma": "2ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "RAIANY JAMILLY VENANCIO",
+      "turma": "2ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "SAMANTHA VILELA TAKAHASHI",
+      "turma": "2ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "YAN FERNANDO MACÊDO VIEIRA",
+      "turma": "2ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "ALEXANDRE ZEULE NUNES DOS SANTOS  - TR 11/09",
+      "turma": "2ªA",
+      "tutor": "Sem Tutor"
+    },
+    {
+      "nome": "ALLÍCIA CASSIE PEREIRA LIMA",
+      "turma": "3ªA",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "ANA JÚLIA CARRIER DE OLIVEIRA",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "ANNA JÚLIA DE GODOY",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "ENZO SALVIANO GUEDES",
+      "turma": "3ªA",
+      "tutor": "Danilo Silvestre da Silva"
+    },
+    {
+      "nome": "EYSHILA VENTURA DA LUZ",
+      "turma": "3ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "HENRICO SALVADOR",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "IGOR RAMONE FIDELIS DA CRUZ",
+      "turma": "3ªA",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "ISABELLY FERNANDES DA SILVA",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "KAMILLY VITÓRIA LIMA RAMOS",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "KELLEN STHEFANY SILVA",
+      "turma": "3ªA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "LAURA DO AMARAL MARSOLA",
+      "turma": "3ªA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "LAURA TETZENER MUNIZ",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "LAUREN NICOLLY APARECIDA CHIMENTÃO",
+      "turma": "3ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "LEONARDO HENRIQUE GERMANO DOS SANTOS",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "LUCAS OLIVEIRA BETI",
+      "turma": "3ªA",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "LUIZ PIETRO SERAFIM DA SILVA",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "LUÍZ JOSÉ CARDONA NETO",
+      "turma": "3ªA",
+      "tutor": "Cláudio Everton Marques"
+    },
+    {
+      "nome": "MARLEY DE SOUZA CARVALHO SILVA",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "MATHEUS DE ARAUJO",
+      "turma": "3ªA",
+      "tutor": "Jhenifer Caroline Stabile"
+    },
+    {
+      "nome": "NICOLAS MAXIMIANO",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "PEDRO GABRIEL SILVA DE OLIVEIRA",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "PIETRO EMANUEL ALVES DOS SANTOS",
+      "turma": "3ªA",
+      "tutor": "Adriana Helena Leal"
+    },
+    {
+      "nome": "RAFAEL MAXIMIANO",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "RENATO AUGUSTO BUCHERI",
+      "turma": "3ªA",
+      "tutor": "Heitor Flávio de Lima"
+    },
+    {
+      "nome": "SABRINA FERNANDES DE ALMEIDA",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "TAMIRES ELOIZE DO AMARAL",
+      "turma": "3ªA",
+      "tutor": "Maria de Fátima Santos Rocha"
+    },
+    {
+      "nome": "UZIEL RODRIGO MONTEIRO",
+      "turma": "3ªA",
+      "tutor": "Luis Reinaldo Marostegan Rachid"
+    },
+    {
+      "nome": "VITOR RIBEIRO RAMOS",
+      "turma": "3ªA",
+      "tutor": "Fernando Augusto Peres"
+    },
+    {
+      "nome": "VITÓRIA CERQUEIRA DOS SANTOS",
+      "turma": "3ªA",
+      "tutor": "Cláudio Everton Marques"
+    }
+  ],
+  "professores": [
+    {
+      "nome": "Adriana Forti",
+      "pin": "1966",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Adriana Helena Leal",
+      "pin": "2909",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Beatriz Rabesco",
+      "pin": "3107",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Cláudio Everton Marques",
+      "pin": "3004",
+      "perfil": "PAAC"
+    },
+    {
+      "nome": "Eli Oliveira Dias",
+      "pin": "0333",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Fernando Augusto Peres",
+      "pin": "1516",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Heitor Flávio de Lima",
+      "pin": "2109",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Jhenifer Caroline Stabile",
+      "pin": "1808",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "José Costa da Silva",
+      "pin": "7902",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Leonice Aparecida Cardoso",
+      "pin": "2505",
+      "perfil": "PAAC"
+    },
+    {
+      "nome": "Lilian Leticia de F. Alvatti Sartori",
+      "pin": "1604",
+      "perfil": "PAAC"
+    },
+    {
+      "nome": "Luis Reinaldo Marostegan Rachid",
+      "pin": "2018",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Mônica Cristina da Silva Tozatti",
+      "pin": "1408",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Margarete Fernandes de Camargo",
+      "pin": "3167",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Maria de Fátima Santos Rocha",
+      "pin": "1395",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Patricia Maria Americo",
+      "pin": "1828",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Robinson Tadeu Bragotto",
+      "pin": "",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Rogério José Aragão",
+      "pin": "2808",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Rosângela Ap. Mamédio Botechia",
+      "pin": "0502",
+      "perfil": "PROFESSOR"
+    },
+    {
+      "nome": "Danilo Silvestre da Silva",
+      "pin": "0520",
+      "perfil": "GESTAO"
+    },
+    {
+      "nome": "Jacqueline",
+      "pin": "5577",
+      "perfil": "GESTAO"
+    },
+    {
+      "nome": "Márcia",
+      "pin": "2610",
+      "perfil": "GESTAO"
+    },
+    {
+      "nome": "Jessica Mayara",
+      "pin": "1547",
+      "perfil": "PROFESSSOR"
+    },
+    {
+      "nome": "Cristiana Mendes",
+      "pin": "3442",
+      "perfil": "PROFESSOR"
+    }
+  ],
+  "ocorrencias": [
+    "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+    "Desrespeito: Com colegas, com o professor ou com funcionários.",
+    "Conflito entre Pares: Discussões, brigas ou desentendimentos entre alunos.",
+    "Dano ao Patrimônio: Rabiscar carteiras, danificar materiais da escola.",
+    "Postura Inadequada: Dormir em aula, recusa em participar de dinâmicas.",
+    "Elogio / Destaque Positivo",
+    "Falta de Material: Ausência recorrente de caderno/caneta ou material de nivelamento.",
+    "Agressão física: Ação intencional que cause dano corporal, dor ou lesão física à outra pessoa (empurrões, socos, chutes, etc.).",
+    "Ameaça de ataque ativo: Manifestação, declaração ou ação que sugira intenção de realizar um ato violento planejado contra pessoas no ambiente escolar.",
+    "Apologia ao nazismo: Ato de exaltar, defender, divulgar ou incitar publicamente ideias, símbolos ou práticas ligadas ao regime nazista.",
+    "Assédio moral: Práticas de constrangimento, isolamento, perseguição ou humilhação, de forma repetitiva e prolongada, para desestabilizar a vítima.",
+    "Assédio sexual: Comportamento de conotação sexual não desejado, inconveniente ou ofensivo, que cause constrangimento ou intimidação.",
+    "Atos obscenos / atos libidinosos: Práticas de natureza sexual em local exposto ao público ou conduta sexual destinada à satisfação da lascívia.",
+    "Bullying/Ciberbullying: Violência física, verbal ou psicológica recorrente entre pares. O ciberbullying é a modalidade realizada em meios digitais.",
+    "Comunicação violenta: Expressão verbal que agride, humilha, intimida, ameaça ou desrespeita o outro, seja direta ou sutilmente.",
+    "Consumo de cigarro eletrônico: Uso ou porte de dispositivo que produz vapor contendo nicotina ou outras substâncias químicas.",
+    "Crimes cibernéticos: Condutas ilícitas praticadas por meios digitais (invasão, roubo de dados, exposição íntima, discursos de ódio online).",
+    "Danos ao patrimônio (vandalismo/depredação): Destruição, deterioração ou pichação de bens materiais da escola, de alunos ou de funcionários.",
+    "Evasão escolar: Ocorrência em que o estudante interrompe sua trajetória, deixando de frequentar regularmente ou abandonando os estudos.",
+    "Fake news - disseminação de informações falsas: Notícias ou conteúdos falsos/manipulados divulgados para enganar, prejudicar ou obter vantagens.",
+    "Furto: Subtração de coisa móvel alheia, praticada de forma clandestina, sem o uso de violência ou grave ameaça à vítima.",
+    "Gordofobia: Discriminação, preconceito ou exclusão direcionada a pessoas em razão do seu corpo ou peso no ambiente escolar.",
+    "Homofobia: Discriminação, rejeição ou violência dirigida a pessoas em razão de sua orientação sexual real ou presumida.",
+    "Importunação sexual: Importunação é o ato libidinoso sem consentimento.",
+    "Incitamento e Associação a Atos Infracionais/Crimes: Incentivar, estimular ou persuadir terceiros a praticar delitos ou atos ilícitos.",
+    "Indisciplina: Comportamentos de desrespeito às normas e rotinas da escola, que comprometem a convivência sem envolver violência.",
+    "Racismo: Discriminação, preconceito ou violência baseada em características físicas, cor da pele ou origem étnico-cultural.",
+    "Sinais de alterações emocionais: Manifestações comportamentais que indicam instabilidade (irritabilidade, agressividade, ansiedade, pânico, etc.).",
+    "Sinais de isolamento social: Comportamentos de afastamento de interações com colegas, silêncio excessivo e recusa em participar de atividades.",
+    "Situação de ameaça: Conduta verbal ou não verbal que sugira intenção de causar dano físico, psicológico ou moral a uma pessoa ou grupo.",
+    "Transfobia: Rejeição, discriminação ou violência contra pessoas transgênero, travestis ou que não se identificam com o gênero atribuído ao nascer.",
+    "Uso inadequado de dispositivos eletrônicos: Uso indevido de celulares ou aparelhos, comprometendo atividades pedagógicas ou o direito de imagem.",
+    "Violência de gênero contra meninas e mulheres: Discriminação, exclusão ou agressão direcionada a meninas e mulheres em razão de seu gênero.",
+    "Xenofobia: Aversão, discriminação ou hostilidade direcionada a pessoas de outros países, culturas ou origens étnicas diferentes."
+  ],
+  "medidas": [
+    "Advertência Verbal: Conversa individual com o estudante.",
+    "Mediação de Conflito: Conversa entre as partes envolvidas mediada pelo professor.",
+    "Mudança de Lugar: Estratégia de manejo de sala.",
+    "Orientação Pedagógica: Foco na recuperação do interesse pelo conteúdo.",
+    "Encaminhamento à Gestão",
+    "Acordo de Melhoria: Combinados entre professor e estudante"
+  ],
+  "aulas": [
+    "1ª AULA",
+    "2ª AULA",
+    "3ª AULA",
+    "INTERVALO MANHÃ",
+    "4ª AULA",
+    "5ª AULA",
+    "6ª AULA",
+    "ALMOÇO",
+    "7ª AULA",
+    "8ª AULA",
+    "INTERVALO TARDE",
+    "9ª AULA",
+    "TUTORIA"
+  ],
+  "auxilio": [
+    "GESTÃO",
+    "COORDENAÇÃO",
+    "GESTÃO E COORDENAÇÃO",
+    "NENHUM AUXÍLIO SOLICITADO"
+  ],
+  "registros": [
+    {
+      "id": "#OC-127523",
+      "data": "2026-08-31",
+      "aula": "1ª AULA",
+      "turma": "6ºC",
+      "estudante": "CAIO PIETRO MENOSSI SILVA BRUNO",
+      "tutor": "Luis Reinaldo Marostegan Rachid",
+      "professor": "Beatriz Rabesco",
+      "ocorrencia": "Desrespeito: Com colegas, com o professor ou com funcionários.",
+      "medida": "Mediação de Conflito: Conversa entre as partes envolvidas mediada pelo professor.",
+      "auxilio": "NENHUM AUXÍLIO SOLICITADO",
+      "descricao": "O estudante ficou provocando os colegas e gritando em sala de aula causando desordem. A professora orientou sobre sua postura em sala de aula e pediu para que colaborasse com o respeito e harmonia da sala de aula. ",
+      "status": "Resolvido",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-301052",
+      "data": "2026-08-31",
+      "aula": "2ª AULA",
+      "turma": "6ºC",
+      "estudante": "VICTOR GABRIEL FERREIRA DOS SANTOS",
+      "tutor": "Sem Tutor",
+      "professor": "Beatriz Rabesco",
+      "ocorrencia": "Postura Inadequada: Dormir em aula, recusa em participar de dinâmicas.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "NENHUM AUXÍLIO SOLICITADO",
+      "descricao": "Durante a primeira aula, o estudante insistiu em usar um boné diversas vezes dentro da sala, o que vai contra as regras da escola. Como medida pedagógica, a professora guardou o item, que foi devolvido ao aluno ao final da segunda aula. Além disso, o estudante deitou sobre a mesa e se recusou a fazer a atividade proposta, demonstrando falta de engajamento. A professora conversou com o aluno para orientá-lo sobre a importância da sua participação nas aulas e relembrou as regras de convivência escolar. O estudante ouviu a mediação e afirmou que entendeu as orientações.",
+      "status": "Resolvido",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-339738",
+      "data": "2026-08-31",
+      "aula": "1ª AULA",
+      "turma": "6ºC",
+      "estudante": "GABRIEL LUCAS TEIXEIRA",
+      "tutor": "Leonice Aparecida Cardoso",
+      "professor": "Beatriz Rabesco",
+      "ocorrencia": "Evasão escolar: Ocorrência em que o estudante interrompe sua trajetória, deixando de frequentar regularmente ou abandonando os estudos.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "Durante o mês de agosto, o estudante não compareceu a nenhuma das aulas de Tecnologia, registrando faltas em todas as segundas-feiras do período (dias 3, 10, 17, 24 e 31). Devido a essas ausências contínuas, o aluno também não realizou nenhuma das atividades propostas na plataforma Alura. A falta de frequência e a ausência de engajamento prejudicam severamente o processo de ensino-aprendizagem e o desenvolvimento escolar. Diante disso, solicito contato urgente com os responsáveis para resolução desse problema e defasagem.",
+      "status": "Resolvido",
+      "mediacao": "📌 [09/09/2026 às 08:14 - Leonice Aparecida Cardoso] Status: Resolvido\nComo tutora , conversei e orientei individualmente o estudante sobre suas faltas e realizamos um combinado de que ele não faltará mais. ",
+      "mediador": "Leonice Aparecida Cardoso"
+    },
+    {
+      "id": "#OC-826014",
+      "data": "2026-09-02",
+      "aula": "3ª AULA",
+      "turma": "9ºA",
+      "estudante": "JOÃO FELIPE DE MORAES ALVES",
+      "tutor": "Rogério José Aragão",
+      "professor": "Rogério José Aragão",
+      "ocorrencia": "Desrespeito: Com colegas, com o professor ou com funcionários.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O estudante durante a aula fica jogando bolinha de papel ou outros objetos nos colegas.",
+      "status": "Resolvido",
+      "mediacao": "📌 [16/09/2026 às 19:49 - Lilian Leticia de F. Alvatti Sartori] Status: Resolvido\nO estudante foi devidamente orientado sobre sua conduta e firmou o compromisso com a PAAC de que a situação não voltará a acontecer.",
+      "mediador": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "id": "#OC-831487",
+      "data": "2026-09-02",
+      "aula": "3ª AULA",
+      "turma": "6ºC",
+      "estudante": "ENZO LUCIANO GUNTENDORFER NASCIMENTO",
+      "tutor": "José Costa da Silva",
+      "professor": "Luis Reinaldo Marostegan Rachid",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "GESTÃO",
+      "descricao": "O estudante não realizou tarefas na aula e dormiu. Este estudante já solicitei a presença do responsável. Mas até o presente não compareceu a Escola. ",
+      "status": "Pendente",
+      "mediacao": "📌 [22/09/2026 às 10:56 - Cláudio Everton Marques] Status: Pendente\nFoi conversado com o estudante sobre sua postura em sala de aula. Vamos chamar novamente os responsáveis à comparecer na escola.",
+      "mediador": "Cláudio Everton Marques"
+    },
+    {
+      "id": "#OC-805136",
+      "data": "2026-09-02",
+      "aula": "6ª AULA",
+      "turma": "6ºB",
+      "estudante": "WILLIAN GABRIEL DE SANTANA PAIVA",
+      "tutor": "Eli Oliveira Dias",
+      "professor": "Fernando Augusto Peres",
+      "ocorrencia": "Postura Inadequada: Dormir em aula, recusa em participar de dinâmicas.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O aluno estava dormindo em aula, mesmo após várias advertencias do professor. O aluno apresenta essa postura com muita frequencia.",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-754188",
+      "data": "2026-09-02",
+      "aula": "7ª AULA",
+      "turma": "6ºC",
+      "estudante": "CAIO PIETRO MENOSSI SILVA BRUNO",
+      "tutor": "Luis Reinaldo Marostegan Rachid",
+      "professor": "Adriana Helena Leal",
+      "ocorrencia": "Desrespeito: Com colegas, com o professor ou com funcionários.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O aluno em questão cometeu racismo com o aluno Miguel chamando ele de palvras relacionadas com sua etinia. Como essa situação já é recorrente encaminho a ocorrência",
+      "status": "Resolvido",
+      "mediacao": "📌 [03/09/2026 às 08:29 - Danilo Silvestre da Silva] Status: Resolvido\nO estudante foi atendido e foi realizado um acordo de melhoria. O estudante também ficará sem jogar no intervalo para ter a oportunidade de refletir no que vem fazendo em sala. O estudantes concordou e afirmou que isso não continuará a acontecer. O coordenador disse que irá acompanhar o comportamento do estudante ao longo da semana.",
+      "mediador": "Danilo Silvestre da Silva"
+    },
+    {
+      "id": "#OC-419005",
+      "data": "2026-09-03",
+      "aula": "2ª AULA",
+      "turma": "6ºB",
+      "estudante": "VICTOR HUGO CARVALHO DA SILVA",
+      "tutor": "Leonice Aparecida Cardoso",
+      "professor": "Eli Oliveira Dias",
+      "ocorrencia": "Desrespeito: Com colegas, com o professor ou com funcionários.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "COORDENAÇÃO",
+      "descricao": "FALTA DE POSTURA E RESPEITO COM O PROFESSOR, NÃO OBEDECENDO AOS COMANDOS DA AULA. USO DE PALAVRÃO E BRIGA COM OS AMIGOS DE SALA.",
+      "status": "Resolvido",
+      "mediacao": "📌 [09/09/2026 às 08:18 - Leonice Aparecida Cardoso] Status: Resolvido\nConversei com o estudante e orientei a melhora de sua postura em sala e perante seus colegas de sala. Se comprometeu a mudar suas posturas. Combinei de conversarmos durante um mês para verificar suas mudanças. ",
+      "mediador": "Leonice Aparecida Cardoso"
+    },
+    {
+      "id": "#OC-592396",
+      "data": "2026-09-03",
+      "aula": "4ª AULA",
+      "turma": "7ºA",
+      "estudante": "MIKAELLI VITÓRIA BORGES BENEDITO",
+      "tutor": "Patricia Maria Americo",
+      "professor": "Rogério José Aragão",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "A estudante durante a realização da atividade deixada pelo professor José, estava mexendo com o celular.",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-809215",
+      "data": "2026-09-03",
+      "aula": "6ª AULA",
+      "turma": "7ºA",
+      "estudante": "MIGUEL MAURIZACK DE OLIVEIRA LUZ",
+      "tutor": "Robinson Tadeu Bragotto",
+      "professor": "Cláudio Everton Marques",
+      "ocorrencia": "Comunicação violenta: Expressão verbal que agride, humilha, intimida, ameaça ou desrespeita o outro, seja direta ou sutilmente.",
+      "medida": "Acordo de Melhoria: Combinados entre professor e estudante",
+      "auxilio": "NENHUM AUXÍLIO SOLICITADO",
+      "descricao": "Durante a aula de história, com atividade em grupo para idealizar uma forma de transformar o conteúdo em um jogo atrativo, o estudante Miguel, pergunta ao estudante Enzo: \"Sua mãe fede?\" Instruí o mesmo a policiar seus comportamentos, atitudes e falas com os colegas, orientando-o a pensar mais de uma vez antes de perguntar algo ofensivo ou fora do contexto da atividade",
+      "status": "Resolvido",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-488849",
+      "data": "2026-09-03",
+      "aula": "8ª AULA",
+      "turma": "8ºB",
+      "estudante": "LUCAS GABRIEL SANTOS SOARES",
+      "tutor": "Margarete Fernandes de Camargo",
+      "professor": "Jhenifer Caroline Stabile",
+      "ocorrencia": "Dano ao Patrimônio: Rabiscar carteiras, danificar materiais da escola.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O estudante não estava realizando nenhuma atividade, ao ser questionado falou que não tinha material. Como a professora havia emprestado um lápis para o colega do lado, ele pegou o lápis e quebrou no meio.",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-466961",
+      "data": "2026-09-04",
+      "aula": "3ª AULA",
+      "turma": "6ºA",
+      "estudante": "JOÃO PEDRO DOS SANTOS MAURO",
+      "tutor": "Márcia",
+      "professor": "Beatriz Rabesco",
+      "ocorrencia": "Assédio sexual: Comportamento de conotação sexual não desejado, inconveniente ou ofensivo, que cause constrangimento ou intimidação.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "As estudantes Heloisa, Maria Eduarda Gomes e Livia Volpato procuraram a professora Beatriz para relatar situações contínuas de constrangimento no ambiente escolar causadas pelo aluno João Pedro. Segundo o relato das alunas, o estudante tem realizado \"brincadeiras\" de cunho sexual como emitir gemidos na sala e comentários desrespeitosos. Foi relatado um agravante físico específico envolvendo a estudante Maria Eduarda Gomes: as alunas informaram que João Pedro a procura durante os intervalos e, de forma dissimulada, também dentro da sala de aula, para bater com raquete na sua bunda.\nAs estudantes buscaram apoio pedagógico confiando na segurança e na mediação da professora, mas a mesma não conseguiu realizar nenhum tipo de mediação por falta de tempo na escuta ativa e mediação. Devido à gravidade dos fatos relatados, que configuram desrespeito à integridade das alunas, a professora encaminha o caso com urgência para a direção e coordenação. Solicita-se intervenção imediata para o acolhimento das estudantes, adoção das medidas disciplinares, visando a resolução do problema.",
+      "status": "Resolvido",
+      "mediacao": "📌 [10/09/2026 às 11:20 - Danilo Silvestre da Silva] Status: Resolvido\nO caso foi resolvido pela Diretora Márcia, que chamou os estudantes para mediação de conflito, onde foi realizado um acordo de melhoria.",
+      "mediador": "Danilo Silvestre da Silva"
+    },
+    {
+      "id": "#OC-557791",
+      "data": "2026-09-04",
+      "aula": "3ª AULA",
+      "turma": "6ºA",
+      "estudante": "LIVIA VOLPATO",
+      "tutor": "Márcia",
+      "professor": "Beatriz Rabesco",
+      "ocorrencia": "Assédio sexual: Comportamento de conotação sexual não desejado, inconveniente ou ofensivo, que cause constrangimento ou intimidação.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "As estudantes Heloisa, Maria Eduarda Gomes e Livia Volpato procuraram a professora Beatriz para relatar situações contínuas de constrangimento no ambiente escolar causadas pelo aluno João Pedro. Segundo o relato das alunas, o estudante tem realizado \"brincadeiras\" de cunho sexual como emitir gemidos na sala e comentários desrespeitosos. Foi relatado um agravante físico específico envolvendo a estudante Maria Eduarda Gomes: as alunas informaram que João Pedro a procura durante os intervalos e, de forma dissimulada, também dentro da sala de aula, para bater com raquete na sua bunda.\nAs estudantes buscaram apoio pedagógico confiando na segurança e na mediação da professora, mas a mesma não conseguiu realizar nenhum tipo de mediação por falta de tempo na escuta ativa e mediação. Devido à gravidade dos fatos relatados, que configuram desrespeito à integridade das alunas, a professora encaminha o caso com urgência para a direção e coordenação. Solicita-se intervenção imediata para o acolhimento das estudantes, adoção das medidas disciplinares, visando a resolução do problema.",
+      "status": "Resolvido",
+      "mediacao": "📌 [10/09/2026 às 11:19 - Danilo Silvestre da Silva] Status: Resolvido\nO caso foi resolvido pela Diretora Márcia, que chamou os estudantes para mediação de conflito, onde foi realizado um acordo de melhoria.",
+      "mediador": "Danilo Silvestre da Silva"
+    },
+    {
+      "id": "#OC-155469",
+      "data": "2026-09-04",
+      "aula": "3ª AULA",
+      "turma": "6ºA",
+      "estudante": "HELOISA MAXIMIANO ZACHARIAS",
+      "tutor": "Beatriz Rabesco",
+      "professor": "Beatriz Rabesco",
+      "ocorrencia": "Assédio sexual: Comportamento de conotação sexual não desejado, inconveniente ou ofensivo, que cause constrangimento ou intimidação.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "As estudantes Heloisa, Maria Eduarda Gomes e Livia Volpato procuraram a professora Beatriz para relatar situações contínuas de constrangimento no ambiente escolar causadas pelo aluno João Pedro. Segundo o relato das alunas, o estudante tem realizado \"brincadeiras\" de cunho sexual como emitir gemidos na sala e comentários desrespeitosos. Foi relatado um agravante físico específico envolvendo a estudante Maria Eduarda Gomes: as alunas informaram que João Pedro a procura durante os intervalos e, de forma dissimulada, também dentro da sala de aula, para bater com raquete na sua bunda.\nAs estudantes buscaram apoio pedagógico confiando na segurança e na mediação da professora, mas a mesma não conseguiu realizar nenhum tipo de mediação por falta de tempo na escuta ativa e mediação. Devido à gravidade dos fatos relatados, que configuram desrespeito à integridade das alunas, a professora encaminha o caso com urgência para a direção e coordenação. Solicita-se intervenção imediata para o acolhimento das estudantes, adoção das medidas disciplinares, visando a resolução do problema.",
+      "status": "Resolvido",
+      "mediacao": "📌 [10/09/2026 às 11:19 - Danilo Silvestre da Silva] Status: Resolvido\nO caso foi resolvido pela Diretora Márcia, que chamou os estudantes para mediação de conflito, onde foi realizado um acordo de melhoria.",
+      "mediador": "Danilo Silvestre da Silva"
+    },
+    {
+      "id": "#OC-740257",
+      "data": "2026-09-04",
+      "aula": "3ª AULA",
+      "turma": "6ºA",
+      "estudante": "MARIA EDUARDA GOMES MOREIRA",
+      "tutor": "Beatriz Rabesco",
+      "professor": "Beatriz Rabesco",
+      "ocorrencia": "Assédio sexual: Comportamento de conotação sexual não desejado, inconveniente ou ofensivo, que cause constrangimento ou intimidação.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "As estudantes Heloisa, Maria Eduarda Gomes e Livia Volpato procuraram a professora Beatriz para relatar situações contínuas de constrangimento no ambiente escolar causadas pelo aluno João Pedro. Segundo o relato das alunas, o estudante tem realizado \"brincadeiras\" de cunho sexual como emitir gemidos na sala e comentários desrespeitosos. Foi relatado um agravante físico específico envolvendo a estudante Maria Eduarda Gomes: as alunas informaram que João Pedro a procura durante os intervalos e, de forma dissimulada, também dentro da sala de aula, para bater com raquete na sua bunda.\nAs estudantes buscaram apoio pedagógico confiando na segurança e na mediação da professora, mas a mesma não conseguiu realizar nenhum tipo de mediação por falta de tempo na escuta ativa e mediação. Devido à gravidade dos fatos relatados, que configuram desrespeito à integridade das alunas, a professora encaminha o caso com urgência para a direção e coordenação. Solicita-se intervenção imediata para o acolhimento das estudantes, adoção das medidas disciplinares, visando a resolução do problema.",
+      "status": "Resolvido",
+      "mediacao": "📌 [10/09/2026 às 11:19 - Danilo Silvestre da Silva] Status: Resolvido\nO caso foi resolvido pela Diretora Márcia, que chamou os estudantes para mediação de conflito, onde foi realizado um acordo de melhoria.",
+      "mediador": "Danilo Silvestre da Silva"
+    },
+    {
+      "id": "#OC-822869",
+      "data": "2026-09-03",
+      "aula": "8ª AULA",
+      "turma": "7ºA",
+      "estudante": "LUIZ LORENZO TESTA SILVA",
+      "tutor": "Heitor Flávio de Lima",
+      "professor": "Adriana Forti",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "Após pedir várias vezes que o estudante ficasse quieto durante realização de leitura compartilhada de texto de livro didático em Eletivas, houve necessidade de encaminhamento à gestão, pois estava atrapalhando os demais.",
+      "status": "Resolvido",
+      "mediacao": "📌 [10/09/2026 às 11:25 - Danilo Silvestre da Silva] Status: Resolvido\nO estudante foi atendido pelo coordenador e esta ciente do que precisa melhorar, também foi falado com o estudante sobre suas notas e sua frequência escolar.",
+      "mediador": "Danilo Silvestre da Silva"
+    },
+    {
+      "id": "#OC-522695",
+      "data": "2026-09-04",
+      "aula": "9ª AULA",
+      "turma": "6ºA",
+      "estudante": "MIGUEL DA SILVA SOUZA",
+      "tutor": "Patricia Maria Americo",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "COORDENAÇÃO",
+      "descricao": "O aluno atrapalha o andamento da aula, fica com brincadeiras impróprias dentro da sala de aula.",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-659831",
+      "data": "2026-09-09",
+      "aula": "3ª AULA",
+      "turma": "8ºA",
+      "estudante": "LUIZ FELIPE SIMÕES",
+      "tutor": "Adriana Forti",
+      "professor": "Jhenifer Caroline Stabile",
+      "ocorrencia": "Agressão física: Ação intencional que cause dano corporal, dor ou lesão física à outra pessoa (empurrões, socos, chutes, etc.).",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "O estudante estava fora do mapa conversando com outro estudante, ao ser advertido para voltar ao mapa, o mesmo passou na frente da mesa da aluna Maria Júlia e empurrou a mesa contra o peito da aluna. ",
+      "status": "Resolvido",
+      "mediacao": "📌 [09/09/2026 às 09:57 - Jacqueline] Status: Resolvido\nA Vice- Diretora fez a escuta ativa dos estudante, registro na plataforma CONVIVA e comunicação com os responsáveis. ",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-501579",
+      "data": "2026-09-09",
+      "aula": "3ª AULA",
+      "turma": "8ºA",
+      "estudante": "MARIA JÚLIA RIBEIRO RAMOS",
+      "tutor": "Adriana Forti",
+      "professor": "Jacqueline",
+      "ocorrencia": "Agressão física: Ação intencional que cause dano corporal, dor ou lesão física à outra pessoa (empurrões, socos, chutes, etc.).",
+      "medida": "Mediação de Conflito: Conversa entre as partes envolvidas mediada pelo professor.",
+      "auxilio": "NENHUM AUXÍLIO SOLICITADO",
+      "descricao": "Na aula da professora Jhenifer o aluno Luis Felipe estava levantado ao lado da carteira da Maria Julia conversando com o estudante Kaue. Ai o Luis Felipe foi sentar no lugar dele, a Maria Julia fechou ele na carteira e pegou no quadril, ele empurrou a carteira da estudante contra a parede pegando no seio da estudante. A Vice- Diretora orientou a procurar a professora antes de tomar atitude. ",
+      "status": "Resolvido",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-640719",
+      "data": "2026-09-09",
+      "aula": "5ª AULA",
+      "turma": "8ºB",
+      "estudante": "LUCAS GABRIEL SANTOS SOARES",
+      "tutor": "Margarete Fernandes de Camargo",
+      "professor": "Patricia Maria Americo",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "GESTÃO",
+      "descricao": "O estudante relatou que esqueceu o livro de atividade, solicitei que juntasse com um colega para realizar a atividade no caderno, passou 25 de aula e o mesmo não tem nenhuma atividade no caderno.",
+      "status": "Resolvido",
+      "mediacao": "📌 [09/09/2026 às 11:17 - Jacqueline] Status: Resolvido\nA vice- Diretora fez a escuta ativa do estudante e orientou a acatar o que o docente pede em sala de aula. A tratativa foi que o estudante fará lição e a vice comunicará a responsável.  ",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-611016",
+      "data": "2026-09-09",
+      "aula": "5ª AULA",
+      "turma": "8ºA",
+      "estudante": "MIGUEL DOS SANTOS BEVENUTO",
+      "tutor": "Rosângela Ap. Mamédio Botechia",
+      "professor": "Beatriz Rabesco",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "NENHUM AUXÍLIO SOLICITADO",
+      "descricao": "O estudante circulou pela sala sem autorização e manteve conversas paralelas durante a aula, prejudicando a sua concentração e a da turma. O aluno também demonstrou falta de engajamento na realização das atividades propostas e insistiu no uso de touca na sala, atitude que contraria as regras da escola. A professora realizou a mediação pedagógica, orientando o estudante de forma clara sobre a postura esperada em sala de aula e a importância de respeitar as normas de convivência escolar.",
+      "status": "Resolvido",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-547143",
+      "data": "2026-09-09",
+      "aula": "6ª AULA",
+      "turma": "6ºB",
+      "estudante": "DAVI LUCAS SOUZA FEIRE",
+      "tutor": "Sem Tutor",
+      "professor": "Fernando Augusto Peres",
+      "ocorrencia": "Indisciplina: Comportamentos de desrespeito às normas e rotinas da escola, que comprometem a convivência sem envolver violência.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "O aluno pediu para ir ao banheiro e ficou jogando ping pong no pátio, foi encaminhado a gestão pela monitora",
+      "status": "Resolvido",
+      "mediacao": "📌 [09/09/2026 às 12:01 - Jacqueline] Status: Resolvido\nA Vice- diretora fez a escuta e orientou o estudante que isso não é atitude de estudante, fará lição e comunicação aos responsáveis. ",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-258988",
+      "data": "2026-09-09",
+      "aula": "6ª AULA",
+      "turma": "6ºA",
+      "estudante": "PEDRO HENRIQUE CARVALHO DOS SANTOS",
+      "tutor": "Adriana Helena Leal",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "COORDENAÇÃO",
+      "descricao": "O aluno pediu para ir ao banheiro, e ficou jogando ping pong.",
+      "status": "Resolvido",
+      "mediacao": "📌 [09/09/2026 às 11:54 - Jacqueline] Status: Resolvido\nA Vice- diretora fez a escuta e orientou o estudante que isso não é atitude de estudante, fará lição e comunicação aos responsáveis. ",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-533784",
+      "data": "2026-09-09",
+      "aula": "2ª AULA",
+      "turma": "8ºA",
+      "estudante": "RAFAEL APARECIDO DE PAULA SILVA",
+      "tutor": "Sem Tutor",
+      "professor": "Adriana Helena Leal",
+      "ocorrencia": "Postura Inadequada: Dormir em aula, recusa em participar de dinâmicas.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O aluno estava dormindo em sala quando chegeui para a segunda aula. Acordei o mesmo e solicitei que se mantesse acordado, sugeri que fosse lavar o rosto, mas o aluno disse não ser necessário. Entretanto, continuou deitado sobre a mesa e com os olhos fechados, acordei mais uma vez. Mais uma vez ele continuou dormindo. Encaminhei para a gestão. Nesse momento ele levantou a cabeça e disse que nãoestava dormindo. Acordou rapidinho e começou a discutir comigo sobre estar dormindo. ",
+      "status": "Resolvido",
+      "mediacao": "📌 [09/09/2026 às 14:06 - Leonice Aparecida Cardoso] Status: Resolvido\nO aluno foi orientado quanto à importância de manter-se atento e participativo durante as aulas, evitando comportamentos que possam prejudicar seu processo de aprendizagem. Em caso de reincidência será comunicado à família\n\n",
+      "mediador": "Leonice Aparecida Cardoso"
+    },
+    {
+      "id": "#OC-433482",
+      "data": "2026-09-11",
+      "aula": "6ª AULA",
+      "turma": "6ºA",
+      "estudante": "REBECA GOMES ALMEIDA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori",
+      "professor": "Heitor Flávio de Lima",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "A estudante, além de atrapalhar a aula com comentários desnecessários e brincadeiras indevidas, não estava realizando as atividades no caderno, pois a mesma foi orientada a realizar no caderno porque esqueceu a apostila. ",
+      "status": "Resolvido",
+      "mediacao": "📌 [16/09/2026 às 08:30 - Jacqueline] Status: Resolvido\nChamei o responsável para conversar juntamente com outros professores sobre o comportamento da estudante. ",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-936786",
+      "data": "2026-09-11",
+      "aula": "8ª AULA",
+      "turma": "8ºB",
+      "estudante": "LUCAS GABRIEL SANTOS SOARES",
+      "tutor": "Margarete Fernandes de Camargo",
+      "professor": "Maria de Fátima Santos Rocha",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "NENHUM AUXÍLIO SOLICITADO",
+      "descricao": "O aluno mexe o tempo todo com outros alunos, não para sentado, faz brincadeiras fora de hora, não senta o lugar do mapa, não sabe trabalhar em gupos.",
+      "status": "Resolvido",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-474880",
+      "data": "2026-09-14",
+      "aula": "4ª AULA",
+      "turma": "6ºA",
+      "estudante": "REBECA GOMES ALMEIDA",
+      "tutor": "Lilian Leticia de F. Alvatti Sartori",
+      "professor": "Adriana Forti",
+      "ocorrencia": "Postura Inadequada: Dormir em aula, recusa em participar de dinâmicas.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "A estudante abriu uma caneta de lousa que é da Maria Eduarda Gomes (estão em duplas), igual de professor, a qual a a Gomes disse ter ganho do Arthur, estava cheia de tinta, que foi colocada da escola pela colega de sala Lívia Volpato. Abriu a caneta, manchou a blusa q estava que não é dela, a calça da Gomes , sujou o chão e as mãos. Um detalhe que me chamou atenção é da colega ter enchido a caneta aqui na escola.",
+      "status": "Resolvido",
+      "mediacao": "📌 [16/09/2026 às 08:29 - Jacqueline] Status: Resolvido\nChamei o responsável para conversar juntamente com outros professores sobre o comportamento da estudante. ",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-265496",
+      "data": "2026-09-14",
+      "aula": "7ª AULA",
+      "turma": "6ºB",
+      "estudante": "OTAVIO TEIXEIRA CONEGUNDES",
+      "tutor": "Sem Tutor",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "ocorrencia": "Conflito entre Pares: Discussões, brigas ou desentendimentos entre alunos.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": " O aluno não respeita os colegas, o tempo todo provocando, rabiscou o trabalho do colega.",
+      "status": "Resolvido",
+      "mediacao": "📌 [16/09/2026 às 08:31 - Jacqueline] Status: Resolvido\nConversei com o responsável e orientei o estudante a respeito do comportamento. ",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-468226",
+      "data": "2026-09-16",
+      "aula": "1ª AULA",
+      "turma": "1ªB",
+      "estudante": "MARIA EDUARDA VIEIRA TREVIZAN - 22-07",
+      "tutor": "Sem Tutor",
+      "professor": "Heitor Flávio de Lima",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "A aluna se recusa a realizar as atividades e prestar atenção nas aulas, mesmo após intervenções do professor e dos colegas de classe.",
+      "status": "Resolvido",
+      "mediacao": "📌 [16/09/2026 às 08:26 - Jacqueline] Status: Resolvido\nA vice- diretora fez a escuta ativa da estudante, a mesma pediu para ligar para o pai, a mãe não autorizar ligar para o pai. Vai trazer remédio porque está com dor de cabeça. ",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-119551",
+      "data": "2026-09-16",
+      "aula": "2ª AULA",
+      "turma": "8ºB",
+      "estudante": "ARTHUR ROSA ZACHARIAS",
+      "tutor": "Sem Tutor",
+      "professor": "Adriana Forti",
+      "ocorrencia": "Postura Inadequada: Dormir em aula, recusa em participar de dinâmicas.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "Estão realizando trabalho de OE em duplas, o estudante alega que terminou a parte dele, estava dormindo c capuz na cabeça. Eu disse que independente disso não era para dormir, ele não acatou, voltou a debruçar-se, ao que eu disse que se não acatasse iria subir, então ele saiu, mas foi em direção ao banheiro. Ao sair eu disse que estou tentando ter paciência com ele mas está dificil, o mesmo disse que não tem paciência comigo!",
+      "status": "Resolvido",
+      "mediacao": "📌 [16/09/2026 às 08:21 - Jacqueline] Status: Resolvido\nA vice- diretora fez a escuta ativa do estudante e orientou o estudante conversar com a docente na pedagogia da presença. ",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-126857",
+      "data": "2026-09-16",
+      "aula": "3ª AULA",
+      "turma": "8ºA",
+      "estudante": "MIGUEL DOS SANTOS BEVENUTO",
+      "tutor": "Rosângela Ap. Mamédio Botechia",
+      "professor": "Beatriz Rabesco",
+      "ocorrencia": "Postura Inadequada: Dormir em aula, recusa em participar de dinâmicas.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "NENHUM AUXÍLIO SOLICITADO",
+      "descricao": "Durante a aula de Matific, o estudante utilizou o equipamento De forma inadequada, acessando uma playlist de músicas em volume extremamente alto. Devido ao áudio elevado, o aluno não ouviu as tentativas de mediação da professora e, ao responder usou tom de voz alto por falta de percepção sonora. Como intervenção pedagógica, a professora orientou o estudante a realizar uma atividade teórica reflexiva sobre a importância do uso correto dos recursos tecnológicos e a melhor forma de aproveitá-los para o seu processo de ensino-aprendizagem.",
+      "status": "Resolvido",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-149283",
+      "data": "2026-09-16",
+      "aula": "6ª AULA",
+      "turma": "6ºB",
+      "estudante": "BRIAN THOMAS MAXIMIANO ZACHARIAS",
+      "tutor": "Mônica Cristina da Silva Tozatti",
+      "professor": "Fernando Augusto Peres",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "os alunos nao realizaram as tarefas do livro do estudante, mesmo o professor passando uma por uma na projetor da sala. ",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-850752",
+      "data": "2026-09-16",
+      "aula": "6ª AULA",
+      "turma": "6ºB",
+      "estudante": "GABRIEL GOMES DA SILVA",
+      "tutor": "Eli Oliveira Dias",
+      "professor": "Fernando Augusto Peres",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "os alunos nao realizaram as tarefas do livro do estudante, mesmo o professor passando uma por uma na projetor da sala. ",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-997280",
+      "data": "2026-09-16",
+      "aula": "6ª AULA",
+      "turma": "6ºB",
+      "estudante": "GUILHERME HENRIQUE DE CARVALHO",
+      "tutor": "Márcia",
+      "professor": "Fernando Augusto Peres",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "os alunos nao realizaram as tarefas do livro do estudante, mesmo o professor passando uma por uma na projetor da sala. ",
+      "status": "Resolvido",
+      "mediacao": "📌 [16/09/2026 às 19:46 - Lilian Leticia de F. Alvatti Sartori] Status: Resolvido\nO estudante foi orientado sobre a realização das tarefas e organiação do material. Ficou combinado com o estudante que isso não irá se repetir.",
+      "mediador": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "id": "#OC-391714",
+      "data": "2026-09-16",
+      "aula": "6ª AULA",
+      "turma": "6ºB",
+      "estudante": "PEDRO LUIS PEREIRA SANTOS",
+      "tutor": "Rogério José Aragão",
+      "professor": "Fernando Augusto Peres",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "os alunos nao realizaram as tarefas do livro do estudante, mesmo o professor passando uma por uma na projetor da sala. ",
+      "status": "Resolvido",
+      "mediacao": "📌 [16/09/2026 às 19:45 - Lilian Leticia de F. Alvatti Sartori] Status: Resolvido\nO estudante foi orientado sobre a realização das tarefas e organiação do material. Ficou combinado com o estudante que isso não irá se repetir.",
+      "mediador": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "id": "#OC-496927",
+      "data": "2026-09-16",
+      "aula": "6ª AULA",
+      "turma": "6ºB",
+      "estudante": "WILLIAN GABRIEL DE SANTANA PAIVA",
+      "tutor": "Eli Oliveira Dias",
+      "professor": "Fernando Augusto Peres",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "os alunos nao realizaram as tarefas do livro do estudante, mesmo o professor passando uma por uma na projetor da sala. ",
+      "status": "Resolvido",
+      "mediacao": "📌 [16/09/2026 às 19:45 - Lilian Leticia de F. Alvatti Sartori] Status: Resolvido\nO estudante foi orientado sobre a realização das tarefas e organiação do material. Ficou combinado com o estudante que isso não irá se repetir.",
+      "mediador": "Lilian Leticia de F. Alvatti Sartori"
+    },
+    {
+      "id": "#OC-745242",
+      "data": "2026-09-17",
+      "aula": "4ª AULA",
+      "turma": "6ºC",
+      "estudante": "DANIEL PEREIRA ALVES",
+      "tutor": "Adriana Helena Leal",
+      "professor": "Eli Oliveira Dias",
+      "ocorrencia": "Conflito entre Pares: Discussões, brigas ou desentendimentos entre alunos.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O Aluno Gabriel desafia o professor com solicitações insistentes para ir ao banheiro sem em nenhum momento colaborar com o ambiente da sala, sempre incitando a bagunça e a desordem. Os demais alunos: Victor, Daniel e Miguel não fazem lição e só causam bagunça e confusão, não respeitando os inúmeros pedidos do professor para pararem.",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-329436",
+      "data": "2026-09-17",
+      "aula": "4ª AULA",
+      "turma": "6ºC",
+      "estudante": "VICTOR GABRIEL FERREIRA DOS SANTOS",
+      "tutor": "Sem Tutor",
+      "professor": "Eli Oliveira Dias",
+      "ocorrencia": "Conflito entre Pares: Discussões, brigas ou desentendimentos entre alunos.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O Aluno Gabriel desafia o professor com solicitações insistentes para ir ao banheiro sem em nenhum momento colaborar com o ambiente da sala, sempre incitando a bagunça e a desordem. Os demais alunos: Victor, Daniel e Miguel não fazem lição e só causam bagunça e confusão, não respeitando os inúmeros pedidos do professor para pararem.",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-702157",
+      "data": "2026-09-17",
+      "aula": "4ª AULA",
+      "turma": "6ºC",
+      "estudante": "GABRIEL LUCAS TEIXEIRA",
+      "tutor": "Leonice Aparecida Cardoso",
+      "professor": "Eli Oliveira Dias",
+      "ocorrencia": "Conflito entre Pares: Discussões, brigas ou desentendimentos entre alunos.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O Aluno Gabriel desafia o professor com solicitações insistentes para ir ao banheiro sem em nenhum momento colaborar com o ambiente da sala, sempre incitando a bagunça e a desordem. Os demais alunos: Victor, Daniel e Miguel não fazem lição e só causam bagunça e confusão, não respeitando os inúmeros pedidos do professor para pararem.",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-992592",
+      "data": "2026-09-17",
+      "aula": "4ª AULA",
+      "turma": "6ºC",
+      "estudante": "MIGUEL ANTONY CANDIDO BUENO",
+      "tutor": "Sem Tutor",
+      "professor": "Eli Oliveira Dias",
+      "ocorrencia": "Conflito entre Pares: Discussões, brigas ou desentendimentos entre alunos.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O Aluno Gabriel desafia o professor com solicitações insistentes para ir ao banheiro sem em nenhum momento colaborar com o ambiente da sala, sempre incitando a bagunça e a desordem. Os demais alunos: Victor, Daniel e Miguel não fazem lição e só causam bagunça e confusão, não respeitando os inúmeros pedidos do professor para pararem.",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-412163",
+      "data": "2026-09-17",
+      "aula": "2ª AULA",
+      "turma": "1ªB",
+      "estudante": "CAUA GABRIEL BORTOLAN DOS SANTOS",
+      "tutor": "Rogério José Aragão",
+      "professor": "Margarete Fernandes de Camargo",
+      "ocorrencia": "Desrespeito: Com colegas, com o professor ou com funcionários.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "Aluno não estava participando da aula, mas atrapalhando-a, instigando conversas com outros alunos, foi advertido varias vezes para prestar atenção, na ultima  respondeu agressivamente, apontando o dedo dizendo que eu estava gritando e não era sua mãe para falar alto com ele.\nDiante do tom desrespeitoso e da recusa em seguir as orientações em sala de aula, o caso foi encaminhado à coordenação pedagógica onde foi tomadas as medidas disciplinares cabíveis e a devida comunicação aos responsáveis.",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-178106",
+      "data": "2026-09-17",
+      "aula": "7ª AULA",
+      "turma": "8ºB",
+      "estudante": "LUCAS GABRIEL SANTOS SOARES",
+      "tutor": "Margarete Fernandes de Camargo",
+      "professor": "Leonice Aparecida Cardoso",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Mudança de Lugar: Estratégia de manejo de sala.",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O estudante não realiza as atividades e atrapalha a aula o tempo todo, com conversas, ironias, pegando material dos colegas para tumultuar a aula. Troquei os alunos próximos dele e o mesmo assim não muda seu comportamento. Conversar com ele não resolve pois o mesmo usa de ironias pra responder .",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-509397",
+      "data": "2026-09-18",
+      "aula": "5ª AULA",
+      "turma": "1ªA",
+      "estudante": "NATALIA DANIEL FRATTA",
+      "tutor": "Cláudio Everton Marques",
+      "professor": "Fernando Augusto Peres",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Orientação Pedagógica: Foco na recuperação do interesse pelo conteúdo.",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "a aluna estava utilizando o celular",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-789715",
+      "data": "2026-09-18",
+      "aula": "5ª AULA",
+      "turma": "8ºB",
+      "estudante": "LORENZO PABLO LOGAREZI PASQUALETTO",
+      "tutor": "Cláudio Everton Marques",
+      "professor": "Jhenifer Caroline Stabile",
+      "ocorrencia": "Dano ao Patrimônio: Rabiscar carteiras, danificar materiais da escola.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "NENHUM AUXÍLIO SOLICITADO",
+      "descricao": "Durante a aula, o estudante encontrava-se muito agitado. Com a agitação, acabou caindo da cadeira, fazendo com que o assento se soltasse. Foi advertido e orientado. ",
+      "status": "Resolvido",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-993516",
+      "data": "2026-09-18",
+      "aula": "8ª AULA",
+      "turma": "6ºC",
+      "estudante": "VICTOR GABRIEL FERREIRA DOS SANTOS",
+      "tutor": "Sem Tutor",
+      "professor": "Fernando Augusto Peres",
+      "ocorrencia": "Falta de Material: Ausência recorrente de caderno/caneta ou material de nivelamento.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O Aluno não tem o livro do estudante, participa muito pouco das aulas e hoje pediu para ir ao banheiro e nao retornou para a sala. Solicito a convocação do RESPONSÁVEL. ",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-873797",
+      "data": "2026-09-18",
+      "aula": "8ª AULA",
+      "turma": "8ºB",
+      "estudante": "LORENZO PABLO LOGAREZI PASQUALETTO",
+      "tutor": "Cláudio Everton Marques",
+      "professor": "Maria de Fátima Santos Rocha",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "NENHUM AUXÍLIO SOLICITADO",
+      "descricao": "O aluno, levanta o tempo todo do lugar, conversa o tempo todo, fica atrasado na raelização da atividades, quando tenta fazer.",
+      "status": "Resolvido",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-484036",
+      "data": "2026-09-21",
+      "aula": "7ª AULA",
+      "turma": "6ºB",
+      "estudante": "OTAVIO TEIXEIRA CONEGUNDES",
+      "tutor": "Sem Tutor",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "ocorrencia": "Desrespeito: Com colegas, com o professor ou com funcionários.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O aluno, não obedece o comando da professora, desrespeita a professora e os colegas, empurrou o colega, pedi  para que sentasse em seu lugar e o mesmo falou que não iria.",
+      "status": "Resolvido",
+      "mediacao": "📌 [21/09/2026 às 14:38 - Danilo Silvestre da Silva] Status: Resolvido\nO estudante foi atendido pelo coordenador, esta ciente da postura que deve ter em sala de aula e no respeito com a professora e com os colegas. O coordenador irá conversar com o responsável sobre o ocorrido.",
+      "mediador": "Danilo Silvestre da Silva"
+    },
+    {
+      "id": "#OC-312082",
+      "data": "2026-09-22",
+      "aula": "2ª AULA",
+      "turma": "6ºC",
+      "estudante": "OTAVIO GABRIEL MARQUES DAVID",
+      "tutor": "Rogério José Aragão",
+      "professor": "Fernando Augusto Peres",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O aluno não estava realizando as atividades propostas na aula de robótica. \n\nFoi advertido algumas vezes pelo professor mas continuo levantando do seu lugar e brincando de dar socos em outros colegas. Os colegas de sala relataram, após o encaminhamento do aluno a diretoria, que esta situação estava ocorrendo com frequência em várias aulas. ",
+      "status": "Resolvido",
+      "mediacao": "📌 [22/09/2026 às 08:31 - Jacqueline] Status: Resolvido\nFiz a escuta ativa do estudante. Orientei a procurar o docente antes de reagir. ",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-871682",
+      "data": "2026-09-22",
+      "aula": "7ª AULA",
+      "turma": "9ºB",
+      "estudante": "JAIR RICARDO SANTOS BATISTA - M/S 03-06",
+      "tutor": "Sem Tutor",
+      "professor": "Rogério José Aragão",
+      "ocorrencia": "Desrespeito: Com colegas, com o professor ou com funcionários.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O estudante não respeita as regras da escola e os combinados com professor. Durante a ida para laboratório saio correndo com os colegas. ",
+      "status": "Resolvido",
+      "mediacao": "📌 [22/09/2026 às 14:52 - Jacqueline] Status: Resolvido\nOrientei sobre o posicionamento dele. ",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-732495",
+      "data": "2026-09-22",
+      "aula": "7ª AULA",
+      "turma": "9ºB",
+      "estudante": "DAVI LUÍS GIROTI DA SILVA",
+      "tutor": "Rogério José Aragão",
+      "professor": "Rogério José Aragão",
+      "ocorrencia": "Desrespeito: Com colegas, com o professor ou com funcionários.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O estudante não respeita as regras da escola e os combinados com professor. Durante a ida para laboratório saio correndo com os colegas. ",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-776076",
+      "data": "2026-09-22",
+      "aula": "7ª AULA",
+      "turma": "9ºB",
+      "estudante": "LUIGI MATHEUS LOIOLA DE SANTANA",
+      "tutor": "Robinson Tadeu Bragotto",
+      "professor": "Rogério José Aragão",
+      "ocorrencia": "Desrespeito: Com colegas, com o professor ou com funcionários.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O estudante não respeita as regras da escola e os combinados com professor. Durante a ida para laboratório saio correndo com os colegas. ",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-365204",
+      "data": "2026-09-22",
+      "aula": "7ª AULA",
+      "turma": "9ºB",
+      "estudante": "PEDRO HENRIQUE DIAS RODRIGUES",
+      "tutor": "Rogério José Aragão",
+      "professor": "Rogério José Aragão",
+      "ocorrencia": "Desrespeito: Com colegas, com o professor ou com funcionários.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O estudante não respeita as regras da escola e os combinados com professor. Durante a ida para laboratório saio correndo com os colegas. ",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-122925",
+      "data": "2026-09-22",
+      "aula": "7ª AULA",
+      "turma": "9ºA",
+      "estudante": "ALEX PEIXOTO DOS SANTOS",
+      "tutor": "Rogério José Aragão",
+      "professor": "Patricia Maria Americo",
+      "ocorrencia": "Indisciplina Leve: Conversas paralelas, uso indevido de celular, não realização de atividades.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "COORDENAÇÃO",
+      "descricao": "O estudante não participa da aula de EMA, conversei várias vezes porém essa conversa sem sucesso, preciso que converse com o estudante pois ele se recusa a participar cantando.",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-799671",
+      "data": "2026-09-22",
+      "aula": "TUTORIA",
+      "turma": "6ºB",
+      "estudante": "WILLIAN GABRIEL DE SANTANA PAIVA",
+      "tutor": "Eli Oliveira Dias",
+      "professor": "Eli Oliveira Dias",
+      "ocorrencia": "Indisciplina: Comportamentos de desrespeito às normas e rotinas da escola, que comprometem a convivência sem envolver violência.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO E COORDENAÇÃO",
+      "descricao": "O estudante William não obedece ao comando do professor, desrespeitando a todo momento. Cria resistência para qualquer pedido ou solicitação, não respeita regras de sala de aula, não se dispõem ao uso dos materiais (quando tem algum material). EU NÃO AGUENTO MAIS O COMPORTAMENTO DO ALUNO, NÃO É A PRIMEIRA VEZ QUE A MESMA POSTURA OCORRE. SE POSSÍVEL, GOSTARIA DE SOLICITAR A MUDANÇA DESTE ALUNO PARA OUTRA TUTORIA.",
+      "status": "Resolvido",
+      "mediacao": "📌 [23/09/2026 às 07:31 - Jacqueline] Status: Resolvido\nOrientei o estudante sobre o comportamento e comuniquei os responsáveis. ",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-499281",
+      "data": "2026-09-23",
+      "aula": "2ª AULA",
+      "turma": "9ºB",
+      "estudante": "DAVI LUÍS GIROTI DA SILVA",
+      "tutor": "Rogério José Aragão",
+      "professor": "Patricia Maria Americo",
+      "ocorrencia": "Desrespeito: Com colegas, com o professor ou com funcionários.",
+      "medida": "Advertência Verbal: Conversa individual com o estudante.",
+      "auxilio": "COORDENAÇÃO",
+      "descricao": "Fui substituir o Professor José na aula de Matemática, dei as orientações que para os estudantes que era para revisar o conteúdo para a Prova Paulista, o Davi falou que era pra descer para a quadra, eu falei que a orientação era para fazer a revisão para a Prova Paulista, o mesmo teve a seguinte fala \"Prova Paulista é o caramba, bora jogar bola\". ",
+      "status": "Pendente",
+      "mediacao": "",
+      "mediador": ""
+    },
+    {
+      "id": "#OC-404424",
+      "data": "2026-09-23",
+      "aula": "2ª AULA",
+      "turma": "9ºB",
+      "estudante": "FELIPE MELO DE CAMARGO",
+      "tutor": "Patricia Maria Americo",
+      "professor": "Patricia Maria Americo",
+      "ocorrencia": "Agressão física: Ação intencional que cause dano corporal, dor ou lesão física à outra pessoa (empurrões, socos, chutes, etc.).",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "O estudante Felipe agrediu com um soco no braço a aluna Laura após eles se agredirem verbalmente.",
+      "status": "Resolvido",
+      "mediacao": "📌 [23/09/2026 às 09:22 - Jacqueline] Status: Resolvido\nOrientei o estudante a respeito da agressão ocorrida, reforçando a importância de não reagir de forma agressiva diante de situações de conflito. Ressaltei que, sempre que algo lhe desagradar ou houver algum desentendimento, deverá procurar a equipe gestora para que a situação seja mediada e resolvida de maneira adequada.\n\nReforcei também que já conversamos em outras ocasiões sobre a importância da convivência positiva, do respeito mútuo, do diálogo e da resolução pacífica dos conflitos no ambiente escolar. Registro na plataforma CONVIVA.",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-462195",
+      "data": "2026-09-23",
+      "aula": "5ª AULA",
+      "turma": "8ºA",
+      "estudante": "LAVÍNIA SANTOS VON ZUBEN - MS 18/09",
+      "tutor": "Sem Tutor",
+      "professor": "Beatriz Rabesco",
+      "ocorrencia": "Uso inadequado de dispositivos eletrônicos: Uso indevido de celulares ou aparelhos, comprometendo atividades pedagógicas ou o direito de imagem.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "Durante a aplicação da avaliação Prova Paulista (dia 2), a estudante manteve um aparelho celular ligado dentro do estojo. Com o objetivo de escondê-lo, ela transferiu o dispositivo para o bolso da blusa. Ao realizar a troca de lugar da aluna, a professora percebeu que a estudante segurava o celular no bolso e solicitou a entrega do equipamento. A estudante recusou-se a entregar o aparelho, demonstrou resistência e fez ameaças à professora, exigindo a devolução de forma desrespeitosa. Essa atitude descumpre a Lei Estadual nº 12.730, que proíbe o uso de celulares nas escolas. Além disso, as líderes de turma relataram à docente que a aluna tem usado o celular escondido em outras aulas de forma recorrente. O equipamento será encaminhado à gestão escolar. ",
+      "status": "Resolvido",
+      "mediacao": "📌 [23/09/2026 às 13:53 - Jacqueline] Status: Resolvido\nChamei a responsável para tomar ciencia dos fatos.\n\n📌 [23/09/2026 às 13:54 - Jacqueline] Status: Resolvido\nChamei a responsável para tomar ciencia dos fatos.",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-942619",
+      "data": "2026-09-23",
+      "aula": "8ª AULA",
+      "turma": "6ºC",
+      "estudante": "LUCAS GABRIEL CAMPOS ABREU",
+      "tutor": "Sem Tutor",
+      "professor": "Luis Reinaldo Marostegan Rachid",
+      "ocorrencia": "Desrespeito: Com colegas, com o professor ou com funcionários.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "Troca de ofensas com o estudante Saulo - Palavra de baixo calão \"Filho da Puta\"",
+      "status": "Resolvido",
+      "mediacao": "📌 [23/09/2026 às 11:53 - Jacqueline] Status: Resolvido\nOrientei o estudante a respeito da agressão verbal ocorrida, reforçando a importância de não reagir de forma agressiva diante de situações de conflito. Ressaltei que, sempre que algo lhe desagradar ou houver algum desentendimento, deverá procurar a equipe gestora para que a situação seja mediada e resolvida de maneira adequada. Reforcei também que já conversamos em outras ocasiões sobre a importância da convivência positiva, do respeito mútuo, do diálogo e da resolução pacífica dos conflitos no ambiente escolar. Chamei os responsáveis para tomar ciencia dos fatos. ",
+      "mediador": "Jacqueline"
+    },
+    {
+      "id": "#OC-117630",
+      "data": "2026-09-23",
+      "aula": "8ª AULA",
+      "turma": "6ºC",
+      "estudante": "SAULO EMANUEL DE FREITAS MACIEL",
+      "tutor": "Leonice Aparecida Cardoso",
+      "professor": "Luis Reinaldo Marostegan Rachid",
+      "ocorrencia": "Desrespeito: Com colegas, com o professor ou com funcionários.",
+      "medida": "Encaminhamento à Gestão",
+      "auxilio": "GESTÃO",
+      "descricao": "Troca de ofensas com o estudante Lucas - \"Chamou de orelhudo\"",
+      "status": "Resolvido",
+      "mediacao": "📌 [23/09/2026 às 11:53 - Jacqueline] Status: Resolvido\nOrientei o estudante a respeito da agressão verbal ocorrida, reforçando a importância de não reagir de forma agressiva diante de situações de conflito. Ressaltei que, sempre que algo lhe desagradar ou houver algum desentendimento, deverá procurar a equipe gestora para que a situação seja mediada e resolvida de maneira adequada. Reforcei também que já conversamos em outras ocasiões sobre a importância da convivência positiva, do respeito mútuo, do diálogo e da resolução pacífica dos conflitos no ambiente escolar. Chamei os responsáveis para tomar ciencia dos fatos. ",
+      "mediador": "Jacqueline"
+    }
+  ],
+  "tratativasFamilia": []
+}

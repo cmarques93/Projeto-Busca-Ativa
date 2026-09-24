@@ -12,31 +12,128 @@ import {
   CheckCircle2,
   FileText,
   Activity,
-  Smartphone
+  Smartphone,
+  Lock,
+  Printer,
+  Shield,
+  Users,
+  ExternalLink,
+  MessageSquare
 } from 'lucide-react';
 import { Student, AttendanceRecord, ParentAlert, InterventionCase } from '../types';
 import { storageService } from '../data/storageService';
-import { getStudentPhones } from '../utils/phoneUtils';
+import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
+
+interface OcorrenciaItem {
+  id: string;
+  data: string;
+  aula: string;
+  turma: string;
+  estudante: string;
+  professor: string;
+  ocorrencia: string;
+  medida: string;
+  auxilio: string;
+  descricao: string;
+  status: string;
+  mediacao?: string;
+}
+
+interface TratativaItem {
+  id: string;
+  data: string;
+  estudante: string;
+  tratativa: string;
+  mediador: string;
+}
 
 interface StudentDetailModalProps {
   studentId: string | null;
   onClose: () => void;
   onOpenManualAlert: (student: Student) => void;
+  currentUser?: { id?: string; name?: string; role: string } | null;
 }
 
 export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   studentId,
   onClose,
   onOpenManualAlert,
+  currentUser,
 }) => {
+  const isProfessor = currentUser?.role === 'professor';
+  const isGestaoOrAdmin = currentUser?.role === 'gestao_paac' || currentUser?.role === 'admin';
   const [data, setData] = useState<{
     student: Student;
     attendanceHistory: AttendanceRecord[];
     alerts: ParentAlert[];
     intervention?: InterventionCase;
+    ocorrencias?: OcorrenciaItem[];
+    tratativas?: TratativaItem[];
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Helper para formatar data BR
+  const formatarDataBR = (dataStr: string) => {
+    if (!dataStr) return '';
+    if (dataStr.includes('/') && dataStr.length === 10) return dataStr;
+    try {
+      if (dataStr.includes('-') && dataStr.length === 10) {
+        const [a, m, d] = dataStr.split('-');
+        return `${d}/${m}/${a}`;
+      }
+      return dataStr;
+    } catch {
+      return dataStr;
+    }
+  };
+
+  // Helper para carregar ocorrências e tratativas daquele estudante
+  const carregarOcorrenciasETratativas = async (nomeEstudante: string) => {
+    let ocorrencias: OcorrenciaItem[] = [];
+    let tratativas: TratativaItem[] = [];
+
+    // Tentar via API do servidor
+    try {
+      const res = await fetch('/api/sheets-ocorrencias');
+      if (res.ok) {
+        const json = await res.json();
+        const listaRegs = json.registros || [];
+        const listaTrat = json.tratativasFamilia || [];
+
+        ocorrencias = listaRegs.filter(
+          (r: any) => r.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
+        );
+        tratativas = listaTrat.filter(
+          (t: any) => t.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
+        );
+        return { ocorrencias, tratativas };
+      }
+    } catch (e) {
+      console.warn('Fallback para cache local de ocorrências:', e);
+    }
+
+    // Fallback via cache localStorage
+    try {
+      const cached = localStorage.getItem('CACHE_OCORRENCIAS_APP');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const listaRegs = parsed.registros || [];
+        const listaTrat = parsed.tratativasFamilia || [];
+
+        ocorrencias = listaRegs.filter(
+          (r: any) => r.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
+        );
+        tratativas = listaTrat.filter(
+          (t: any) => t.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
+        );
+      }
+    } catch {
+      // no-op
+    }
+
+    return { ocorrencias, tratativas };
+  };
 
   useEffect(() => {
     if (!studentId) return;
@@ -64,8 +161,13 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
       }
 
       if (fetchedData && fetchedData.student) {
+        const extras = await carregarOcorrenciasETratativas(fetchedData.student.name);
         if (isMounted) {
-          setData(fetchedData);
+          setData({
+            ...fetchedData,
+            ocorrencias: extras.ocorrencias,
+            tratativas: extras.tratativas,
+          });
           setLoading(false);
         }
         return;
@@ -74,8 +176,13 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
       // Fallback 1: Buscar do storageService (detalhes completos com histórico e alertas)
       const localData = storageService.getStudentDetails(studentId);
       if (localData && localData.student) {
+        const extras = await carregarOcorrenciasETratativas(localData.student.name);
         if (isMounted) {
-          setData(localData);
+          setData({
+            ...localData,
+            ocorrencias: extras.ocorrencias,
+            tratativas: extras.tratativas,
+          });
           setLoading(false);
         }
         return;
@@ -91,6 +198,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
           .filter(a => a.studentId === studentId)
           .sort((a, b) => b.sentAt.localeCompare(a.sentAt));
         const studentIntervention = storageService.getInterventions().find(i => i.studentId === studentId);
+        const extras = await carregarOcorrenciasETratativas(studentObj.name);
 
         if (isMounted) {
           setData({
@@ -98,6 +206,8 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
             attendanceHistory: history,
             alerts: studentAlerts,
             intervention: studentIntervention,
+            ocorrencias: extras.ocorrencias,
+            tratativas: extras.tratativas,
           });
           setLoading(false);
         }
@@ -138,12 +248,23 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition-colors cursor-pointer border border-indigo-200"
+              title="Imprimir relatório completo do dossiê"
+            >
+              <Printer className="w-4 h-4" />
+              <span className="hidden sm:inline">Imprimir Dossiê</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Modal Body */}
@@ -179,21 +300,29 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                     <span>RA: <strong className="text-slate-700">{data.student.ra}</strong></span>
                     <span>•</span>
                     <span>Status: <strong className="capitalize text-slate-700">{data.student.status.replace('_', ' ')}</strong></span>
+                    {data.student.tutor && (
+                      <>
+                        <span>•</span>
+                        <span>Professor(a) Tutor(a): <strong className="text-indigo-700">{data.student.tutor}</strong></span>
+                      </>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      onClose();
-                      onOpenManualAlert(data.student);
-                    }}
-                    className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>Disparar Alerta Agora</span>
-                  </button>
-                </div>
+                {!isProfessor && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onOpenManualAlert(data.student);
+                      }}
+                      className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Disparar Alerta Agora</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Attendance Statistics Grid */}
@@ -240,7 +369,12 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                   </div>
                   <div>
                     <span className="text-slate-400 block mb-0.5">Telefone(s) / WhatsApp:</span>
-                    {(() => {
+                    {isProfessor ? (
+                      <div className="flex items-center gap-2 p-2.5 bg-slate-100 rounded-lg border border-slate-200 text-slate-600 font-medium text-xs">
+                        <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                        <span>Telefone restrito à equipe gestora e coordenação (LGPD)</span>
+                      </div>
+                    ) : (() => {
                       const phones = getStudentPhones(data.student.guardianPhone);
                       if (phones.length === 0) {
                         return <strong className="text-slate-900">{data.student.guardianPhone || 'Não informado'}</strong>;
@@ -368,9 +502,14 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
 
               {/* Recent Attendance Records */}
               <div>
-                <div className="font-bold text-slate-900 text-sm mb-2 flex items-center gap-1.5">
-                  <Calendar className="w-4 h-4 text-slate-600" />
-                  <span>Histórico Recente de Frequência</span>
+                <div className="font-bold text-slate-900 text-sm mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-slate-600" />
+                    <span>Histórico de Frequência Escolar</span>
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    Taxa: <strong>{data.student.attendanceRate.toFixed(1)}%</strong>
+                  </span>
                 </div>
 
                 <div className="border border-slate-200 rounded-lg overflow-hidden text-xs">
@@ -407,6 +546,104 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                     </tbody>
                   </table>
                 </div>
+              </div>
+
+              {/* Ocorrências Disciplinares Registradas */}
+              <div>
+                <div className="font-bold text-slate-900 text-sm mb-2 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <ShieldAlert className="w-4 h-4 text-amber-600" />
+                    <span>Registro de Ocorrências Escolares ({data.ocorrencias?.length || 0})</span>
+                  </span>
+                </div>
+
+                {!data.ocorrencias || data.ocorrencias.length === 0 ? (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 italic">
+                    Nenhuma ocorrência disciplinar registrada para este estudante.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                    {data.ocorrencias.map(oc => {
+                      const phones = getStudentPhones(data.student);
+                      const primaryPhone = phones.length > 0 ? phones[0] : null;
+                      const msgTexto = `Prezado(a) responsável pelo(a) estudante ${data.student.name} (${data.student.className}), informamos o registro de ocorrência escolar em ${formatarDataBR(oc.data)} (${oc.aula}): "${oc.ocorrencia}". Medida aplicada: "${oc.medida}". Docente: ${oc.professor}. Estamos à disposição na escola para alinhamento pedagógico.`;
+                      const waUrl = primaryPhone ? `https://wa.me/${cleanPhoneForWhatsApp(primaryPhone.digits)}?text=${encodeURIComponent(msgTexto)}` : '#';
+
+                      return (
+                        <div key={oc.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1.5">
+                          <div className="flex justify-between items-center">
+                            <span className="font-bold text-slate-800">
+                              📅 {formatarDataBR(oc.data)} ({oc.aula}) — Prof: {oc.professor}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              oc.status === 'Resolvido' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {oc.status}
+                            </span>
+                          </div>
+                          <p className="text-slate-900 font-semibold">{oc.ocorrencia}</p>
+                          <p className="text-slate-600 text-[11px]">
+                            <strong>Medida:</strong> {oc.medida}
+                          </p>
+                          {oc.descricao && (
+                            <p className="text-[11px] text-slate-600 italic bg-white p-2 rounded-lg border border-slate-200">
+                              "{oc.descricao}"
+                            </p>
+                          )}
+                          {oc.mediacao && (
+                            <div className="p-2 bg-indigo-50 border border-indigo-100 rounded-lg text-[11px] text-indigo-950">
+                              <strong>📋 Parecer / Ação da Gestão:</strong> {oc.mediacao}
+                            </div>
+                          )}
+
+                          {/* Envio via WhatsApp (Apenas Gestão/Admin) */}
+                          {isGestaoOrAdmin && primaryPhone && (
+                            <div className="pt-1.5 border-t border-slate-200 flex justify-end">
+                              <a
+                                href={waUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded-lg text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Enviar notificação ao responsável via WhatsApp"
+                              >
+                                <Phone className="w-3 h-3" />
+                                <span>Enviar aos Pais (WhatsApp)</span>
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Tratativas Realizadas em Reunião com a Família */}
+              <div>
+                <div className="font-bold text-slate-900 text-sm mb-2 flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-indigo-600" />
+                  <span>Tratativas Realizadas em Reunião com a Família ({data.tratativas?.length || 0})</span>
+                </div>
+
+                {!data.tratativas || data.tratativas.length === 0 ? (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 italic">
+                    Nenhuma ata ou tratativa de reunião com responsáveis registrada até o momento.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {data.tratativas.map((tr, idx) => (
+                      <div key={tr.id || idx} className="p-3 bg-indigo-50/50 border border-indigo-100 border-l-4 border-l-indigo-600 rounded-r-xl text-xs">
+                        <div className="flex justify-between items-center text-indigo-900 font-bold mb-1">
+                          <span>📅 {tr.data}</span>
+                          <span className="text-[11px] font-semibold text-slate-500">
+                            Mediador(a): {tr.mediador || 'Gestão'}
+                          </span>
+                        </div>
+                        <p className="text-slate-800 whitespace-pre-line leading-relaxed">{tr.tratativa}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </>
           )}

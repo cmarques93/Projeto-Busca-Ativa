@@ -22,13 +22,16 @@ interface SeducContingencyReportModalProps {
   isOpen: boolean;
   onClose: () => void;
   classes: SchoolClass[];
+  currentUser?: { id?: string; name?: string; role: string } | null;
 }
 
 export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalProps> = ({
   isOpen,
   onClose,
   classes,
+  currentUser,
 }) => {
+  const isProfessor = currentUser?.role === 'professor';
   const todayStr = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [selectedClassId, setSelectedClassId] = useState<string>('todas');
@@ -139,7 +142,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
           `"${st.medicalCertificate || ''}"`,
           `"${st.totalAbsences}"`,
           `"${st.guardianName}"`,
-          `"${st.guardianPhone}"`
+          `"${isProfessor ? '[RESTRITO À GESTÃO]' : st.guardianPhone}"`
         ]);
       });
     });
@@ -413,7 +416,11 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
                                 </td>
                                 <td className="py-2.5 px-4 text-slate-700">
                                   <div className="font-medium">{st.guardianName}</div>
-                                  <div className="text-[10px] text-slate-500">{st.guardianPhone}</div>
+                                  {isProfessor ? (
+                                    <div className="text-[10px] text-slate-400 italic">Telefone restrito à gestão</div>
+                                  ) : (
+                                    <div className="text-[10px] text-slate-500">{st.guardianPhone}</div>
+                                  )}
                                 </td>
                               </tr>
                             ))}

@@ -27,6 +27,7 @@
         "ra": { "type": "string" },
         "classId": { "type": "string" },
         "className": { "type": "string" },
+        "tutor": { "type": "string" },
         "status": { "type": "string" },
         "riskLevel": { "type": "string" },
         "totalSchoolDays": { "type": "number" },

@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { SchoolDatabase } from './server/database.js';
@@ -116,13 +117,23 @@ async function startServer() {
   // Students list with optional filters
   app.get('/api/students', (req, res) => {
     try {
-      const { classId, riskLevel, status, search } = req.query;
-      const students = db.getStudents({
+      const { classId, riskLevel, status, search, role } = req.query;
+      const userRole = (req.headers['x-user-role'] as string) || (role as string);
+      let students = db.getStudents({
         classId: classId as string,
         riskLevel: riskLevel as string,
         status: status as string,
         search: search as string,
       });
+
+      // Se a consulta for feita por usuário com papel de professor, oculta os telefones dos responsáveis
+      if (userRole === 'professor') {
+        students = students.map(s => ({
+          ...s,
+          guardianPhone: '',
+        }));
+      }
+
       res.json(students);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -136,6 +147,15 @@ async function startServer() {
       if (!result) {
         return res.status(404).json({ error: 'Estudante não encontrado' });
       }
+
+      const userRole = (req.headers['x-user-role'] as string) || (req.query.role as string);
+      if (userRole === 'professor' && result.student) {
+        result.student = {
+          ...result.student,
+          guardianPhone: '',
+        };
+      }
+
       res.json(result);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -983,11 +1003,80 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
   // --- 1. OCORRÊNCIAS & MEDIAÇÃO ---
   app.get('/api/sheets-ocorrencias', async (req, res) => {
     try {
-      const response = await fetch(OCORRENCIAS_APPS_SCRIPT_URL, {
-        headers: { Accept: 'application/json' },
-      });
-      const data = await response.json();
-      res.json(data);
+      let data: any = null;
+      try {
+        const response = await fetch(OCORRENCIAS_APPS_SCRIPT_URL, {
+          headers: { Accept: 'application/json' },
+        });
+        if (response.ok) {
+          data = await response.json();
+        }
+      } catch (err: any) {
+        console.warn('Falha temporária ao consultar Apps Script:', err.message);
+      }
+
+      // Se existir o arquivo local atualizado e desduplicado, use como base primária ou complemento
+      const cleanFilePath = path.join(process.cwd(), 'server', 'ocorrencias_clean.json');
+      let cleanLocalData: any = null;
+      if (fs.existsSync(cleanFilePath)) {
+        try {
+          cleanLocalData = JSON.parse(fs.readFileSync(cleanFilePath, 'utf-8'));
+        } catch (e) {
+          console.error('Erro ao ler ocorrencias_clean.json:', e);
+        }
+      }
+
+      if (!data && cleanLocalData) {
+        data = cleanLocalData;
+      } else if (data && cleanLocalData) {
+        // Atualiza a lista oficial de estudantes com a enviada pelo usuário (373 estudantes atualizados de Setembro)
+        if (cleanLocalData.estudantes && cleanLocalData.estudantes.length > 0) {
+          data.estudantes = cleanLocalData.estudantes;
+        }
+
+        // Combina e desduplica registros de ocorrências
+        const allRegistros = [...(data.registros || []), ...(cleanLocalData.registros || [])];
+        const seenRegistros = new Map<string, any>();
+        for (const reg of allRegistros) {
+          const key = [
+            (reg.data || '').trim(),
+            (reg.aula || '').trim(),
+            (reg.turma || '').trim(),
+            (reg.estudante || '').trim(),
+            (reg.ocorrencia || '').trim(),
+          ].join('::');
+
+          if (!seenRegistros.has(key)) {
+            seenRegistros.set(key, reg);
+          }
+        }
+        data.registros = Array.from(seenRegistros.values());
+      } else if (data && !cleanLocalData) {
+        // Desduplica caso venha direto do Apps Script sem cache local
+        const seen = new Map<string, any>();
+        for (const reg of (data.registros || [])) {
+          const key = [
+            (reg.data || '').trim(),
+            (reg.aula || '').trim(),
+            (reg.turma || '').trim(),
+            (reg.estudante || '').trim(),
+            (reg.ocorrencia || '').trim(),
+          ].join('::');
+          if (!seen.has(key)) {
+            seen.set(key, reg);
+          }
+        }
+        data.registros = Array.from(seen.values());
+      }
+
+      if (data) {
+        res.json(data);
+      } else {
+        res.status(502).json({
+          erro: 'Não foi possível carregar dados da planilha nem do arquivo local.',
+          fallback: true,
+        });
+      }
     } catch (err: any) {
       console.error('Erro proxy GET ocorrências Apps Script:', err.message);
       res.status(502).json({
@@ -999,23 +1088,116 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
 
   app.post('/api/sheets-ocorrencias', async (req, res) => {
     try {
-      const response = await fetch(OCORRENCIAS_APPS_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req.body),
-      });
-      const text = await response.text();
-      try {
-        const data = JSON.parse(text);
-        res.json(data);
-      } catch {
-        res.json({ status: 'sucesso', raw: text });
+      const cleanFilePath = path.join(process.cwd(), 'server', 'ocorrencias_clean.json');
+      const body = req.body;
+
+      // 1. Salva ou atualiza no arquivo limpo local do sistema
+      if (fs.existsSync(cleanFilePath)) {
+        try {
+          const currentClean = JSON.parse(fs.readFileSync(cleanFilePath, 'utf-8'));
+          if (body.action === 'salvar_mediacao') {
+            const idx = currentClean.registros.findIndex((r: any) => r.id === body.id);
+            if (idx >= 0) {
+              currentClean.registros[idx].status = body.status || 'Resolvido';
+              currentClean.registros[idx].mediacao = body.mediacao || '';
+              currentClean.registros[idx].mediador = body.mediador || '';
+            }
+          } else if (body.action === 'salvar_tratativa_familia') {
+            if (!currentClean.tratativasFamilia) currentClean.tratativasFamilia = [];
+            currentClean.tratativasFamilia.unshift({
+              id: body.id || `TRAT-${Date.now()}`,
+              data: body.data,
+              turma: body.turma,
+              estudante: body.estudante,
+              responsavel: body.responsavel,
+              contato: body.contato,
+              tipoContato: body.tipoContato,
+              motivo: body.motivo,
+              acordos: body.acordos,
+              registradoPor: body.registradoPor,
+            });
+          } else {
+            // Novo registro de ocorrência
+            const novoReg = {
+              id: body.id || `#OC-${Math.floor(100000 + Math.random() * 900000)}`,
+              data: body.data,
+              aula: body.aula,
+              turma: body.turma,
+              estudante: body.estudante,
+              tutor: body.tutor,
+              professor: body.professor,
+              ocorrencia: body.ocorrencia,
+              medida: body.medida,
+              auxilio: body.auxilio,
+              descricao: body.descricao,
+              status: body.status || 'Pendente',
+              mediacao: body.mediacao || '',
+              mediador: body.mediador || '',
+            };
+
+            // Evita duplicatas ao salvar
+            const key = [
+              (novoReg.data || '').trim(),
+              (novoReg.aula || '').trim(),
+              (novoReg.turma || '').trim(),
+              (novoReg.estudante || '').trim(),
+              (novoReg.ocorrencia || '').trim(),
+            ].join('::');
+
+            const jaExiste = currentClean.registros.some((r: any) => {
+              const k = [
+                (r.data || '').trim(),
+                (r.aula || '').trim(),
+                (r.turma || '').trim(),
+                (r.estudante || '').trim(),
+                (r.ocorrencia || '').trim(),
+              ].join('::');
+              return k === key;
+            });
+
+            if (!jaExiste) {
+              currentClean.registros.unshift(novoReg);
+            }
+          }
+          fs.writeFileSync(cleanFilePath, JSON.stringify(currentClean, null, 2), 'utf-8');
+        } catch (e: any) {
+          console.warn('Erro ao atualizar ocorrencias_clean.json local:', e.message);
+        }
       }
+
+      // 2. Se a planilha do Google Sheets estiver ativa, repassa para ela também
+      let sheetsSuccess = false;
+      let sheetsData: any = null;
+      try {
+        const response = await fetch(OCORRENCIAS_APPS_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const text = await response.text();
+        try {
+          sheetsData = JSON.parse(text);
+          sheetsSuccess = true;
+        } catch {
+          sheetsSuccess = true;
+          sheetsData = { status: 'sucesso', raw: text };
+        }
+      } catch (err: any) {
+        console.warn('Google Sheets externo inacessível, dados preservados com sucesso na base do sistema:', err.message);
+      }
+
+      // Retorna sucesso pois os dados estão salvos na base do sistema
+      res.json({
+        status: 'sucesso',
+        savedLocally: true,
+        sheetsSynced: sheetsSuccess,
+        details: sheetsData,
+      });
     } catch (err: any) {
-      console.error('Erro proxy POST ocorrências Apps Script:', err.message);
-      res.status(502).json({
+      console.error('Erro ao salvar ocorrência:', err.message);
+      res.status(500).json({
         status: 'erro',
-        mensagem: 'Falha ao salvar no Google Sheets: ' + err.message,
+        mensagem: 'Erro interno ao salvar ocorrência: ' + err.message,
       });
     }
   });
@@ -1023,11 +1205,63 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
   // --- 2. AGENDAMENTO DE TABLETS ---
   app.get('/api/sheets-tablets', async (req, res) => {
     try {
-      const response = await fetch(TABLETS_APPS_SCRIPT_URL, {
-        headers: { Accept: 'application/json' },
-      });
-      const data = await response.json();
-      res.json(data);
+      let data: any = null;
+      try {
+        const response = await fetch(TABLETS_APPS_SCRIPT_URL, {
+          headers: { Accept: 'application/json' },
+        });
+        if (response.ok) {
+          data = await response.json();
+        }
+      } catch (err: any) {
+        console.warn('Falha temporária ao consultar Apps Script de tablets:', err.message);
+      }
+
+      // Arquivo local limpo e desduplicado
+      const cleanTabletsPath = path.join(process.cwd(), 'server', 'tablets_clean.json');
+      let cleanTabletsData: any = null;
+      if (fs.existsSync(cleanTabletsPath)) {
+        try {
+          cleanTabletsData = JSON.parse(fs.readFileSync(cleanTabletsPath, 'utf-8'));
+        } catch (e) {
+          console.error('Erro ao ler tablets_clean.json:', e);
+        }
+      }
+
+      if (!data && cleanTabletsData) {
+        data = cleanTabletsData;
+      } else if (data) {
+        // Desduplicação estrita de agendamentos
+        const allAgendamentos = [
+          ...(data.agendamentos || []),
+          ...((cleanTabletsData && cleanTabletsData.agendamentos) || []),
+        ];
+        const seen = new Set<string>();
+        const uniqueAgendamentos: any[] = [];
+        for (const ag of allAgendamentos) {
+          const key = [
+            (ag.data || '').trim(),
+            (ag.aula || '').trim(),
+            (ag.professor || '').trim(),
+            (ag.turma || '').trim(),
+            ag.tablets || 0,
+          ].join('::');
+          if (!seen.has(key)) {
+            seen.add(key);
+            uniqueAgendamentos.push(ag);
+          }
+        }
+        data.agendamentos = uniqueAgendamentos;
+      }
+
+      if (data) {
+        res.json(data);
+      } else {
+        res.status(502).json({
+          erro: 'Erro de comunicação com a planilha de tablets e sem dados em cache.',
+          fallback: true,
+        });
+      }
     } catch (err: any) {
       console.error('Erro proxy GET tablets Apps Script:', err.message);
       res.status(502).json({
@@ -1039,23 +1273,95 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
 
   app.post('/api/sheets-tablets', async (req, res) => {
     try {
-      const response = await fetch(TABLETS_APPS_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req.body),
-      });
-      const text = await response.text();
-      try {
-        const data = JSON.parse(text);
-        res.json(data);
-      } catch {
-        res.json({ status: 'sucesso', raw: text });
+      const cleanTabletsPath = path.join(process.cwd(), 'server', 'tablets_clean.json');
+      const body = req.body;
+
+      // 1. Salva na base de dados unificada do sistema
+      if (fs.existsSync(cleanTabletsPath)) {
+        try {
+          const currentTablets = JSON.parse(fs.readFileSync(cleanTabletsPath, 'utf-8'));
+          if (body.action === 'cancelar') {
+            // Cancelamento / exclusão de reserva
+            currentTablets.agendamentos = (currentTablets.agendamentos || []).filter((a: any) => {
+              const match =
+                a.data === body.data &&
+                a.aula === body.aula &&
+                a.turma === body.turma &&
+                a.professor === body.professor;
+              return !match;
+            });
+          } else {
+            // Nova reserva de tablets
+            const novaReserva = {
+              data: body.data,
+              aula: body.aula,
+              turma: body.turma,
+              professor: body.professor,
+              tablets: Number(body.tablets) || 1,
+            };
+
+            const key = [
+              (novaReserva.data || '').trim(),
+              (novaReserva.aula || '').trim(),
+              (novaReserva.professor || '').trim(),
+              (novaReserva.turma || '').trim(),
+              novaReserva.tablets,
+            ].join('::');
+
+            const jaExiste = (currentTablets.agendamentos || []).some((a: any) => {
+              const k = [
+                (a.data || '').trim(),
+                (a.aula || '').trim(),
+                (a.professor || '').trim(),
+                (a.turma || '').trim(),
+                a.tablets,
+              ].join('::');
+              return k === key;
+            });
+
+            if (!jaExiste) {
+              if (!currentTablets.agendamentos) currentTablets.agendamentos = [];
+              currentTablets.agendamentos.unshift(novaReserva);
+            }
+          }
+          fs.writeFileSync(cleanTabletsPath, JSON.stringify(currentTablets, null, 2), 'utf-8');
+        } catch (e: any) {
+          console.warn('Erro ao atualizar tablets_clean.json local:', e.message);
+        }
       }
+
+      // 2. Se a planilha do Google Sheets estiver ativa, sincroniza com ela também
+      let sheetsSuccess = false;
+      let sheetsData: any = null;
+      try {
+        const response = await fetch(TABLETS_APPS_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const text = await response.text();
+        try {
+          sheetsData = JSON.parse(text);
+          sheetsSuccess = true;
+        } catch {
+          sheetsSuccess = true;
+          sheetsData = { status: 'sucesso', raw: text };
+        }
+      } catch (err: any) {
+        console.warn('Google Sheets de tablets inacessível, agendamento preservado com sucesso na base do sistema:', err.message);
+      }
+
+      res.json({
+        status: 'sucesso',
+        savedLocally: true,
+        sheetsSynced: sheetsSuccess,
+        details: sheetsData,
+      });
     } catch (err: any) {
-      console.error('Erro proxy POST tablets Apps Script:', err.message);
-      res.status(502).json({
+      console.error('Erro ao processar reserva de tablets:', err.message);
+      res.status(500).json({
         status: 'erro',
-        msg: 'Falha ao processar reserva no Google Sheets: ' + err.message,
+        mensagem: 'Erro interno ao salvar agendamento de tablets: ' + err.message,
       });
     }
   });

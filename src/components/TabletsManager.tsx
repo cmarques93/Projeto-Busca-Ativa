@@ -127,7 +127,12 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
     return str;
   };
 
-  const formatarDataIso = (d: Date) => d.toISOString().split('T')[0];
+  const formatarDataIso = (d: Date) => {
+    const ano = d.getFullYear();
+    const mes = String(d.getMonth() + 1).padStart(2, '0');
+    const dia = String(d.getDate()).padStart(2, '0');
+    return `${ano}-${mes}-${dia}`;
+  };
   const formatarDataBR = (d: Date) =>
     d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 
@@ -188,8 +193,24 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
             turmasFinais = classes.map(c => c.name);
           }
 
+          // Desduplicação estrita de agendamentos
+          const agendamentosUnicosMap = new Map<string, any>();
+          for (const ag of (data.agendamentos || [])) {
+            const key = [
+              (ag.data || '').trim(),
+              (ag.aula || '').trim(),
+              (ag.professor || '').trim(),
+              (ag.turma || '').trim(),
+              ag.tablets || 0,
+            ].join('::');
+            if (!agendamentosUnicosMap.has(key)) {
+              agendamentosUnicosMap.set(key, ag);
+            }
+          }
+          const agendamentosLimpos = Array.from(agendamentosUnicosMap.values());
+
           const novoDb: TabletsDatabase = {
-            agendamentos: data.agendamentos || [],
+            agendamentos: agendamentosLimpos,
             horarios:
               data.horarios && data.horarios.length > 0 ? data.horarios : baseDeDados.horarios,
             professores: data.professores || [],
@@ -199,15 +220,29 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
 
           setBaseDeDados(novoDb);
           localStorage.setItem('CACHE_TABLET_APP', JSON.stringify(novoDb));
+          setMensagem({
+            texto: `✅ Grade de tablets sincronizada com sucesso! (${agendamentosLimpos.length} reservas únicas carregadas da planilha)`,
+            tipo: 'sucesso',
+          });
+          setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
         } else {
           setMensagem({
             texto: 'Usando dados salvos localmente (Planilha do Google temporariamente inacessível).',
             tipo: 'erro',
           });
         }
+      } else {
+        setMensagem({
+          texto: 'Erro ao conectar à planilha do Google. Código: ' + response.status,
+          tipo: 'erro',
+        });
       }
     } catch (err: any) {
       console.warn('Erro ao sincronizar tablets:', err.message);
+      setMensagem({
+        texto: 'Falha na conexão com a planilha do Google: ' + err.message,
+        tipo: 'erro',
+      });
     } finally {
       setSincronizando(false);
     }
@@ -419,7 +454,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium">
-              Controle semanal de uso por aula e turma integrado à planilha do Google Sheets.
+              Controle semanal de uso por aula e turma integrado à base do sistema escolar.
             </p>
           </div>
         </div>
