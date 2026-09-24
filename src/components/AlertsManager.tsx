@@ -40,6 +40,7 @@ import {
 } from '../types';
 import { BulkWhatsAppModal } from './BulkWhatsAppModal';
 import { storageService } from '../data/storageService';
+import { firestoreService, isSameDay } from '../lib/firestoreService';
 
 interface DailyAbsenteeItem {
   studentId: string;
@@ -155,18 +156,35 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
     let fetchedAttendance: AttendanceRecord[] = [];
     let fetchedGate: GateRecord[] = [];
 
+    // 1. Prioridade Cloud Firestore
     try {
-      const res = await fetch(`/api/attendance-records?date=${date}`);
-      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          fetchedAttendance = data;
+      const allCloudAtt = await firestoreService.getAttendanceRecords();
+      if (allCloudAtt && allCloudAtt.length > 0) {
+        const matching = allCloudAtt.filter(r => isSameDay(r.date, date));
+        if (matching.length > 0) {
+          fetchedAttendance = matching;
         }
       }
     } catch (e) {
-      console.warn('Backend indisponível para registros diários, consultando storageService:', e);
+      console.warn('Erro ao consultar frequências do Firestore em AlertsManager:', e);
     }
 
+    // 2. Fallback backend API
+    if (fetchedAttendance.length === 0) {
+      try {
+        const res = await fetch(`/api/attendance-records?date=${date}`);
+        if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            fetchedAttendance = data;
+          }
+        }
+      } catch (e) {
+        console.warn('Backend indisponível para registros diários, consultando storageService:', e);
+      }
+    }
+
+    // 3. Fallback storageService local
     if (fetchedAttendance.length === 0) {
       fetchedAttendance = storageService.getAttendanceRecords(undefined, date);
     }
@@ -225,7 +243,7 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
 
       // Check if an alert was already triggered for this student on this date
       const existingAlert = alerts.find(
-        a => a.studentId === rec.studentId && a.sentAt.startsWith(selectedDate)
+        a => a.studentId === rec.studentId && isSameDay(a.sentAt, selectedDate)
       );
 
       list.push({
@@ -254,7 +272,7 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
         if (!alreadyInList) {
           const student = allStudents.find(s => s.id === gate.studentId) || storageService.getStudentById(gate.studentId);
           const existingAlert = alerts.find(
-            a => a.studentId === gate.studentId && a.sentAt.startsWith(selectedDate)
+            a => a.studentId === gate.studentId && isSameDay(a.sentAt, selectedDate)
           );
 
           list.push({

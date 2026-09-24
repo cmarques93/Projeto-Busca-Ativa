@@ -29,6 +29,53 @@ export enum OperationType {
   WRITE = 'write',
 }
 
+/**
+ * Remove qualquer campo com valor undefined de objetos para impedir que o Firestore rejeite a gravação.
+ */
+export function sanitizeForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) return null as unknown as T;
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeForFirestore(item)) as unknown as T;
+  }
+  if (typeof data === 'object' && !(data instanceof Date)) {
+    const cleanObj: any = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (value !== undefined) {
+        cleanObj[key] = sanitizeForFirestore(value);
+      }
+    }
+    return cleanObj as T;
+  }
+  return data;
+}
+
+/**
+ * Normaliza o ID de documento para o Firestore garantindo que não contenha barras ou espaços inválidos.
+ */
+export function sanitizeDocId(id: string): string {
+  if (!id) return `doc-${Date.now()}`;
+  return String(id).replace(/\//g, '_').replace(/\s+/g, '_');
+}
+
+/**
+ * Normaliza datas no formato YYYY-MM-DD para comparação precisa.
+ */
+export function normalizeDateStr(d?: string): string {
+  if (!d) return '';
+  const clean = String(d).trim().split('T')[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(clean)) {
+    const [day, month, year] = clean.split('/');
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+  return clean;
+}
+
+export function isSameDay(d1?: string, d2?: string): boolean {
+  if (!d1 || !d2) return false;
+  return normalizeDateStr(d1) === normalizeDateStr(d2);
+}
+
 export interface FirestoreErrorInfo {
   error: string;
   operationType: OperationType;
@@ -151,30 +198,40 @@ export const firestoreService = {
   },
 
   async saveStudent(student: Student): Promise<void> {
-    const path = `students/${student.id}`;
+    const cleanId = sanitizeDocId(student.id);
+    const path = `students/${cleanId}`;
     try {
-      await setDoc(doc(db, 'students', student.id), student, { merge: true });
+      const cleanData = sanitizeForFirestore({ ...student, id: cleanId });
+      await setDoc(doc(db, 'students', cleanId), cleanData, { merge: true });
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
     }
   },
 
   async deleteStudent(studentId: string): Promise<void> {
-    const path = `students/${studentId}`;
+    const cleanId = sanitizeDocId(studentId);
+    const path = `students/${cleanId}`;
     try {
-      await deleteDoc(doc(db, 'students', studentId));
+      await deleteDoc(doc(db, 'students', cleanId));
     } catch (e) {
       handleFirestoreError(e, OperationType.DELETE, path);
     }
   },
 
   async batchSaveStudents(students: Student[]): Promise<void> {
+    if (!students || students.length === 0) return;
     try {
-      const batch = writeBatch(db);
-      for (const s of students) {
-        batch.set(doc(db, 'students', s.id), s, { merge: true });
+      const chunkSize = 450;
+      for (let i = 0; i < students.length; i += chunkSize) {
+        const chunk = students.slice(i, i + chunkSize);
+        const batch = writeBatch(db);
+        for (const s of chunk) {
+          const cleanId = sanitizeDocId(s.id);
+          const cleanData = sanitizeForFirestore({ ...s, id: cleanId });
+          batch.set(doc(db, 'students', cleanId), cleanData, { merge: true });
+        }
+        await batch.commit();
       }
-      await batch.commit();
     } catch (e) {
       console.error('Erro ao salvar lote de estudantes no Firestore:', e);
     }
@@ -186,7 +243,12 @@ export const firestoreService = {
       const snap = await getDocs(collection(db, 'attendance_records'));
       const list: AttendanceRecord[] = [];
       snap.forEach(d => {
-        list.push({ id: d.id, ...d.data() } as AttendanceRecord);
+        const raw = d.data() as AttendanceRecord;
+        list.push({
+          id: d.id,
+          ...raw,
+          date: normalizeDateStr(raw.date) || raw.date,
+        });
       });
       return list;
     } catch (e) {
@@ -196,12 +258,23 @@ export const firestoreService = {
   },
 
   async batchSaveAttendance(records: AttendanceRecord[]): Promise<void> {
+    if (!records || records.length === 0) return;
     try {
-      const batch = writeBatch(db);
-      for (const r of records) {
-        batch.set(doc(db, 'attendance_records', r.id), r, { merge: true });
+      const chunkSize = 450;
+      for (let i = 0; i < records.length; i += chunkSize) {
+        const chunk = records.slice(i, i + chunkSize);
+        const batch = writeBatch(db);
+        for (const r of chunk) {
+          const cleanId = sanitizeDocId(r.id);
+          const cleanRecord = sanitizeForFirestore({
+            ...r,
+            id: cleanId,
+            date: normalizeDateStr(r.date) || r.date,
+          });
+          batch.set(doc(db, 'attendance_records', cleanId), cleanRecord, { merge: true });
+        }
+        await batch.commit();
       }
-      await batch.commit();
     } catch (e) {
       console.error('Erro ao salvar registros de chamada no Firestore:', e);
     }

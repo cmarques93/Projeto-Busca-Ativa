@@ -19,7 +19,7 @@ import {
   DEFAULT_INTERVENTIONS,
   DEFAULT_REPORT
 } from './fallbackData';
-import { firestoreService } from '../lib/firestoreService';
+import { firestoreService, isSameDay, normalizeDateStr } from '../lib/firestoreService';
 
 export function getRoleLabel(role: UserRole): string {
   switch (role) {
@@ -387,47 +387,86 @@ export const storageService = {
   },
 
   // === FREQUÊNCIA ===
-  recordAttendance: (
-    items: { studentId: string; status: AttendanceStatus; notes?: string }[],
+  recordAttendance: async (
+    items: {
+      studentId: string;
+      status: AttendanceStatus;
+      notes?: string;
+      durationDays?: number;
+      justification?: string;
+      medicalCertificate?: string;
+      medicalDays?: number;
+      studentName?: string;
+      className?: string;
+    }[],
     classId: string,
     recordedBy: string,
     date?: string
-  ): any => {
+  ): Promise<any> => {
     const records = storageService.getAttendanceRecords();
     const recordDate = date || new Date().toISOString().split('T')[0];
-    const students = storageService.getStudents(classId);
+    const allStudents = storageService.getStudents();
+    const allClasses = storageService.getClasses();
+    const targetClass = allClasses.find(c => c.id === classId || c.name === classId);
 
-    const newRecords: AttendanceRecord[] = items.map(item => {
-      const student = students.find(s => s.id === item.studentId);
-      return {
-        id: `att-${Date.now()}-${item.studentId}`,
-        studentId: item.studentId,
-        studentName: student?.name || '',
+    let newRecords: AttendanceRecord[] = [];
+
+    if (items.length === 0 && classId) {
+      // Marcador de turma lançada caso a turma não tenha estudantes ainda
+      newRecords = [{
+        id: `att-cls-${classId}-${recordDate}`,
+        studentId: `cls-marker-${classId}`,
+        studentName: `Turma ${targetClass?.name || classId} (Chamada Concluída)`,
         classId,
-        className: student?.className || '',
+        className: targetClass?.name || classId,
         date: recordDate,
-        status: item.status,
+        status: 'presente',
+        durationDays: 1,
+        isCountedAsAbsence: false,
         recordedBy,
         recordedAt: new Date().toISOString(),
-        justification: item.notes
-      };
-    });
+        justification: 'Frequência da turma registrada',
+      }];
+    } else {
+      newRecords = items.map(item => {
+        const student = allStudents.find(s => s.id === item.studentId);
+        const duration = item.durationDays && item.durationDays > 1 ? item.durationDays : 1;
+        const isCountedAsAbsence = item.status === 'falta_injustificada' || item.status === 'falta_justificada';
 
-    // Replace existing records for same student & date
-    const studentIds = new Set(items.map(i => i.studentId));
-    const filteredRecords = records.filter(r => !(r.date === recordDate && studentIds.has(r.studentId)));
+        return {
+          id: `att-${Date.now()}-${item.studentId}`,
+          studentId: item.studentId,
+          studentName: item.studentName || student?.name || 'Estudante',
+          classId: classId || student?.classId || '',
+          className: item.className || student?.className || targetClass?.name || '',
+          date: recordDate,
+          status: item.status,
+          durationDays: duration,
+          justification: item.justification || item.notes || '',
+          medicalCertificate: item.medicalCertificate || (item.medicalDays ? `${item.medicalDays} dias` : ''),
+          medicalDays: item.medicalDays || 0,
+          isCountedAsAbsence,
+          recordedBy,
+          recordedAt: new Date().toISOString(),
+        };
+      });
+    }
+
+    // Replace existing records for same student/class & date
+    const studentIds = new Set(newRecords.map(i => i.studentId));
+    const filteredRecords = records.filter(r => !(isSameDay(r.date, recordDate) && (studentIds.has(r.studentId) || (r.classId === classId && r.studentId.startsWith('cls-marker-')))));
     filteredRecords.push(...newRecords);
     setStored('school_attendance', filteredRecords);
 
     // Update students absence counts
-    const allStudents = storageService.getStudents();
     const updatedStudents: Student[] = [];
     allStudents.forEach(st => {
       const item = items.find(i => i.studentId === st.id);
       if (item) {
         if (item.status === 'falta_injustificada' || item.status === 'falta_justificada') {
-          st.totalAbsences = (st.totalAbsences || 0) + 1;
-          st.consecutiveAbsences = (st.consecutiveAbsences || 0) + 1;
+          const duration = item.durationDays && item.durationDays > 1 ? item.durationDays : 1;
+          st.totalAbsences = (st.totalAbsences || 0) + duration;
+          st.consecutiveAbsences = (st.consecutiveAbsences || 0) + duration;
         } else if (item.status === 'presente') {
           st.consecutiveAbsences = 0;
           st.lastAttendanceDate = recordDate;
@@ -443,22 +482,31 @@ export const storageService = {
         updatedStudents.push(st);
       }
     });
-    setStored('school_students', allStudents);
+    if (updatedStudents.length > 0) {
+      setStored('school_students', allStudents);
+    }
 
-    // Sincroniza em nuvem no Firestore
-    firestoreService.batchSaveAttendance(newRecords).catch(err => console.warn('Erro ao salvar chamadas no Firestore:', err));
-    firestoreService.batchSaveStudents(updatedStudents).catch(err => console.warn('Erro ao atualizar alunos no Firestore:', err));
+    // Sincroniza em nuvem no Firestore de forma garantida e aguardada
+    try {
+      await firestoreService.batchSaveAttendance(newRecords);
+      if (updatedStudents.length > 0) {
+        await firestoreService.batchSaveStudents(updatedStudents);
+      }
+    } catch (err) {
+      console.warn('Erro ao sincronizar chamadas no Firestore:', err);
+    }
 
-    return { success: true, count: newRecords.length };
+    return { success: true, count: newRecords.length, newRecords };
   },
 
   getAttendanceRecords: (classId?: string, date?: string): AttendanceRecord[] => {
     let records = getStored<AttendanceRecord[]>('school_attendance', []);
     if (classId) {
-      records = records.filter(r => r.classId === classId);
+      const cleanClassId = classId.trim().toLowerCase();
+      records = records.filter(r => (r.classId || '').trim().toLowerCase() === cleanClassId || (r.className || '').trim().toLowerCase() === cleanClassId);
     }
     if (date) {
-      records = records.filter(r => r.date === date);
+      records = records.filter(r => isSameDay(r.date, date));
     }
     return records;
   },

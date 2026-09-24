@@ -21,6 +21,53 @@ import {
 } from 'lucide-react';
 import { Student, SchoolClass, AttendanceStatus, ParentAlert, AttendanceRecord } from '../types';
 import { storageService } from '../data/storageService';
+import { firestoreService, isSameDay, normalizeDateStr } from '../lib/firestoreService';
+
+// Helper flexível para associar estudante à turma
+export const isStudentInClass = (s: { classId?: string; className?: string }, cls: { id: string; name: string }): boolean => {
+  if (!s || !cls) return false;
+  const sClassId = (s.classId || '').trim().toLowerCase();
+  const sClassName = (s.className || '').trim().toLowerCase();
+  const cId = (cls.id || '').trim().toLowerCase();
+  const cName = (cls.name || '').trim().toLowerCase();
+
+  if (sClassId && (sClassId === cId || sClassId === cName)) return true;
+  if (sClassName && (sClassName === cName || sClassName === cId)) return true;
+
+  const normSId = sClassId.replace(/[^a-z0-9]/gi, '');
+  const normCId = cId.replace(/[^a-z0-9]/gi, '');
+  const normCName = cName.replace(/[^a-z0-9]/gi, '');
+  if (normSId && (normSId === normCId || normSId === normCName)) return true;
+
+  const normSName = sClassName.replace(/[^a-z0-9]/gi, '');
+  if (normSName && (normSName === normCName || normSName === normCId)) return true;
+
+  return false;
+};
+
+// Helper flexível para associar registro de frequência à turma
+export const isRecordInClass = (r: AttendanceRecord, cls: { id: string; name: string }): boolean => {
+  if (!r || !cls) return false;
+  const rClassId = (r.classId || '').trim().toLowerCase();
+  const rClassName = (r.className || '').trim().toLowerCase();
+  const cId = (cls.id || '').trim().toLowerCase();
+  const cName = (cls.name || '').trim().toLowerCase();
+
+  if (rClassId && (rClassId === cId || rClassId === cName)) return true;
+  if (rClassName && (rClassName === cName || rClassName === cId)) return true;
+
+  const normRId = rClassId.replace(/[^a-z0-9]/gi, '');
+  const normCId = cId.replace(/[^a-z0-9]/gi, '');
+  const normCName = cName.replace(/[^a-z0-9]/gi, '');
+  if (normRId && (normRId === normCId || normRId === normCName)) return true;
+
+  const normRName = rClassName.replace(/[^a-z0-9]/gi, '');
+  if (normRName && (normRName === normCName || normRName === normCId)) return true;
+
+  if (r.studentId && (r.studentId === `cls-marker-${cls.id}` || r.studentId === `cls-marker-${cId}` || (normCId && r.studentId.includes(normCId)))) return true;
+
+  return false;
+};
 
 interface RealTimeAttendanceProps {
   classes: SchoolClass[];
@@ -36,6 +83,8 @@ interface RealTimeAttendanceProps {
       justification?: string;
       medicalCertificate?: string;
       medicalDays?: number;
+      studentName?: string;
+      className?: string;
     }[],
     classId: string,
     teacherName: string,
@@ -100,24 +149,56 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
     setIsLoadingRecords(true);
     let records: AttendanceRecord[] = [];
 
+    // 1. Fonte da Verdade em Nuvem: Firebase Firestore
     try {
-      const res = await fetch(`/api/attendance-records?date=${date}`);
-      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
-        const json = await res.json();
-        if (Array.isArray(json)) {
-          records = json;
+      const firestoreRecords = await firestoreService.getAttendanceRecords();
+      if (firestoreRecords && firestoreRecords.length > 0) {
+        storageService.setAttendanceRecords(firestoreRecords);
+        const dateFirestore = firestoreRecords.filter(r => isSameDay(r.date, date));
+        if (dateFirestore.length > 0) {
+          records = dateFirestore;
         }
       }
     } catch (err) {
-      console.warn('API indisponível, carregando registros de frequência do storageService:', err);
+      console.warn('Falha ao obter frequências do Firestore:', err);
     }
 
+    // 2. Fallback: API backend
+    if (records.length === 0) {
+      try {
+        const res = await fetch(`/api/attendance-records?date=${date}`);
+        if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+          const json = await res.json();
+          if (Array.isArray(json) && json.length > 0) {
+            records = json.filter((r: any) => isSameDay(r.date, date));
+          }
+        }
+      } catch (err) {
+        console.warn('API indisponível, consultando storageService:', err);
+      }
+    }
+
+    // 3. Fallback: storageService local
     if (records.length === 0) {
       records = storageService.getAttendanceRecords(undefined, date);
+    } else {
+      // Mescla com registros locais que possam ter sido salvos nesta sessão
+      const localRecords = storageService.getAttendanceRecords(undefined, date);
+      if (localRecords.length > 0) {
+        const recordMap = new Map<string, AttendanceRecord>();
+        records.forEach(r => recordMap.set(r.studentId, r));
+        localRecords.forEach(r => {
+          if (!recordMap.has(r.studentId)) {
+            recordMap.set(r.studentId, r);
+          }
+        });
+        records = Array.from(recordMap.values());
+      }
     }
 
     setDailyRecords(records);
     setIsLoadingRecords(false);
+    return records;
   };
 
   useEffect(() => {
@@ -126,8 +207,8 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
 
   // Open Pop-up modal for a specific class
   const handleOpenAttendanceModal = (cls: SchoolClass) => {
-    const classStudents = students.filter(s => s.classId === cls.id);
-    const existingForClass = dailyRecords.filter(r => r.classId === cls.id);
+    const classStudents = students.filter(s => isStudentInClass(s, cls));
+    const existingForClass = dailyRecords.filter(r => isRecordInClass(r, cls));
 
     const initialMap: Record<
       string,
@@ -206,7 +287,7 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
 
   const handleModalMarkAllPresent = () => {
     if (!activeModalClass) return;
-    const classStudents = students.filter(s => s.classId === activeModalClass.id);
+    const classStudents = students.filter(s => isStudentInClass(s, activeModalClass));
     const updated: typeof modalAttendanceState = {};
     classStudents.forEach(s => {
       updated[s.id] = { status: 'presente', durationDays: 1 };
@@ -219,11 +300,13 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
     if (!activeModalClass) return;
     setIsSubmittingModal(true);
 
-    const classStudents = students.filter(s => s.classId === activeModalClass.id);
+    const classStudents = students.filter(s => isStudentInClass(s, activeModalClass));
     const items = classStudents.map(s => {
       const entry = modalAttendanceState[s.id] || { status: 'presente' as AttendanceStatus, durationDays: 1 };
       return {
         studentId: s.id,
+        studentName: s.name,
+        className: s.className || activeModalClass.name,
         status: entry.status,
         durationDays: entry.durationDays || 1,
         justification: entry.justification,
@@ -232,10 +315,54 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
       };
     });
 
+    // Atualização otimista imediata para que a barra de progresso e o card da turma atualizem instantaneamente
+    const optimisticRecords: AttendanceRecord[] = items.length > 0
+      ? items.map(item => ({
+          id: `att-opt-${Date.now()}-${item.studentId}`,
+          studentId: item.studentId,
+          studentName: item.studentName || 'Estudante',
+          classId: activeModalClass.id,
+          className: activeModalClass.name,
+          date: selectedDate,
+          status: item.status,
+          durationDays: item.durationDays,
+          justification: item.justification,
+          medicalCertificate: item.medicalCertificate,
+          medicalDays: item.medicalDays,
+          recordedBy: teacherName,
+          recordedAt: new Date().toISOString(),
+        }))
+      : [{
+          id: `att-cls-${activeModalClass.id}-${selectedDate}`,
+          studentId: `cls-marker-${activeModalClass.id}`,
+          studentName: `Turma ${activeModalClass.name} (Chamada Concluída)`,
+          classId: activeModalClass.id,
+          className: activeModalClass.name,
+          date: selectedDate,
+          status: 'presente',
+          durationDays: 1,
+          isCountedAsAbsence: false,
+          recordedBy: teacherName,
+          recordedAt: new Date().toISOString(),
+          justification: 'Frequência da turma registrada',
+        }];
+
+    setDailyRecords(prev => {
+      const filtered = prev.filter(r => !(isSameDay(r.date, selectedDate) && isRecordInClass(r, activeModalClass)));
+      return [...filtered, ...optimisticRecords];
+    });
+
     try {
       await onSaveAttendance(items, activeModalClass.id, teacherName, selectedDate);
-      // Reload daily records to refresh badges
-      await loadDailyRecords(selectedDate);
+      // Reload daily records to refresh badges from Firestore
+      const updated = await loadDailyRecords(selectedDate);
+      if (!updated || updated.length === 0 || !updated.some(r => isSameDay(r.date, selectedDate) && isRecordInClass(r, activeModalClass))) {
+        // Preserva os dados otimistas se houver latência de propagação
+        setDailyRecords(prev => {
+          const filtered = prev.filter(r => !(isSameDay(r.date, selectedDate) && isRecordInClass(r, activeModalClass)));
+          return [...filtered, ...optimisticRecords];
+        });
+      }
 
       setSaveSuccessMsg(`Frequência da turma "${activeModalClass.name}" registrada com sucesso!`);
       setTimeout(() => setSaveSuccessMsg(null), 5000);
@@ -252,10 +379,12 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
   // Class filtering for the grid
   const filteredClasses = useMemo(() => {
     return classes.filter(cls => {
-      const matchesSearch = cls.name.toLowerCase().includes(classSearch.toLowerCase());
+      const matchesSearch =
+        cls.name.toLowerCase().includes(classSearch.toLowerCase()) ||
+        cls.id.toLowerCase().includes(classSearch.toLowerCase());
       const matchesShift = shiftFilter === 'todos' || cls.shift === shiftFilter;
 
-      const classRecords = dailyRecords.filter(r => r.classId === cls.id);
+      const classRecords = dailyRecords.filter(r => isSameDay(r.date, selectedDate) && isRecordInClass(r, cls));
       const isRecorded = classRecords.length > 0;
 
       let matchesStatus = true;
@@ -267,20 +396,19 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
 
       return matchesSearch && matchesShift && matchesStatus;
     });
-  }, [classes, classSearch, shiftFilter, statusFilter, dailyRecords]);
+  }, [classes, classSearch, shiftFilter, statusFilter, dailyRecords, selectedDate]);
 
   // Overall grid statistics
   const totalClassesCount = classes.length;
   const recordedClassesCount = useMemo(() => {
-    const recordedIds = new Set(dailyRecords.map(r => r.classId));
-    return classes.filter(c => recordedIds.has(c.id)).length;
-  }, [classes, dailyRecords]);
+    return classes.filter(c => dailyRecords.some(r => isSameDay(r.date, selectedDate) && isRecordInClass(r, c))).length;
+  }, [classes, dailyRecords, selectedDate]);
   const pendingClassesCount = Math.max(0, totalClassesCount - recordedClassesCount);
 
   // Modal active students filtered
   const activeClassStudents = useMemo(() => {
     if (!activeModalClass) return [];
-    return students.filter(s => s.classId === activeModalClass.id);
+    return students.filter(s => isStudentInClass(s, activeModalClass));
   }, [activeModalClass, students]);
 
   const filteredModalStudents = useMemo(() => {
@@ -487,8 +615,8 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
           </div>
         ) : (
           filteredClasses.map(cls => {
-            const classStudents = students.filter(s => s.classId === cls.id);
-            const classRecords = dailyRecords.filter(r => r.classId === cls.id);
+            const classStudents = students.filter(s => isStudentInClass(s, cls));
+            const classRecords = dailyRecords.filter(r => isSameDay(r.date, selectedDate) && isRecordInClass(r, cls));
             const isRecorded = classRecords.length > 0;
 
             const presentCount = classRecords.filter(r => r.status === 'presente').length;

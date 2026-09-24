@@ -1050,6 +1050,28 @@ export class SchoolDatabase {
     const timestamp = new Date().toISOString();
     const recordDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayStr;
 
+    // Se a turma foi lançada sem alunos cadastrados ou lista vazia, registra marcador da turma
+    if (items.length === 0 && classId) {
+      const existingClass = this.data.classes.find(c => c.id === classId || c.name === classId);
+      const markerRecord: AttendanceRecord = {
+        id: `att-cls-${classId}-${recordDate}`,
+        studentId: `cls-marker-${classId}`,
+        studentName: `Turma ${existingClass?.name || classId} (Chamada Concluída)`,
+        classId,
+        className: existingClass?.name || classId,
+        date: recordDate,
+        status: 'presente',
+        durationDays: 1,
+        isCountedAsAbsence: false,
+        recordedBy: recordedBy || 'AOE / Professor',
+        recordedAt: timestamp,
+      };
+      this.data.attendanceRecords = this.data.attendanceRecords.filter(
+        r => !(r.classId === classId && r.date === recordDate && r.studentId === markerRecord.studentId)
+      );
+      this.data.attendanceRecords.push(markerRecord);
+    }
+
     items.forEach(item => {
       // Remove existing record for same day & student if any
       this.data.attendanceRecords = this.data.attendanceRecords.filter(
@@ -1057,16 +1079,19 @@ export class SchoolDatabase {
       );
 
       const student = this.data.students.find(s => s.id === item.studentId);
-      if (!student) return;
+      const studentName = student ? student.name : (item as any).studentName || 'Estudante';
+      const targetClassId = classId || (student ? student.classId : '');
+      const targetClassName = student ? student.className : (item as any).className || '';
 
       const isCountedAsAbsence = item.status === 'falta_injustificada' || item.status === 'falta_justificada';
       const duration = item.durationDays && item.durationDays > 1 ? item.durationDays : 1;
 
       const record: AttendanceRecord = {
         id: `att-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-        studentId: student.id,
-        studentName: student.name,
-        classId: student.classId,
+        studentId: item.studentId,
+        studentName,
+        classId: targetClassId,
+        className: targetClassName,
         date: recordDate,
         status: item.status,
         durationDays: duration,
@@ -1079,55 +1104,56 @@ export class SchoolDatabase {
       };
       this.data.attendanceRecords.push(record);
 
-      // Recalculate student stats:
-      // - presente: reset consecutive absences
-      // - falta_justificada: retains absence count ("mas sem retirar a contagem da falta")
-      // - falta_injustificada: counts absence
-      // - atestado_medico: does NOT count absence ("onde não contabiliza a ausência")
-      if (item.status === 'presente') {
-        student.consecutiveAbsences = 0;
-        student.lastAttendanceDate = recordDate;
-        if (student.status === 'alerta' && student.consecutiveAbsences === 0) {
-          student.status = 'regular';
-          student.riskLevel = 'moderado';
+      if (student) {
+        // Recalculate student stats:
+        // - presente: reset consecutive absences
+        // - falta_justificada: retains absence count ("mas sem retirar a contagem da falta")
+        // - falta_injustificada: counts absence
+        // - atestado_medico: does NOT count absence ("onde não contabiliza a ausência")
+        if (item.status === 'presente') {
+          student.consecutiveAbsences = 0;
+          student.lastAttendanceDate = recordDate;
+          if (student.status === 'alerta' && student.consecutiveAbsences === 0) {
+            student.status = 'regular';
+            student.riskLevel = 'moderado';
+          }
+        } else if (item.status === 'falta_injustificada' || item.status === 'falta_justificada') {
+          student.totalAbsences += duration;
+          student.consecutiveAbsences += duration;
+        } else if (item.status === 'atestado_medico') {
+          // Atestado médico ampara o aluno: NÃO contabiliza como falta nem penaliza índice
+          const diasAtestado = item.medicalDays || duration;
+          const docInfo = item.medicalCertificate || `${diasAtestado} dia(s) de atestado médico`;
+          student.notes = student.notes
+            ? `${student.notes} | Atestado médico (${recordDate} - ${diasAtestado} dias): ${docInfo}`
+            : `Atestado médico (${recordDate} - ${diasAtestado} dias): ${docInfo}`;
         }
-      } else if (item.status === 'falta_injustificada' || item.status === 'falta_justificada') {
-        student.totalAbsences += duration;
-        student.consecutiveAbsences += duration;
-      } else if (item.status === 'atestado_medico') {
-        // Atestado médico ampara o aluno: NÃO contabiliza como falta nem penaliza índice
-        const diasAtestado = item.medicalDays || duration;
-        const docInfo = item.medicalCertificate || `${diasAtestado} dia(s) de atestado médico`;
-        student.notes = student.notes
-          ? `${student.notes} | Atestado médico (${recordDate} - ${diasAtestado} dias): ${docInfo}`
-          : `Atestado médico (${recordDate} - ${diasAtestado} dias): ${docInfo}`;
-      }
 
-      // Recompute rate
-      student.attendanceRate = Number((((student.totalSchoolDays - student.totalAbsences) / student.totalSchoolDays) * 100).toFixed(1));
+        // Recompute rate
+        student.attendanceRate = Number((((student.totalSchoolDays - student.totalAbsences) / student.totalSchoolDays) * 100).toFixed(1));
 
-      // Automated Alert Triggers (only for unexcused/justified absences, NOT for legal medical certificates)
-      if (item.status !== 'atestado_medico' && item.status !== 'presente') {
-        let shouldAlert = false;
-        let triggerReason: AlertTrigger = 'alerta_manual';
-        let triggerLabel = '';
-        let alertMessage = '';
+        // Automated Alert Triggers (only for unexcused/justified absences, NOT for legal medical certificates)
+        if (item.status !== 'atestado_medico' && item.status !== 'presente') {
+          let shouldAlert = false;
+          let triggerReason: AlertTrigger = 'alerta_manual';
+          let triggerLabel = '';
+          let alertMessage = '';
 
-        if (student.consecutiveAbsences > 3) {
-          shouldAlert = true;
-          triggerReason = 'mais_de_3_conselho_tutelar';
-          triggerLabel = `Mais de 3 faltas consecutivas (${student.consecutiveAbsences} dias) - Encaminhamento Conselho Tutelar`;
-          student.riskLevel = 'critico';
-          student.status = 'evasao_iminente';
-          alertMessage = `NOTIFICAÇÃO URGENTE - Escola Arlindo Silvestre: Prezado(a) ${student.guardianName}, o(a) estudante ${student.name} (${student.className}) ultrapassou o limite legal com ${student.consecutiveAbsences} faltas consecutivas. Conforme prevê a legislação educacional e o ECA, caso a situação não seja justificada presencialmente na escola de imediato, o caso será encaminhado formalmente ao Conselho Tutelar.`;
-        } else if (student.consecutiveAbsences === 3) {
-          shouldAlert = true;
-          triggerReason = '3_faltas_consecutivas';
-          triggerLabel = '3 faltas consecutivas detectadas';
-          student.riskLevel = 'alto';
-          student.status = 'alerta';
-          alertMessage = `Alerta de Infrequência - Escola Arlindo Silvestre: Prezado(a) ${student.guardianName}, informamos que o(a) estudante ${student.name} (${student.className}) registrou a 3ª falta consecutiva hoje (${new Date(recordDate + 'T12:00:00').toLocaleDateString('pt-BR')}). Solicitamos contato urgente ou comparecimento à escola para justificativa e acompanhamento pedagógico.`;
-        } else if (student.consecutiveAbsences === 2) {
+          if (student.consecutiveAbsences > 3) {
+            shouldAlert = true;
+            triggerReason = 'mais_de_3_conselho_tutelar';
+            triggerLabel = `Mais de 3 faltas consecutivas (${student.consecutiveAbsences} dias) - Encaminhamento Conselho Tutelar`;
+            student.riskLevel = 'critico';
+            student.status = 'evasao_iminente';
+            alertMessage = `NOTIFICAÇÃO URGENTE - Escola Arlindo Silvestre: Prezado(a) ${student.guardianName}, o(a) estudante ${student.name} (${student.className}) ultrapassou o limite legal com ${student.consecutiveAbsences} faltas consecutivas. Conforme prevê a legislação educacional e o ECA, caso a situação não seja justificada presencialmente na escola de imediato, o caso será encaminhado formalmente ao Conselho Tutelar.`;
+          } else if (student.consecutiveAbsences === 3) {
+            shouldAlert = true;
+            triggerReason = '3_faltas_consecutivas';
+            triggerLabel = '3 faltas consecutivas detectadas';
+            student.riskLevel = 'alto';
+            student.status = 'alerta';
+            alertMessage = `Alerta de Infrequência - Escola Arlindo Silvestre: Prezado(a) ${student.guardianName}, informamos que o(a) estudante ${student.name} (${student.className}) registrou a 3ª falta consecutiva hoje (${new Date(recordDate + 'T12:00:00').toLocaleDateString('pt-BR')}). Solicitamos contato urgente ou comparecimento à escola para justificativa e acompanhamento pedagógico.`;
+          } else if (student.consecutiveAbsences === 2) {
           shouldAlert = true;
           triggerReason = '2_faltas_consecutivas';
           triggerLabel = '2 faltas consecutivas detectadas';
@@ -1219,6 +1245,7 @@ export class SchoolDatabase {
           }
         }
       }
+    }
     });
 
     this.data.lastUpdated = timestamp;

@@ -1105,16 +1105,16 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
       if (fs.existsSync(cleanFilePath)) {
         try {
           const currentClean = JSON.parse(fs.readFileSync(cleanFilePath, 'utf-8'));
-          if (body.action === 'excluir' || body.action === 'excluir_ocorrencia') {
+          if (body.action === 'excluir' || body.action === 'excluir_ocorrencia' || body.acao === 'excluir') {
             currentClean.registros = (currentClean.registros || []).filter((r: any) => r.id !== body.id);
-          } else if (body.action === 'salvar_mediacao') {
+          } else if (body.action === 'salvar_mediacao' || body.action === 'mediacao' || body.acao === 'mediar') {
             const idx = currentClean.registros.findIndex((r: any) => r.id === body.id);
             if (idx >= 0) {
               currentClean.registros[idx].status = body.status || 'Resolvido';
               currentClean.registros[idx].mediacao = body.mediacao || '';
               currentClean.registros[idx].mediador = body.mediador || '';
             }
-          } else if (body.action === 'salvar_tratativa_familia') {
+          } else if (body.action === 'salvar_tratativa_familia' || body.action === 'tratativa_familia' || body.acao === 'tratativa_familia') {
             if (!currentClean.tratativasFamilia) currentClean.tratativasFamilia = [];
             currentClean.tratativasFamilia.unshift({
               id: body.id || `TRAT-${Date.now()}`,

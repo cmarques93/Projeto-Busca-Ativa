@@ -139,7 +139,12 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
   // Identificação do Usuário
   const userName = currentUser?.name || 'Professor / Servidor';
   const userRole = (currentUser?.role || 'professor').toLowerCase();
-  const isAdmin = userRole === 'admin' || userRole.includes('admin');
+  const userRoleLabel = (currentUser as any)?.roleLabel ? String((currentUser as any).roleLabel).toLowerCase() : '';
+  const isAdmin =
+    userRole === 'admin' ||
+    userRole === 'administrador' ||
+    userRole.includes('admin') ||
+    userRoleLabel.includes('administrador');
   const isGestao =
     isAdmin ||
     userRole.includes('gest') ||
@@ -170,20 +175,31 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
   const listaProfessoresDisponiveis = useMemo(() => {
     const profsUsers = usuariosCadastrados
-      .filter(u => u.active !== false && u.role === 'professor')
-      .map(u => u.name);
-    const profsDb = bancoDeDados.professores || [];
-    const todos = Array.from(new Set([...profsUsers, ...profsDb, userName])).filter(Boolean);
+      .filter(u => u.active !== false && (u.role === 'professor' || (u.roleLabel && u.roleLabel.toLowerCase().includes('prof'))))
+      .map(u => u.name.trim());
+    const profsDb = (bancoDeDados.professores || []).map((p: any) =>
+      typeof p === 'string' ? p.trim() : (p?.nome || '').trim()
+    );
+    const profsFromRecords = (bancoDeDados.registros || []).map(r => (r.professor || '').trim());
+    const todos = Array.from(new Set([...profsUsers, ...profsDb, ...profsFromRecords, userName])).filter(Boolean);
     return todos.sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  }, [usuariosCadastrados, bancoDeDados.professores, userName]);
+  }, [usuariosCadastrados, bancoDeDados.professores, bancoDeDados.registros, userName]);
 
   const listaMembrosGestaoDisponiveis = useMemo(() => {
     const gestaoUsers = usuariosCadastrados
-      .filter(u => u.active !== false && u.role !== 'professor')
-      .map(u => u.name);
-    const todos = Array.from(new Set([...gestaoUsers, userName])).filter(Boolean);
+      .filter(u => u.active !== false && (u.role === 'admin' || u.role === 'gestao_paac' || u.role !== 'professor'))
+      .map(u => u.name.trim());
+    const gestaoFromRecords = (bancoDeDados.registros || []).map(r => (r.mediador || '').trim());
+    const gestaoDefaults = [
+      'Equipe Gestora',
+      'Direção Escolar',
+      'Coordenação Pedagógica',
+      'Prof. Mediador PAAC',
+      'Vice-Direção'
+    ];
+    const todos = Array.from(new Set([...gestaoUsers, ...gestaoFromRecords, ...gestaoDefaults, userName])).filter(Boolean);
     return todos.sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  }, [usuariosCadastrados, userName]);
+  }, [usuariosCadastrados, bancoDeDados.registros, userName]);
 
   // Modo de digitação livre de professor e mediador (útil para migração do sistema antigo)
   const [modoProfessorAvulso, setModoProfessorAvulso] = useState(false);
@@ -863,32 +879,41 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             <label className="block text-xs font-bold text-slate-700 uppercase">
               Professor(a) Relator(a) da Ocorrência
             </label>
-            {(isAdmin || isGestao) && (
-              <button
-                type="button"
-                onClick={() => setModoProfessorAvulso(!modoProfessorAvulso)}
-                className="text-[11px] text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
-              >
-                {modoProfessorAvulso ? 'Selecionar da lista' : 'Ou digitar outro nome (sistema antigo)'}
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setModoProfessorAvulso(!modoProfessorAvulso)}
+              className="text-[11px] text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
+            >
+              {modoProfessorAvulso ? 'Selecionar da lista' : 'Ou digitar outro nome (sistema antigo)'}
+            </button>
           </div>
 
           {modoProfessorAvulso ? (
-            <input
-              type="text"
-              name="professor"
-              value={form.professor}
-              onChange={handleChange}
-              required
-              placeholder="Digite o nome do(a) professor(a)..."
-              className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800"
-            />
+            <div className="space-y-1">
+              <input
+                type="text"
+                name="professor"
+                value={form.professor}
+                onChange={handleChange}
+                required
+                placeholder="Digite o nome do(a) professor(a)..."
+                className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+              />
+              <p className="text-[11px] text-slate-500">
+                Permite registrar ocorrência no nome de qualquer professor ou importar do sistema antigo.
+              </p>
+            </div>
           ) : (
             <select
               name="professor"
               value={form.professor}
-              onChange={handleChange}
+              onChange={e => {
+                if (e.target.value === '__DIGITAR_NOVO__') {
+                  setModoProfessorAvulso(true);
+                } else {
+                  handleChange(e);
+                }
+              }}
               required
               className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
             >
@@ -900,6 +925,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                   {p}
                 </option>
               ))}
+              <option value="__DIGITAR_NOVO__">✍️ Digitar outro nome de professor (Sistema Antigo)...</option>
             </select>
           )}
         </div>
@@ -2089,18 +2115,29 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                   </div>
 
                   {modoMediadorAvulso ? (
-                    <input
-                      type="text"
-                      value={formMediacao.mediador}
-                      onChange={e => setFormMediacao({ ...formMediacao, mediador: e.target.value })}
-                      required
-                      placeholder="Nome do(a) mediador(a)..."
-                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800"
-                    />
+                    <div className="space-y-1">
+                      <input
+                        type="text"
+                        value={formMediacao.mediador}
+                        onChange={e => setFormMediacao({ ...formMediacao, mediador: e.target.value })}
+                        required
+                        placeholder="Nome do(a) mediador(a) / membro da gestão..."
+                        className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        Permite atribuir a mediação a outra pessoa da gestão ou registrar atendimentos do sistema antigo.
+                      </p>
+                    </div>
                   ) : (
                     <select
                       value={formMediacao.mediador}
-                      onChange={e => setFormMediacao({ ...formMediacao, mediador: e.target.value })}
+                      onChange={e => {
+                        if (e.target.value === '__DIGITAR_NOVO__') {
+                          setModoMediadorAvulso(true);
+                        } else {
+                          setFormMediacao({ ...formMediacao, mediador: e.target.value });
+                        }
+                      }}
                       required
                       className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
                     >
@@ -2112,6 +2149,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                           {m}
                         </option>
                       ))}
+                      <option value="__DIGITAR_NOVO__">✍️ Digitar outro membro da gestão (Sistema Antigo)...</option>
                     </select>
                   )}
                   <p className="text-[11px] text-slate-500 mt-1">

@@ -285,7 +285,10 @@ export default function App() {
         hasServerAlerts = true;
       }
       if (cloudAttendance && cloudAttendance.length > 0) {
-        storageService.setAttendanceRecords(cloudAttendance);
+        const localAttendance = storageService.getAttendanceRecords();
+        const cloudIds = new Set(cloudAttendance.map(a => a.id));
+        const localOnly = localAttendance.filter(a => !cloudIds.has(a.id));
+        storageService.setAttendanceRecords([...cloudAttendance, ...localOnly]);
       }
       if (cloudInterventions && cloudInterventions.length > 0) {
         setInterventions(cloudInterventions);
@@ -476,6 +479,8 @@ export default function App() {
       justification?: string;
       medicalCertificate?: string;
       medicalDays?: number;
+      studentName?: string;
+      className?: string;
     }[],
     classId: string,
     teacherName: string,
@@ -500,14 +505,21 @@ export default function App() {
       console.warn('Salvando chamada localmente no storageService permanente:', e);
     }
 
-    // Gravação resiliente permanente no localStorage
-    const localRes = storageService.recordAttendance(items, classId, teacherName, date);
-    if (localRes.newAlerts && localRes.newAlerts.length > 0) {
+    // Gravação resiliente definitiva no Firestore e sincronização no storageService
+    const localRes = await storageService.recordAttendance(items, classId, teacherName, date);
+    if (localRes?.newAlerts && localRes.newAlerts.length > 0) {
       newAlerts = localRes.newAlerts;
     }
 
     if (newAlerts.length > 0) {
       setAutomatedAlertsTriggered(newAlerts);
+      for (const alert of newAlerts) {
+        try {
+          await firestoreService.saveAlert(alert);
+        } catch (alertErr) {
+          console.warn('Erro ao salvar alerta gerado no Firestore:', alertErr);
+        }
+      }
     }
 
     await fetchData();

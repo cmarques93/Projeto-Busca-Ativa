@@ -115,19 +115,26 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
   const [senhaCancelar, setSenhaCancelar] = useState<string>(currentUser?.pin || '');
   const [enviandoOperacao, setEnviandoOperacao] = useState(false);
 
-  // Perfil e Regras de Permissão
+  // Perfil e Regras de Permissão: SOMENTE Perfil Administrador pode excluir qualquer reserva
   const userRole = (currentUser?.role || 'professor').toLowerCase();
-  const isAdmin = userRole === 'admin' || userRole.includes('admin') || userRole.includes('gest') || userRole.includes('diret');
+  const userRoleLabel = (currentUser as any)?.roleLabel ? String((currentUser as any).roleLabel).toLowerCase() : '';
+  const isAdmin =
+    userRole === 'admin' ||
+    userRole === 'administrador' ||
+    userRoleLabel.includes('administrador') ||
+    (userRole.includes('admin') && !userRole.includes('gest'));
 
-  // Formata nome para exibir Primeiro e Último nome no painel visual
+  // Formata nome para exibir estritamente Primeiro e Último nome no painel visual
   const formatarPrimeiroEUltimoNome = (nome: string): string => {
     if (!nome || !nome.trim()) return '';
     const partes = nome.trim().split(/\s+/).filter(Boolean);
-    if (partes.length <= 1) return partes[0] || '';
+    if (partes.length === 0) return '';
+    if (partes.length === 1) return partes[0];
 
     // Se começar com título/prefixo (Prof., Profª., Profa., etc.), pega o primeiro nome real e o último
     const prefixos = ['prof.', 'profª.', 'profa.', 'professor', 'professora', 'dr.', 'dra.'];
-    if (prefixos.includes(partes[0].toLowerCase()) && partes.length >= 3) {
+    if (prefixos.includes(partes[0].toLowerCase())) {
+      if (partes.length === 2) return partes[1];
       return `${partes[1]} ${partes[partes.length - 1]}`;
     }
 
@@ -983,7 +990,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                             <option value="">Selecione o agendamento...</option>
                             {permitidasParaCancelar.map((ag, i) => (
                               <option key={i} value={JSON.stringify(ag)}>
-                                {ag.professor} — Turma: {ag.turma} ({ag.tablets} tab.){isMinhaReserva(ag) ? ' (Sua reserva)' : ''}
+                                {formatarPrimeiroEUltimoNome(ag.professor)} — Turma: {ag.turma} ({ag.tablets} tab.){isMinhaReserva(ag) ? ' (Sua reserva)' : ''}
                               </option>
                             ))}
                           </select>

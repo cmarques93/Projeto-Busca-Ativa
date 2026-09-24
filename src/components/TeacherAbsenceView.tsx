@@ -14,6 +14,9 @@ import {
 } from 'lucide-react';
 import { SchoolClass, Student, AttendanceStatus, AttendanceRecord } from '../types';
 import { InfoTooltip } from './InfoTooltip';
+import { isStudentInClass, isRecordInClass } from './RealTimeAttendance';
+import { firestoreService, isSameDay } from '../lib/firestoreService';
+import { storageService } from '../data/storageService';
 
 interface TeacherAbsenceViewProps {
   classes: SchoolClass[];
@@ -34,27 +37,54 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
   const [filterType, setFilterType] = useState<'todas' | 'justificadas' | 'atestados' | 'injustificadas'>('todas');
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
+  const currentClass = classes.find(c => c.id === selectedClassId) || classes[0];
+
   const fetchRecords = async () => {
     setIsLoading(true);
+    let classRecs: AttendanceRecord[] = [];
+
+    // 1. Consulta em nuvem no Firestore
     try {
-      const res = await fetch(`/api/attendance-records?classId=${selectedClassId}&date=${selectedDate}`);
-      if (res.ok) {
-        const data = await res.json();
-        setRecords(data);
+      const allCloud = await firestoreService.getAttendanceRecords();
+      if (allCloud && allCloud.length > 0 && currentClass) {
+        classRecs = allCloud.filter(
+          r => isSameDay(r.date, selectedDate) && isRecordInClass(r, currentClass)
+        );
       }
     } catch (e) {
-      console.error('Erro ao buscar faltas da turma:', e);
-    } finally {
-      setIsLoading(false);
+      console.warn('Erro ao buscar do Firestore em TeacherAbsenceView:', e);
     }
+
+    // 2. Consulta API backend
+    if (classRecs.length === 0) {
+      try {
+        const res = await fetch(`/api/attendance-records?classId=${selectedClassId}&date=${selectedDate}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            classRecs = data;
+          }
+        }
+      } catch (e) {
+        console.warn('Erro ao buscar da API backend em TeacherAbsenceView:', e);
+      }
+    }
+
+    // 3. Fallback storageService local
+    if (classRecs.length === 0 && currentClass) {
+      const localRecs = storageService.getAttendanceRecords(undefined, selectedDate);
+      classRecs = localRecs.filter(r => isRecordInClass(r, currentClass));
+    }
+
+    setRecords(classRecs);
+    setIsLoading(false);
   };
 
   useEffect(() => {
     fetchRecords();
   }, [selectedClassId, selectedDate]);
 
-  const currentClass = classes.find(c => c.id === selectedClassId) || classes[0];
-  const classStudents = students.filter(s => s.classId === selectedClassId);
+  const classStudents = currentClass ? students.filter(s => isStudentInClass(s, currentClass)) : [];
 
   // Combine students in the class with their recorded absence info
   const combinedList = classStudents.map(student => {
