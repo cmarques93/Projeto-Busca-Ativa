@@ -214,16 +214,21 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
 
     // 4. Incorpora ausências ativas por atestado ou justificativa vigentes na data
     const allStored = storageService.getAttendanceRecords();
-    const existingStudentIds = new Set(records.map(r => r.studentId));
+    const recordMap = new Map<string, AttendanceRecord>();
+    records.forEach(r => recordMap.set(r.studentId, r));
+
     students.forEach(st => {
-      if (!existingStudentIds.has(st.id)) {
-        const activeAbs = findActiveAbsenceForDate(allStored, st.id, date);
-        if (activeAbs) {
-          records.push(activeAbs);
+      const activeAbs = findActiveAbsenceForDate(allStored, st.id, date);
+      if (activeAbs) {
+        // Se não há registro ou se o registro atual for 'presente' genérico, prioriza a ausência documental ativa
+        const existing = recordMap.get(st.id);
+        if (!existing || (existing.status !== 'atestado_medico' && existing.status !== 'falta_justificada')) {
+          recordMap.set(st.id, activeAbs);
         }
       }
     });
 
+    records = Array.from(recordMap.values());
     setDailyRecords(records);
     setIsLoadingRecords(false);
     return records;
@@ -260,65 +265,65 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
     > = {};
 
     classStudents.forEach(s => {
-      // 1. Verifica se já há registro na lista do dia
-      const existing = existingForClass.find(r => r.studentId === s.id);
-      if (existing) {
-        initialMap[s.id] = {
-          status: existing.status,
-          durationDays: existing.durationDays || 1,
-          justification: existing.justification || '',
-          justificationDays: existing.justificationDays || (existing.status === 'falta_justificada' ? existing.durationDays || 1 : undefined),
-          justificationDayCurrent: existing.justificationDayCurrent || 1,
-          justificationDaysRemaining: existing.justificationDaysRemaining,
-          justificationStartDate: existing.justificationStartDate,
-          justificationEndDate: existing.justificationEndDate,
-          medicalDays: existing.medicalDays || (existing.status === 'atestado_medico' ? existing.durationDays || 1 : undefined),
-          medicalCertificate: existing.medicalCertificate,
-          medicalDayCurrent: existing.medicalDayCurrent || 1,
-          medicalDaysRemaining: existing.medicalDaysRemaining,
-          medicalStartDate: existing.medicalStartDate,
-          medicalEndDate: existing.medicalEndDate,
-        };
+      // Prioridade 1: Verifica se o estudante possui atestado médico ou falta justificada em vigência na data selecionada
+      const activeAbsence = findActiveAbsenceForDate(allStoredRecords, s.id, selectedDate);
+
+      if (activeAbsence) {
+        const isMed = activeAbsence.status === 'atestado_medico';
+        const totalDays = isMed
+          ? (activeAbsence.medicalDays || activeAbsence.durationDays || 1)
+          : (activeAbsence.justificationDays || activeAbsence.durationDays || 1);
+        const curDay = isMed
+          ? (activeAbsence.medicalDayCurrent || 1)
+          : (activeAbsence.justificationDayCurrent || 1);
+        const remDays = isMed
+          ? (activeAbsence.medicalDaysRemaining !== undefined ? activeAbsence.medicalDaysRemaining : Math.max(0, totalDays - curDay))
+          : (activeAbsence.justificationDaysRemaining !== undefined ? activeAbsence.justificationDaysRemaining : Math.max(0, totalDays - curDay));
+
+        if (isMed) {
+          initialMap[s.id] = {
+            status: 'atestado_medico',
+            durationDays: totalDays,
+            justification: activeAbsence.justification || '',
+            medicalDays: totalDays,
+            medicalCertificate: activeAbsence.medicalCertificate || '',
+            medicalDayCurrent: curDay,
+            medicalDaysRemaining: remDays,
+            medicalStartDate: activeAbsence.medicalStartDate,
+            medicalEndDate: activeAbsence.medicalEndDate,
+          };
+        } else {
+          initialMap[s.id] = {
+            status: 'falta_justificada',
+            durationDays: totalDays,
+            justification: activeAbsence.justification || '',
+            justificationDays: totalDays,
+            justificationDayCurrent: curDay,
+            justificationDaysRemaining: remDays,
+            justificationStartDate: activeAbsence.justificationStartDate,
+            justificationEndDate: activeAbsence.justificationEndDate,
+          };
+        }
       } else {
-        // 2. Verifica se o estudante possui atestado médico ou falta justificada em vigência na data selecionada
-        const activeAbsence = findActiveAbsenceForDate(allStoredRecords, s.id, selectedDate);
-
-        if (activeAbsence) {
-          const isMed = activeAbsence.status === 'atestado_medico';
-          const totalDays = isMed
-            ? (activeAbsence.medicalDays || activeAbsence.durationDays || 1)
-            : (activeAbsence.justificationDays || activeAbsence.durationDays || 1);
-          const curDay = isMed
-            ? (activeAbsence.medicalDayCurrent || 1)
-            : (activeAbsence.justificationDayCurrent || 1);
-          const remDays = isMed
-            ? (activeAbsence.medicalDaysRemaining !== undefined ? activeAbsence.medicalDaysRemaining : Math.max(0, totalDays - curDay))
-            : (activeAbsence.justificationDaysRemaining !== undefined ? activeAbsence.justificationDaysRemaining : Math.max(0, totalDays - curDay));
-
-          if (isMed) {
-            initialMap[s.id] = {
-              status: 'atestado_medico',
-              durationDays: totalDays,
-              justification: activeAbsence.justification || '',
-              medicalDays: totalDays,
-              medicalCertificate: activeAbsence.medicalCertificate,
-              medicalDayCurrent: curDay,
-              medicalDaysRemaining: remDays,
-              medicalStartDate: activeAbsence.medicalStartDate,
-              medicalEndDate: activeAbsence.medicalEndDate,
-            };
-          } else {
-            initialMap[s.id] = {
-              status: 'falta_justificada',
-              durationDays: totalDays,
-              justification: activeAbsence.justification || '',
-              justificationDays: totalDays,
-              justificationDayCurrent: curDay,
-              justificationDaysRemaining: remDays,
-              justificationStartDate: activeAbsence.justificationStartDate,
-              justificationEndDate: activeAbsence.justificationEndDate,
-            };
-          }
+        // Prioridade 2: Verifica se já há registro na lista do dia
+        const existing = existingForClass.find(r => r.studentId === s.id);
+        if (existing) {
+          initialMap[s.id] = {
+            status: existing.status,
+            durationDays: existing.durationDays || 1,
+            justification: existing.justification || '',
+            justificationDays: existing.justificationDays || (existing.status === 'falta_justificada' ? existing.durationDays || 1 : undefined),
+            justificationDayCurrent: existing.justificationDayCurrent || 1,
+            justificationDaysRemaining: existing.justificationDaysRemaining,
+            justificationStartDate: existing.justificationStartDate,
+            justificationEndDate: existing.justificationEndDate,
+            medicalDays: existing.medicalDays || (existing.status === 'atestado_medico' ? existing.durationDays || 1 : undefined),
+            medicalCertificate: existing.medicalCertificate,
+            medicalDayCurrent: existing.medicalDayCurrent || 1,
+            medicalDaysRemaining: existing.medicalDaysRemaining,
+            medicalStartDate: existing.medicalStartDate,
+            medicalEndDate: existing.medicalEndDate,
+          };
         } else {
           // Baseline: if student has chronic absence risk, highlight or default presente
           initialMap[s.id] = {
@@ -414,11 +419,20 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
   const handleModalMarkAllPresent = () => {
     if (!activeModalClass) return;
     const classStudents = students.filter(s => isStudentInClass(s, activeModalClass));
-    const updated: typeof modalAttendanceState = {};
-    classStudents.forEach(s => {
-      updated[s.id] = { status: 'presente', durationDays: 1 };
+    const allStoredRecords = storageService.getAttendanceRecords();
+
+    setModalAttendanceState(prev => {
+      const updated = { ...prev };
+      classStudents.forEach(s => {
+        // Se o estudante possui atestado médico ou falta justificada ativa para a data, preserva!
+        const activeAbs = findActiveAbsenceForDate(allStoredRecords, s.id, selectedDate);
+        if (activeAbs) {
+          return;
+        }
+        updated[s.id] = { status: 'presente', durationDays: 1 };
+      });
+      return updated;
     });
-    setModalAttendanceState(updated);
   };
 
   // Submit modal attendance and return to grid
@@ -754,7 +768,11 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
             const isRecorded = classRecords.length > 0;
 
             const presentCount = classRecords.filter(r => r.status === 'presente').length;
-            const absentCount = classRecords.filter(r => r.status !== 'presente').length;
+            const unjustifiedCount = classRecords.filter(r => r.status === 'falta_injustificada').length;
+            const justifiedCount = classRecords.filter(r => r.status === 'falta_justificada').length;
+            const medicalCount = classRecords.filter(r => r.status === 'atestado_medico').length;
+            const absentCount = unjustifiedCount + justifiedCount + medicalCount;
+            const totalDocumented = justifiedCount + medicalCount;
 
             return (
               <div
@@ -807,7 +825,7 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
                   </div>
 
                   {/* Recorded Stats Preview */}
-                  <div className="mt-2.5">
+                  <div className="mt-2.5 space-y-1.5">
                     {isRecorded ? (
                       <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-100 text-[11px] text-emerald-900 flex items-center justify-between">
                         <span>Presentes: <strong>{presentCount}</strong></span>
@@ -819,6 +837,27 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
                     ) : (
                       <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-500 text-center">
                         Chamada ainda não realizada nesta data
+                      </div>
+                    )}
+
+                    {totalDocumented > 0 && (
+                      <div className="p-2 rounded-xl bg-cyan-50/80 border border-cyan-200 text-[10px] text-cyan-950 font-medium flex items-center justify-between">
+                        <span className="flex items-center gap-1">
+                          <Stethoscope className="w-3 h-3 text-cyan-700 shrink-0" />
+                          <span>Pré-preenchidos:</span>
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {medicalCount > 0 && (
+                            <span className="font-bold text-cyan-800 bg-white px-1.5 py-0.2 rounded border border-cyan-200">
+                              {medicalCount} Atestado(s)
+                            </span>
+                          )}
+                          {justifiedCount > 0 && (
+                            <span className="font-bold text-amber-800 bg-white px-1.5 py-0.2 rounded border border-amber-200">
+                              {justifiedCount} Justificada(s)
+                            </span>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
