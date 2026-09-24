@@ -1,0 +1,712 @@
+{
+  "agendamentos": [
+    {
+      "data": "2026-08-28",
+      "aula": "1ª Aula - (07h as 7h50)",
+      "professor": "Cláudio Everton Marques",
+      "turma": "8º Ano B",
+      "tablets": 17
+    },
+    {
+      "data": "2026-08-28",
+      "aula": "1ª Aula - (07h as 7h50)",
+      "professor": "Cláudio Everton Marques",
+      "turma": "8º Ano B",
+      "tablets": 6
+    },
+    {
+      "data": "2026-08-31",
+      "aula": "9ª Aula - (15h10 as 16h)",
+      "professor": "Jhenifer Caroline Stabile",
+      "turma": "8º Ano B",
+      "tablets": 10
+    },
+    {
+      "data": "2026-09-03",
+      "aula": "6ª Aula - (11h25 as 12h15)",
+      "professor": "Patricia Maria Americo",
+      "turma": "8º Ano A",
+      "tablets": 7
+    },
+    {
+      "data": "2026-09-04",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Beatriz Rabesco",
+      "turma": "8º Ano B",
+      "tablets": 15
+    },
+    {
+      "data": "2026-09-17",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Adriana Helena Leal",
+      "turma": "7º Ano A",
+      "tablets": 12
+    },
+    {
+      "data": "2026-09-03",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Adriana Helena Leal",
+      "turma": "7º Ano A",
+      "tablets": 12
+    },
+    {
+      "data": "2026-09-03",
+      "aula": "9ª Aula - (15h10 as 16h)",
+      "professor": "Adriana Helena Leal",
+      "turma": "7º Ano A",
+      "tablets": 12
+    },
+    {
+      "data": "2026-09-10",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Adriana Helena Leal",
+      "turma": "7º Ano A",
+      "tablets": 12
+    },
+    {
+      "data": "2026-09-10",
+      "aula": "9ª Aula - (15h10 as 16h)",
+      "professor": "Adriana Helena Leal",
+      "turma": "7º Ano A",
+      "tablets": 12
+    },
+    {
+      "data": "2026-09-17",
+      "aula": "9ª Aula - (15h10 as 16h)",
+      "professor": "Adriana Helena Leal",
+      "turma": "7º Ano A",
+      "tablets": 12
+    },
+    {
+      "data": "2026-09-24",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Adriana Helena Leal",
+      "turma": "7º Ano A",
+      "tablets": 12
+    },
+    {
+      "data": "2026-09-24",
+      "aula": "9ª Aula - (15h10 as 16h)",
+      "professor": "Adriana Helena Leal",
+      "turma": "7º Ano A",
+      "tablets": 12
+    },
+    {
+      "data": "2026-09-01",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "turma": "1ª Série B",
+      "tablets": 6
+    },
+    {
+      "data": "2026-09-04",
+      "aula": "9ª Aula - (15h10 as 16h)",
+      "professor": "Patricia Maria Americo",
+      "turma": "8º Ano A",
+      "tablets": 7
+    },
+    {
+      "data": "2026-09-03",
+      "aula": "4ª Aula - (09h45 as 10h35)",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "turma": "1ª Série A",
+      "tablets": 7
+    },
+    {
+      "data": "2026-09-03",
+      "aula": "4ª Aula - (09h45 as 10h35)",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "turma": "1ª Série A",
+      "tablets": 6
+    },
+    {
+      "data": "2026-09-03",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Heitor Flávio de Lima",
+      "turma": "1ª Série B",
+      "tablets": 10
+    },
+    {
+      "data": "2026-09-03",
+      "aula": "9ª Aula - (15h10 as 16h)",
+      "professor": "Heitor Flávio de Lima",
+      "turma": "1ª Série B",
+      "tablets": 10
+    },
+    {
+      "data": "2026-09-03",
+      "aula": "2ª Aula - (07h50 as 8h40)",
+      "professor": "Cláudio Everton Marques",
+      "turma": "1ª Série B",
+      "tablets": 13
+    },
+    {
+      "data": "2026-09-03",
+      "aula": "3ª Aula - (08h40 as 9h30)",
+      "professor": "Cláudio Everton Marques",
+      "turma": "1ª Série B",
+      "tablets": 13
+    },
+    {
+      "data": "2026-09-04",
+      "aula": "4ª Aula - (09h45 as 10h35)",
+      "professor": "Patricia Maria Americo",
+      "turma": "7º Ano A",
+      "tablets": 7
+    },
+    {
+      "data": "2026-09-04",
+      "aula": "5ª Aula - (10h35 as 11h25)",
+      "professor": "Cláudio Everton Marques",
+      "turma": "1ª Série A",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-04",
+      "aula": "6ª Aula - (11h25 as 12h15)",
+      "professor": "Cláudio Everton Marques",
+      "turma": "1ª Série A",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-10",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Beatriz Rabesco",
+      "turma": "8º Ano A",
+      "tablets": 8
+    },
+    {
+      "data": "2026-09-11",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Maria de Fátima Santos Rocha",
+      "turma": "8º Ano B",
+      "tablets": 17
+    },
+    {
+      "data": "2026-09-08",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Adriana Forti",
+      "turma": "6º Ano C",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-11",
+      "aula": "5ª Aula - (10h35 as 11h25)",
+      "professor": "Beatriz Rabesco",
+      "turma": "8º Ano A",
+      "tablets": 15
+    },
+    {
+      "data": "2026-09-10",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Beatriz Rabesco",
+      "turma": "8º Ano A",
+      "tablets": 15
+    },
+    {
+      "data": "2026-09-08",
+      "aula": "2ª Aula - (07h50 as 8h40)",
+      "professor": "Adriana Forti",
+      "turma": "6º Ano A",
+      "tablets": 22
+    },
+    {
+      "data": "2026-09-11",
+      "aula": "6ª Aula - (11h25 as 12h15)",
+      "professor": "Beatriz Rabesco",
+      "turma": "8º Ano A",
+      "tablets": 15
+    },
+    {
+      "data": "2026-09-08",
+      "aula": "4ª Aula - (09h45 as 10h35)",
+      "professor": "Adriana Forti",
+      "turma": "6º Ano B",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-11",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Beatriz Rabesco",
+      "turma": "8º Ano A",
+      "tablets": 15
+    },
+    {
+      "data": "2026-09-11",
+      "aula": "3ª Aula - (08h40 as 9h30)",
+      "professor": "Beatriz Rabesco",
+      "turma": "9º Ano A",
+      "tablets": 8
+    },
+    {
+      "data": "2026-09-11",
+      "aula": "4ª Aula - (09h45 as 10h35)",
+      "professor": "Beatriz Rabesco",
+      "turma": "9º Ano B",
+      "tablets": 8
+    },
+    {
+      "data": "2026-09-14",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Adriana Helena Leal",
+      "turma": "8º Ano A",
+      "tablets": 14
+    },
+    {
+      "data": "2026-09-14",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Adriana Helena Leal",
+      "turma": "8º Ano A",
+      "tablets": 14
+    },
+    {
+      "data": "2026-09-17",
+      "aula": "4ª Aula - (09h45 as 10h35)",
+      "professor": "Adriana Helena Leal",
+      "turma": "8º Ano B",
+      "tablets": 14
+    },
+    {
+      "data": "2026-09-17",
+      "aula": "5ª Aula - (10h35 as 11h25)",
+      "professor": "Adriana Helena Leal",
+      "turma": "8º Ano B",
+      "tablets": 14
+    },
+    {
+      "data": "2026-09-08",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "turma": "1ª Série B",
+      "tablets": 6
+    },
+    {
+      "data": "2026-09-10",
+      "aula": "2ª Aula - (07h50 as 8h40)",
+      "professor": "Jhenifer Caroline Stabile",
+      "turma": "3ª Série A",
+      "tablets": 15
+    },
+    {
+      "data": "2026-09-11",
+      "aula": "6ª Aula - (11h25 as 12h15)",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "turma": "1ª Série A",
+      "tablets": 6
+    },
+    {
+      "data": "2026-09-10",
+      "aula": "4ª Aula - (09h45 as 10h35)",
+      "professor": "Lilian Leticia de F. Alvatti Sartori",
+      "turma": "6º Ano A",
+      "tablets": 8
+    },
+    {
+      "data": "2026-09-10",
+      "aula": "5ª Aula - (10h35 as 11h25)",
+      "professor": "Lilian Leticia de F. Alvatti Sartori",
+      "turma": "6º Ano A",
+      "tablets": 8
+    },
+    {
+      "data": "2026-09-10",
+      "aula": "6ª Aula - (11h25 as 12h15)",
+      "professor": "Lilian Leticia de F. Alvatti Sartori",
+      "turma": "6º Ano A",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-18",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Maria de Fátima Santos Rocha",
+      "turma": "8º Ano B",
+      "tablets": 19
+    },
+    {
+      "data": "2026-09-14",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Jhenifer Caroline Stabile",
+      "turma": "3ª Série A",
+      "tablets": 9
+    },
+    {
+      "data": "2026-09-16",
+      "aula": "2ª Aula - (07h50 as 8h40)",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "turma": "6º Ano C",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-16",
+      "aula": "5ª Aula - (10h35 as 11h25)",
+      "professor": "Maria de Fátima Santos Rocha",
+      "turma": "7º Ano A",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-16",
+      "aula": "6ª Aula - (11h25 as 12h15)",
+      "professor": "Maria de Fátima Santos Rocha",
+      "turma": "8º Ano B",
+      "tablets": 18
+    },
+    {
+      "data": "2026-09-16",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Cláudio Everton Marques",
+      "turma": "2ª Série A",
+      "tablets": 10
+    },
+    {
+      "data": "2026-09-18",
+      "aula": "5ª Aula - (10h35 as 11h25)",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "turma": "9º Ano B",
+      "tablets": 8
+    },
+    {
+      "data": "2026-09-16",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Maria de Fátima Santos Rocha",
+      "turma": "7º Ano A",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-17",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Adriana Forti",
+      "turma": "6º Ano A",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-21",
+      "aula": "5ª Aula - (10h35 as 11h25)",
+      "professor": "Maria de Fátima Santos Rocha",
+      "turma": "8º Ano A",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-21",
+      "aula": "6ª Aula - (11h25 as 12h15)",
+      "professor": "Maria de Fátima Santos Rocha",
+      "turma": "8º Ano A",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-17",
+      "aula": "4ª Aula - (09h45 as 10h35)",
+      "professor": "Lilian Leticia de F. Alvatti Sartori",
+      "turma": "1ª Série A",
+      "tablets": 6
+    },
+    {
+      "data": "2026-09-18",
+      "aula": "9ª Aula - (15h10 as 16h)",
+      "professor": "Rogério José Aragão",
+      "turma": "9º Ano A",
+      "tablets": 8
+    },
+    {
+      "data": "2026-09-17",
+      "aula": "9ª Aula - (15h10 as 16h)",
+      "professor": "Rogério José Aragão",
+      "turma": "9º Ano B",
+      "tablets": 5
+    },
+    {
+      "data": "2026-09-25",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Rogério José Aragão",
+      "turma": "9º Ano B",
+      "tablets": 6
+    },
+    {
+      "data": "2026-09-25",
+      "aula": "9ª Aula - (15h10 as 16h)",
+      "professor": "Rogério José Aragão",
+      "turma": "9º Ano A",
+      "tablets": 8
+    },
+    {
+      "data": "2026-09-24",
+      "aula": "9ª Aula - (15h10 as 16h)",
+      "professor": "Rogério José Aragão",
+      "turma": "1ª Série A",
+      "tablets": 6
+    },
+    {
+      "data": "2026-09-18",
+      "aula": "4ª Aula - (09h45 as 10h35)",
+      "professor": "Patricia Maria Americo",
+      "turma": "7º Ano A",
+      "tablets": 8
+    },
+    {
+      "data": "2026-09-18",
+      "aula": "5ª Aula - (10h35 as 11h25)",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "turma": "6º Ano C",
+      "tablets": 15
+    },
+    {
+      "data": "2026-09-18",
+      "aula": "6ª Aula - (11h25 as 12h15)",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "turma": "1ª Série A",
+      "tablets": 8
+    },
+    {
+      "data": "2026-09-18",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Cláudio Everton Marques",
+      "turma": "Gestão",
+      "tablets": 4
+    },
+    {
+      "data": "2026-09-18",
+      "aula": "9ª Aula - (15h10 as 16h)",
+      "professor": "Cláudio Everton Marques",
+      "turma": "Gestão",
+      "tablets": 4
+    },
+    {
+      "data": "2026-09-18",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Cláudio Everton Marques",
+      "turma": "Gestão",
+      "tablets": 4
+    },
+    {
+      "data": "2026-09-17",
+      "aula": "9ª Aula - (15h10 as 16h)",
+      "professor": "Rogério José Aragão",
+      "turma": "9º Ano B",
+      "tablets": 1
+    },
+    {
+      "data": "2026-09-21",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "turma": "6º Ano B",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-28",
+      "aula": "4ª Aula - (09h45 as 10h35)",
+      "professor": "Rogério José Aragão",
+      "turma": "1ª Série A",
+      "tablets": 17
+    },
+    {
+      "data": "2026-09-21",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "turma": "1ª Série B",
+      "tablets": 6
+    },
+    {
+      "data": "2026-09-28",
+      "aula": "5ª Aula - (10h35 as 11h25)",
+      "professor": "Rogério José Aragão",
+      "turma": "1ª Série A",
+      "tablets": 17
+    },
+    {
+      "data": "2026-09-22",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "turma": "1ª Série B",
+      "tablets": 6
+    },
+    {
+      "data": "2026-09-22",
+      "aula": "7ª Aula - (13h15 as 14h05)",
+      "professor": "Cláudio Everton Marques",
+      "turma": "1ª Série A",
+      "tablets": 1
+    },
+    {
+      "data": "2026-09-22",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Cláudio Everton Marques",
+      "turma": "1ª Série B",
+      "tablets": 1
+    },
+    {
+      "data": "2026-09-25",
+      "aula": "3ª Aula - (08h40 as 9h30)",
+      "professor": "Rogério José Aragão",
+      "turma": "8º Ano A",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-25",
+      "aula": "4ª Aula - (09h45 as 10h35)",
+      "professor": "Rogério José Aragão",
+      "turma": "8º Ano A",
+      "tablets": 23
+    },
+    {
+      "data": "2026-09-23",
+      "aula": "1ª Aula - (07h as 7h50)",
+      "professor": "Heitor Flávio de Lima",
+      "turma": "1ª Série B",
+      "tablets": 15
+    },
+    {
+      "data": "2026-09-23",
+      "aula": "1ª Aula - (07h as 7h50)",
+      "professor": "Mônica Cristina da Silva Tozatti",
+      "turma": "6º Ano C",
+      "tablets": 8
+    },
+    {
+      "data": "2026-09-23",
+      "aula": "8ª Aula - (14h05 as 14h55)",
+      "professor": "Maria de Fátima Santos Rocha",
+      "turma": "7º Ano A",
+      "tablets": 23
+    }
+  ],
+  "horarios": [
+    "1ª Aula - (07h as 7h50)",
+    "2ª Aula - (07h50 as 8h40)",
+    "3ª Aula - (08h40 as 9h30)",
+    "Intervalo - 09h30 as 9h45",
+    "4ª Aula - (09h45 as 10h35)",
+    "5ª Aula - (10h35 as 11h25)",
+    "6ª Aula - (11h25 as 12h15)",
+    "Almoço - 12h15 as 13h15",
+    "7ª Aula - (13h15 as 14h05)",
+    "8ª Aula - (14h05 as 14h55)",
+    "Intervalo - 14h55 as 15h10",
+    "9ª Aula - (15h10 as 16h)"
+  ],
+  "professores": [
+    {
+      "nome": "Adriana Forti",
+      "status": "Professor"
+    },
+    {
+      "nome": "Adriana Helena Leal",
+      "status": "Professor"
+    },
+    {
+      "nome": "Beatriz Rabesco",
+      "status": "Professor"
+    },
+    {
+      "nome": "Cláudio Everton Marques",
+      "status": "PAAC"
+    },
+    {
+      "nome": "Eli Oliveira Dias",
+      "status": "Professor"
+    },
+    {
+      "nome": "Fernando Augusto Peres",
+      "status": "Professor"
+    },
+    {
+      "nome": "Heitor Flávio de Lima",
+      "status": "Professor"
+    },
+    {
+      "nome": "Jhenifer Caroline Stabile",
+      "status": "Professor"
+    },
+    {
+      "nome": "José Costa da Silva",
+      "status": "Professor"
+    },
+    {
+      "nome": "Leonice Aparecida Cardoso",
+      "status": "Professor"
+    },
+    {
+      "nome": "Lilian Leticia de F. Alvatti Sartori",
+      "status": "Professor"
+    },
+    {
+      "nome": "Luis Reinaldo Marostegan Rachid",
+      "status": "Professor"
+    },
+    {
+      "nome": "Mônica Cristina da Silva Tozatti",
+      "status": "Professor"
+    },
+    {
+      "nome": "Margarete Fernandes de Camargo",
+      "status": "Professor"
+    },
+    {
+      "nome": "Maria de Fátima Santos Rocha",
+      "status": "Professor"
+    },
+    {
+      "nome": "Patricia Maria Americo",
+      "status": "Professor"
+    },
+    {
+      "nome": "Robinson Tadeu Bragotto",
+      "status": "Professor"
+    },
+    {
+      "nome": "Rogério José Aragão",
+      "status": "Professor"
+    },
+    {
+      "nome": "Rosângela Ap. Mamédio Botechia",
+      "status": "Professor"
+    },
+    {
+      "nome": "Jessica Mayara",
+      "status": "Professor"
+    },
+    {
+      "nome": "Cristiana Mendes",
+      "status": "Professor"
+    },
+    {
+      "nome": "Danilo Silvestre da Silva",
+      "status": "PAAC"
+    },
+    {
+      "nome": "Jacqueline",
+      "status": "Professor"
+    },
+    {
+      "nome": "Márcia",
+      "status": "Professor"
+    }
+  ],
+  "turmas": [
+    "6º Ano A",
+    "6º Ano B",
+    "6º Ano C",
+    "7º Ano A",
+    "8º Ano A",
+    "8º Ano B",
+    "9º Ano A",
+    "9º Ano B",
+    "1ª Série A",
+    "1ª Série B",
+    "2ª Série A",
+    "3ª Série A",
+    "Gestão"
+  ],
+  "feriados": [
+    {
+      "data": "2026-09-07",
+      "motivo": "Independência do Brasil"
+    },
+    {
+      "data": "2026-09-15",
+      "motivo": "Aniversário de Limeira"
+    },
+    {
+      "data": "2026-10-09",
+      "motivo": "Eleições Grêmio Estudantil"
+    }
+  ]
+}

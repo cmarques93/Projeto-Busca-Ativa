@@ -101,6 +101,18 @@
     "attendance_records": {
       "schema": "AttendanceRecord",
       "description": "Collection of attendance records"
+    },
+    "interventions": {
+      "schema": "InterventionCase",
+      "description": "Collection of pedagogical interventions"
+    },
+    "gate_records": {
+      "schema": "GateRecord",
+      "description": "Collection of school gate entrance/exit records"
+    },
+    "system_data": {
+      "schema": "SystemData",
+      "description": "Central system records for occurrences and tablet reservations"
     }
   }
 }

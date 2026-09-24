@@ -134,9 +134,22 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
       console.warn('Falha na requisição de login à API, validando credencial localmente:', err);
     }
 
-    // Validação local via storageService (para Vercel ou caso o backend esteja off-line)
-    const verification = storageService.verifyPin(selectedUserId, pin.trim());
+    // Validação local via storageService (com consulta direta ao Firestore se necessário)
+    let verification = storageService.verifyPin(selectedUserId, pin.trim());
+    if (!verification.success) {
+      try {
+        const cloudUsers = await firestoreService.getUsers();
+        if (cloudUsers && cloudUsers.length > 0) {
+          storageService.setUsers(cloudUsers);
+          verification = storageService.verifyPin(selectedUserId, pin.trim());
+        }
+      } catch (e) {
+        console.warn('Erro ao consultar Firestore para autenticação:', e);
+      }
+    }
+
     if (verification.success && verification.user) {
+      storageService.recordUserLogin(selectedUserId);
       onLoginSuccess(verification.user);
     } else {
       setErrorMessage(verification.error || 'Senha numérica de 4 dígitos incorreta.');

@@ -23,6 +23,7 @@ import {
 import { Student, AttendanceRecord, ParentAlert, InterventionCase } from '../types';
 import { storageService } from '../data/storageService';
 import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
+import { carregarOcorrenciasSeguro } from '../lib/sheetsSyncService';
 
 interface OcorrenciaItem {
   id: string;
@@ -93,36 +94,11 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     let ocorrencias: OcorrenciaItem[] = [];
     let tratativas: TratativaItem[] = [];
 
-    // Tentar via API do servidor com proteção contra HTML de autenticação
     try {
-      const res = await fetch('/api/sheets-ocorrencias');
-      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
-        const text = await res.text();
-        if (!text.trim().startsWith('<') && !text.toLowerCase().startsWith('<!doctype')) {
-          const json = JSON.parse(text);
-          const listaRegs = json.registros || [];
-          const listaTrat = json.tratativasFamilia || [];
-
-          ocorrencias = listaRegs.filter(
-            (r: any) => r.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
-          );
-          tratativas = listaTrat.filter(
-            (t: any) => t.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
-          );
-          return { ocorrencias, tratativas };
-        }
-      }
-    } catch (e) {
-      console.warn('Fallback para cache local de ocorrências:', e);
-    }
-
-    // Fallback via cache localStorage
-    try {
-      const cached = localStorage.getItem('CACHE_OCORRENCIAS_APP');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        const listaRegs = parsed.registros || [];
-        const listaTrat = parsed.tratativasFamilia || [];
+      const res = await carregarOcorrenciasSeguro();
+      if (res && res.data) {
+        const listaRegs = res.data.registros || [];
+        const listaTrat = res.data.tratativasFamilia || [];
 
         ocorrencias = listaRegs.filter(
           (r: any) => r.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
@@ -131,8 +107,8 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
           (t: any) => t.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
         );
       }
-    } catch {
-      // no-op
+    } catch (e) {
+      console.warn('Erro ao carregar dados para o modal do estudante:', e);
     }
 
     return { ocorrencias, tratativas };

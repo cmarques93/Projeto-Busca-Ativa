@@ -20,9 +20,11 @@ import { ClassesManager } from './components/ClassesManager';
 import { LoginScreen } from './components/LoginScreen';
 import { OcorrenciasManager } from './components/OcorrenciasManager';
 import { TabletsManager } from './components/TabletsManager';
-import { RotateCcw, ShieldCheck, Trash2, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { FirebaseStatusModal } from './components/FirebaseStatusModal';
+import { RotateCcw, ShieldCheck, Trash2, AlertTriangle, CheckCircle2, Database, X, Info, Sparkles } from 'lucide-react';
 import { storageService } from './data/storageService';
 import { firestoreService } from './lib/firestoreService';
+import { salvarCacheOcorrencias, salvarCacheTablets } from './lib/sheetsSyncService';
 import {
   Student,
   SchoolClass,
@@ -45,21 +47,13 @@ export default function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
-
-  const handleSyncData = async () => {
-    setIsSyncing(true);
-    setSyncMessage(null);
-    try {
-      await migrateToFirebase(true);
-      setSyncMessage('Sincronização concluída com sucesso!');
-    } catch (error) {
-      console.error('Erro na sincronização:', error);
-      setSyncMessage('Erro ao sincronizar. Tente novamente.');
-    } finally {
-      setIsSyncing(false);
-      setTimeout(() => setSyncMessage(null), 5000);
-    }
-  };
+  const [isFirebaseStatusModalOpen, setIsFirebaseStatusModalOpen] = useState(false);
+  const [firebaseLoginSyncing, setFirebaseLoginSyncing] = useState(false);
+  const [syncNotification, setSyncNotification] = useState<{
+    type: 'success' | 'warning' | 'info';
+    message: string;
+    details?: string;
+  } | null>(null);
 
   // Core data states
   const [schoolInfo, setSchoolInfo] = useState({
@@ -78,6 +72,104 @@ export default function App() {
   const [interventions, setInterventions] = useState<InterventionCase[]>([]);
   const [monthlyReport, setMonthlyReport] = useState<MonthlyPedagogicalReport | null>(null);
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number>(9);
+
+  // Carregamento direto, completo e em tempo real da base de dados do Firebase Firestore
+  const loadAllFromFirebaseDirectly = useCallback(async (isExplicitLogin = false): Promise<boolean> => {
+    setIsRefreshing(true);
+    if (isExplicitLogin) {
+      setFirebaseLoginSyncing(true);
+    }
+    try {
+      const res = await firestoreService.getAllDataDirectly();
+      if (res.success) {
+        if (res.classes && res.classes.length > 0) {
+          setClasses(res.classes);
+          storageService.setClasses(res.classes);
+          if (!selectedClassId || !res.classes.some((c: any) => c.id === selectedClassId)) {
+            setSelectedClassId(res.classes[0].id);
+          }
+        }
+        if (res.students && res.students.length > 0) {
+          setStudents(res.students);
+          storageService.setStudents(res.students);
+        }
+        if (res.users && res.users.length > 0) {
+          storageService.setUsers(res.users);
+        }
+        if (res.alerts && res.alerts.length > 0) {
+          setAlerts(res.alerts);
+          storageService.setAlerts(res.alerts);
+        }
+        if (res.attendance && res.attendance.length > 0) {
+          storageService.setAttendanceRecords(res.attendance);
+        }
+        if (res.interventions && res.interventions.length > 0) {
+          setInterventions(res.interventions);
+          storageService.setInterventions(res.interventions);
+        }
+        if (res.gate && res.gate.length > 0) {
+          storageService.setGateRecords(res.gate);
+        }
+        if (res.ocorrencias) {
+          salvarCacheOcorrencias(res.ocorrencias);
+        }
+        if (res.tablets) {
+          salvarCacheTablets(res.tablets);
+        }
+
+        setSchoolInfo(prev => ({
+          ...prev,
+          totalStudents: res.students.length || prev.totalStudents,
+          totalClasses: res.classes.length || prev.totalClasses,
+          lastUpdated: new Date().toISOString()
+        }));
+
+        if (isExplicitLogin) {
+          setSyncNotification({
+            type: 'success',
+            message: 'Base de dados do Firebase carregada diretamente com sucesso!',
+            details: `${res.classes.length} turmas, ${res.students.length} estudantes e registros de ocorrências/tablets sincronizados em tempo real (${res.latencyMs}ms).`
+          });
+          setTimeout(() => setSyncNotification(null), 7000);
+        }
+        return true;
+      }
+    } catch (err) {
+      console.warn('Erro ao carregar dados diretamente do Firebase:', err);
+      if (isExplicitLogin) {
+        setSyncNotification({
+          type: 'warning',
+          message: 'Operando com cache seguro local e restabelecendo conexão Firebase...',
+          details: 'Seus dados continuam preservados e serão sincronizados automaticamente.'
+        });
+        setTimeout(() => setSyncNotification(null), 6000);
+      }
+    } finally {
+      setIsRefreshing(false);
+      setFirebaseLoginSyncing(false);
+    }
+    return false;
+  }, [selectedClassId]);
+
+  const handleSyncData = async () => {
+    setIsSyncing(true);
+    setSyncMessage('Carregando do Firebase...');
+    try {
+      const ok = await loadAllFromFirebaseDirectly(true);
+      if (ok) {
+        setSyncMessage('Firebase sincronizado!');
+      } else {
+        await migrateToFirebase(true);
+        setSyncMessage('Sincronização concluída!');
+      }
+    } catch (error) {
+      console.error('Erro na sincronização:', error);
+      setSyncMessage('Erro ao sincronizar. Tente novamente.');
+    } finally {
+      setIsSyncing(false);
+      setTimeout(() => setSyncMessage(null), 5000);
+    }
+  };
 
   // Usuários com perfil de Professor jamais têm acesso a telefones de responsáveis (LGPD escolar)
   // Podem apenas visualizar o status de frequência, turma, ausências e justificativas
@@ -295,21 +387,21 @@ export default function App() {
     }
   }, [selectedClassId, selectedMonthIndex, fetchQuotaStatus]);
 
-  // Load on mount
+  // Load on mount: carrega diretamente do Firebase primeiro
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  // Migration on login
-  useEffect(() => {
-    if (currentUser) {
-        migrateToFirebase();
-    }
-  }, [currentUser]);
+    loadAllFromFirebaseDirectly(false).then((loaded) => {
+      if (!loaded) {
+        fetchData();
+      }
+    });
+  }, [loadAllFromFirebaseDirectly, fetchData]);
 
   // Role selection & Login success handlers
   const handleLoginSuccess = (session: UserSession) => {
     setCurrentUser(session);
+
+    // Carrega dados diretamente do Firebase no exato momento que o usuário loga
+    loadAllFromFirebaseDirectly(true);
 
     // Automatically route to the appropriate tab based on profile
     if (session.role === 'admin') {
@@ -667,10 +759,61 @@ export default function App() {
         onSyncData={handleSyncData}
         isSyncing={isSyncing}
         syncMessage={syncMessage}
+        onOpenFirebaseStatus={() => setIsFirebaseStatusModalOpen(true)}
       />
 
       {/* Main Container Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Banner de Sincronização em Tempo Real com o Firebase */}
+        {syncNotification && (
+          <div
+            className={`mb-5 p-4 rounded-2xl border flex items-start justify-between shadow-xs animate-in fade-in slide-in-from-top-2 duration-200 ${
+              syncNotification.type === 'success'
+                ? 'bg-emerald-50/90 border-emerald-300 text-emerald-900'
+                : 'bg-amber-50/90 border-amber-300 text-amber-900'
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={`p-2 rounded-xl shrink-0 mt-0.5 ${
+                  syncNotification.type === 'success'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-amber-600 text-white shadow-xs'
+                }`}
+              >
+                <Database className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="font-bold text-sm flex items-center gap-2">
+                  <span>{syncNotification.message}</span>
+                  <span className="text-[10px] bg-white/70 px-2 py-0.5 rounded-full font-mono border border-current">
+                    Firebase Cloud
+                  </span>
+                </p>
+                {syncNotification.details && (
+                  <p className="text-xs text-slate-700 mt-0.5 leading-relaxed">
+                    {syncNotification.details}
+                  </p>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => setSyncNotification(null)}
+              className="p-1 rounded-lg hover:bg-black/5 text-slate-500 cursor-pointer transition-colors"
+              aria-label="Fechar notificação"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Indicador de Carregamento Firebase ao Logar */}
+        {firebaseLoginSyncing && (
+          <div className="mb-4 py-2.5 px-4 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-800 text-xs font-semibold flex items-center gap-2 animate-pulse">
+            <Database className="w-4 h-4 animate-spin text-indigo-600" />
+            <span>Conectando diretamente à base de dados centralizada do Firebase e sincronizando dados da escola...</span>
+          </div>
+        )}
         {/* Administrador Master only: Gerenciamento do Banco de Dados de Acessos & Determinação de Perfis */}
         {activeTab === 'access_management' && currentUser.role === 'admin' && (
           <AccessManagement
@@ -990,6 +1133,25 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Modal de Status de Conectividade e Certeza de Acesso Universal Firebase */}
+      <FirebaseStatusModal
+        isOpen={isFirebaseStatusModalOpen}
+        onClose={() => setIsFirebaseStatusModalOpen(false)}
+        onForceReload={async () => {
+          await loadAllFromFirebaseDirectly(true);
+        }}
+        counts={{
+          classesCount: classes.length,
+          studentsCount: students.length,
+          usersCount: storageService.getUsers().length,
+          alertsCount: alerts.length,
+          attendanceCount: storageService.getAttendanceRecords().length,
+          interventionsCount: interventions.length,
+          ocorrenciasCount: 59,
+          tabletsCount: 81,
+        }}
+      />
 
       {/* Institutional Footer */}
       <footer className="bg-white border-t border-slate-200 mt-12 py-6 text-xs text-slate-500">

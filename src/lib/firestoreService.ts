@@ -1,12 +1,15 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   setDoc,
   deleteDoc,
-  writeBatch
+  writeBatch,
+  getDocFromServer
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
+import firebaseConfig from '../../firebase-applet-config.json';
 import {
   UserAccount,
   SchoolClass,
@@ -292,5 +295,154 @@ export const firestoreService = {
     } catch (e) {
       handleFirestoreError(e, OperationType.DELETE, path);
     }
+  },
+
+  // === OCORRÊNCIAS & MEDIAÇÃO (Nuvem compartilhada para Google Sites) ===
+  async getOcorrencias(): Promise<any | null> {
+    try {
+      const snap = await getDoc(doc(db, 'system_data', 'ocorrencias'));
+      if (snap.exists()) {
+        return snap.data();
+      }
+      return null;
+    } catch (e) {
+      console.warn('Erro ao carregar ocorrências do Firestore:', e);
+      return null;
+    }
+  },
+
+  async saveOcorrencias(data: any): Promise<void> {
+    try {
+      await setDoc(doc(db, 'system_data', 'ocorrencias'), {
+        ...data,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (e) {
+      console.warn('Erro ao salvar ocorrências no Firestore:', e);
+    }
+  },
+
+  // === TABLETS & AGENDAMENTOS (Nuvem compartilhada para Google Sites) ===
+  async getTablets(): Promise<any | null> {
+    try {
+      const snap = await getDoc(doc(db, 'system_data', 'tablets'));
+      if (snap.exists()) {
+        return snap.data();
+      }
+      return null;
+    } catch (e) {
+      console.warn('Erro ao carregar tablets do Firestore:', e);
+      return null;
+    }
+  },
+
+  async saveTablets(data: any): Promise<void> {
+    try {
+      await setDoc(doc(db, 'system_data', 'tablets'), {
+        ...data,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (e) {
+      console.warn('Erro ao salvar tablets no Firestore:', e);
+    }
+  },
+
+  // === TESTE DE CONEXÃO DIRETA COM O SERVIDOR (Validação de Acesso Multi-Navegador) ===
+  async testConnection(): Promise<{ success: boolean; latencyMs: number; error?: string; databaseId: string }> {
+    const start = performance.now();
+    try {
+      // getDocFromServer garante teste direto contra o servidor do Google Firestore (sem ler apenas cache local)
+      await getDocFromServer(doc(db, 'system_data', 'ocorrencias'));
+      const latencyMs = Math.round(performance.now() - start);
+      return {
+        success: true,
+        latencyMs,
+        databaseId: firebaseConfig.firestoreDatabaseId || 'default'
+      };
+    } catch (error: any) {
+      const latencyMs = Math.round(performance.now() - start);
+      console.warn('Teste de conexão com Firestore falhou ou offline:', error);
+      return {
+        success: false,
+        latencyMs,
+        error: error?.message || String(error),
+        databaseId: firebaseConfig.firestoreDatabaseId || 'default'
+      };
+    }
+  },
+
+  // === CARREGAMENTO TOTAL DIRETO DO FIREBASE (Ao efetuar Login ou Inicializar) ===
+  async getAllDataDirectly(): Promise<{
+    success: boolean;
+    classes: SchoolClass[];
+    students: Student[];
+    users: UserAccount[];
+    alerts: ParentAlert[];
+    attendance: AttendanceRecord[];
+    interventions: InterventionCase[];
+    gate: GateRecord[];
+    ocorrencias: any | null;
+    tablets: any | null;
+    latencyMs: number;
+    source: 'firebase_direct';
+  }> {
+    const start = performance.now();
+    try {
+      const [
+        classes,
+        students,
+        users,
+        alerts,
+        attendance,
+        interventions,
+        gate,
+        ocorrencias,
+        tablets
+      ] = await Promise.all([
+        firestoreService.getClasses(),
+        firestoreService.getStudents(),
+        firestoreService.getUsers(),
+        firestoreService.getAlerts(),
+        firestoreService.getAttendanceRecords(),
+        firestoreService.getInterventions(),
+        firestoreService.getGateRecords(),
+        firestoreService.getOcorrencias(),
+        firestoreService.getTablets()
+      ]);
+
+      const latencyMs = Math.round(performance.now() - start);
+      return {
+        success: true,
+        classes,
+        students,
+        users,
+        alerts,
+        attendance,
+        interventions,
+        gate,
+        ocorrencias,
+        tablets,
+        latencyMs,
+        source: 'firebase_direct'
+      };
+    } catch (err) {
+      console.error('Falha no carregamento direto do Firebase:', err);
+      const latencyMs = Math.round(performance.now() - start);
+      return {
+        success: false,
+        classes: [],
+        students: [],
+        users: [],
+        alerts: [],
+        attendance: [],
+        interventions: [],
+        gate: [],
+        ocorrencias: null,
+        tablets: null,
+        latencyMs,
+        source: 'firebase_direct'
+      };
+    }
   }
 };
+

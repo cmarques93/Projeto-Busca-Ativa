@@ -160,8 +160,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       console.warn('API indisponível, validando credencial localmente:', err);
     }
 
-    const verification = storageService.verifyPin(selectedUserId, pin.trim());
+    let verification = storageService.verifyPin(selectedUserId, pin.trim());
+    if (!verification.success) {
+      try {
+        const cloudUsers = await firestoreService.getUsers();
+        if (cloudUsers && cloudUsers.length > 0) {
+          storageService.setUsers(cloudUsers);
+          verification = storageService.verifyPin(selectedUserId, pin.trim());
+        }
+      } catch (e) {
+        console.warn('Erro ao consultar Firestore no modal:', e);
+      }
+    }
+
     if (verification.success && verification.user) {
+      storageService.recordUserLogin(selectedUserId);
       onLoginSuccess(verification.user);
       if (onSelectRole) {
         onSelectRole(verification.user.role, verification.user.name);

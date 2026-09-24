@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { SchoolClass } from '../types';
 import { carregarTabletsSeguro, salvarReservaTabletsSeguro } from '../lib/sheetsSyncService';
+import tabletsBaseline from '../data/tabletsBaseline.json';
 
 export interface AgendamentoTablet {
   data: string;
@@ -59,24 +60,37 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
     tipo: '',
   });
 
-  // Base de Dados
-  const [baseDeDados, setBaseDeDados] = useState<TabletsDatabase>({
-    agendamentos: [],
-    horarios: [
-      '1ª Aula (07:30 - 08:20)',
-      '2ª Aula (08:20 - 09:10)',
-      'Intervalo Manhã (09:10 - 09:30)',
-      '3ª Aula (09:30 - 10:20)',
-      '4ª Aula (10:20 - 11:10)',
-      '5ª Aula (11:10 - 12:00)',
-      'Almoço / Intervalo (12:00 - 13:00)',
-      '6ª Aula (13:00 - 13:50)',
-      '7ª Aula (13:50 - 14:40)',
-      '8ª Aula (14:40 - 15:30)',
-    ],
-    professores: [],
-    turmas: [],
-    feriados: [],
+  // Base de Dados (Inicializa imediatamente com baseline oficial ou cache)
+  const [baseDeDados, setBaseDeDados] = useState<TabletsDatabase>(() => {
+    try {
+      const cached = localStorage.getItem('CACHE_TABLET_APP');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.agendamentos && parsed.agendamentos.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return (tabletsBaseline as unknown as TabletsDatabase) || {
+      agendamentos: [],
+      horarios: [
+        '1ª Aula - (07h as 7h50)',
+        '2ª Aula - (07h50 as 8h40)',
+        '3ª Aula - (08h40 as 9h30)',
+        'Intervalo - 09h30 as 9h45',
+        '4ª Aula - (09h45 as 10h35)',
+        '5ª Aula - (10h35 as 11h25)',
+        '6ª Aula - (11h25 as 12h15)',
+        'Almoço - 12h15 as 13h15',
+        '7ª Aula - (13h15 as 14h05)',
+        '8ª Aula - (14h05 as 14h55)',
+        'Intervalo - 14h55 as 15h10',
+        '9ª Aula - (15h10 as 16h)',
+      ],
+      professores: [],
+      turmas: [],
+      feriados: [],
+    };
   });
 
   // Modal de Gerenciamento

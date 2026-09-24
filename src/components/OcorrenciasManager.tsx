@@ -34,6 +34,7 @@ import { SchoolClass, Student, AttendanceRecord } from '../types';
 import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
 import { storageService } from '../data/storageService';
 import { carregarOcorrenciasSeguro, salvarOcorrenciaSeguro } from '../lib/sheetsSyncService';
+import ocorrenciasBaseline from '../data/ocorrenciasBaseline.json';
 
 export interface OcorrenciaRecord {
   id: string;
@@ -89,37 +90,48 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     tipo: '',
   });
 
-  // Base de Dados vinda do Google Sheets + Fallback local
-  const [bancoDeDados, setBancoDeDados] = useState<OcorrenciasDatabase>({
-    estudantes: [],
-    professores: [],
-    ocorrencias: [
-      'Uso indevido de celular/fone em aula',
-      'Desrespeito verbal com colega',
-      'Desrespeito com professor/funcionário',
-      'Não realização das atividades propostas',
-      'Conversa excessiva e dispersão da turma',
-      'Atraso recorrente para entrada em sala',
-      'Saída de sala sem autorização prévia',
-      'Dano ao patrimônio escolar / pichação',
-      'Agressão física ou vias de fato',
-    ],
-    medidas: [
-      'Conversa individual e advertência verbal',
-      'Mudança de assento em sala',
-      'Assinatura de termo de compromisso',
-      'Contato telefônico imediato com a família',
-      'Encaminhamento à Coordenação/Gestão',
-      'Retirada do celular para guarda na secretaria',
-    ],
-    aulas: ['1ª Aula', '2ª Aula', '3ª Aula', '4ª Aula', '5ª Aula', '6ª Aula', '7ª Aula', '8ª Aula', '9ª Aula'],
-    auxilio: [
-      'Nenhum auxílio solicitado (Resolvido em sala)',
-      'Necessita intervenção da Gestão Escolar',
-      'Necessita convocação urgente da família',
-    ],
-    registros: [],
-    tratativasFamilia: [],
+  // Base de Dados vinda do Firestore / Google Sheets + Fallback local e baseline oficial
+  const [bancoDeDados, setBancoDeDados] = useState<OcorrenciasDatabase>(() => {
+    try {
+      const cached = localStorage.getItem('CACHE_OCORRENCIAS_APP');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.registros && parsed.registros.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return (ocorrenciasBaseline as unknown as OcorrenciasDatabase) || {
+      estudantes: [],
+      professores: [],
+      ocorrencias: [
+        'Uso indevido de celular/fone em aula',
+        'Desrespeito verbal com colega',
+        'Desrespeito com professor/funcionário',
+        'Não realização das atividades propostas',
+        'Conversa excessiva e dispersão da turma',
+        'Atraso recorrente para entrada em sala',
+        'Saída de sala sem autorização prévia',
+        'Dano ao patrimônio escolar / pichação',
+        'Agressão física ou vias de fato',
+      ],
+      medidas: [
+        'Conversa individual e advertência verbal',
+        'Mudança de assento em sala',
+        'Assinatura de termo de compromisso',
+        'Contato telefônico imediato com a família',
+        'Encaminhamento à Coordenação/Gestão',
+        'Retirada do celular para guarda na secretaria',
+      ],
+      aulas: ['1ª Aula', '2ª Aula', '3ª Aula', '4ª Aula', '5ª Aula', '6ª Aula', '7ª Aula', '8ª Aula', '9ª Aula'],
+      auxilio: [
+        'Nenhum auxílio solicitado (Resolvido em sala)',
+        'Necessita intervenção da Gestão Escolar',
+        'Necessita convocação urgente da família',
+      ],
+      registros: [],
+      tratativasFamilia: [],
+    };
   });
 
   // Identificação do Usuário

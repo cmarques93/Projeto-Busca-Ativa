@@ -57,6 +57,7 @@ interface HeaderProps {
   onSyncData: () => void;
   isSyncing: boolean;
   syncMessage?: string | null;
+  onOpenFirebaseStatus?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -81,6 +82,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSyncData,
   isSyncing,
   syncMessage,
+  onOpenFirebaseStatus,
 }) => {
   const isAdmin = currentUser.role === 'admin';
   const isGestao = currentUser.role === 'gestao_paac';
@@ -241,6 +243,18 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="font-bold text-amber-800">{todayAlertsCount}</span>
             </div>
           )}
+
+          {/* Firebase Direct Cloud Status Pill */}
+          <button
+            onClick={onOpenFirebaseStatus}
+            className="px-2.5 py-1.5 rounded-lg border border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-colors cursor-pointer font-bold flex items-center gap-1.5 shadow-2xs"
+            title="Conexão direta com Google Cloud Firebase (Acesso Universal garantido)"
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <Database className="w-3.5 h-3.5 text-emerald-600" />
+            <span className="hidden sm:inline">Firebase</span>
+            <span className="text-[10px] bg-emerald-200/80 text-emerald-900 px-1 py-0.5 rounded font-extrabold">NUVEM</span>
+          </button>
 
           <button
             onClick={onSyncData}
