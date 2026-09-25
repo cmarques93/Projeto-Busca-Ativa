@@ -119,14 +119,29 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
   const [senhaCancelar, setSenhaCancelar] = useState<string>(currentUser?.pin || '');
   const [enviandoOperacao, setEnviandoOperacao] = useState(false);
 
-  // Perfil e Regras de Permissão: SOMENTE Perfil Administrador pode excluir qualquer reserva
+  // Identificação Unificada do Usuário Logado (Igual a Ocorrências)
+  const userName = currentUser?.name || 'Professor / Docente';
   const userRole = (currentUser?.role || 'professor').toLowerCase();
-  const userRoleLabel = (currentUser as any)?.roleLabel ? String((currentUser as any).roleLabel).toLowerCase() : '';
+  const userRoleLabel = (currentUser as any)?.roleLabel
+    ? String((currentUser as any).roleLabel)
+    : (userRole === 'admin' ? 'Direção Escolar (Administrador)' : 'Professor(a) / Docente');
+
   const isAdmin =
     userRole === 'admin' ||
     userRole === 'administrador' ||
-    userRoleLabel.includes('administrador') ||
+    userRoleLabel.toLowerCase().includes('administrador') ||
     (userRole.includes('admin') && !userRole.includes('gest'));
+
+  // Sincroniza o usuário logado com o formulário de agendamento
+  useEffect(() => {
+    if (userName && !modoAdminOutroUsuario) {
+      setFormAgendar(prev => ({
+        ...prev,
+        professor: userName,
+        senha: currentUser?.pin || '1234',
+      }));
+    }
+  }, [userName, currentUser?.pin, modoAdminOutroUsuario]);
 
   // Formata nome para exibir estritamente Primeiro e Último nome no painel visual
   const formatarPrimeiroEUltimoNome = (nome: string): string => {
@@ -520,51 +535,82 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
 
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-sky-600 text-white flex items-center justify-center shadow-xs">
+      {/* Top Institutional & Unified Active Operator Card (Idêntico ao módulo de Ocorrências) */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-sky-600 text-white flex items-center justify-center shadow-xs shrink-0">
             <Tablet className="w-6 h-6" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-black text-slate-900 tracking-tight">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg font-bold text-slate-900 tracking-tight leading-tight">
                 Agendamento de Tablets Escolares
               </h1>
-              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">
-                TOTAL: {MAX_TABLETS} EQUIPAMENTOS
+              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 border border-sky-200">
+                CAPACIDADE: {MAX_TABLETS} TABLETS
               </span>
             </div>
-            <p className="text-xs text-slate-500 font-medium">
-              Controle semanal de uso por aula e turma integrado à base do sistema escolar.
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              Grade semanal de agendamento por aula e turma • Integrada ao sistema unificado da escola.
             </p>
           </div>
         </div>
 
-        {/* Controles de Semana */}
-        <div className="flex flex-wrap items-center gap-3 self-start md:self-auto">
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 shadow-2xs">
-            <button
-              type="button"
-              onClick={() => mudarSemana(-1)}
-              className="p-1 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors cursor-pointer"
-              title="Semana anterior"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-xs font-bold text-slate-800 px-2 select-none">
-              Semana: {formatarDataBR(diasDaSemana[0])} a {formatarDataBR(diasDaSemana[4])}
+        {/* Informação do Usuário Autenticado */}
+        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 p-2 sm:px-3 rounded-xl self-start md:self-auto">
+          <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-2xs">
+            {userName.slice(0, 2).toUpperCase()}
+          </div>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-900 leading-none">{userName}</span>
+              <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full border ${
+                isAdmin
+                  ? 'bg-purple-100 text-purple-800 border-purple-300'
+                  : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+              }`}>
+                {userRoleLabel}
+              </span>
+            </div>
+            <span className="text-[10px] text-slate-500 font-medium block mt-0.5">
+              {isAdmin ? '🛡️ Privilégio de Direção / Admin' : '👤 Usuário Ativo'}
             </span>
-            <button
-              type="button"
-              onClick={() => mudarSemana(1)}
-              className="p-1 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors cursor-pointer"
-              title="Próxima semana"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
           </div>
         </div>
+      </div>
+
+      {/* Controles de Semana e Navegação */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 shadow-2xs w-fit">
+          <button
+            type="button"
+            onClick={() => mudarSemana(-1)}
+            className="p-1 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors cursor-pointer"
+            title="Semana anterior"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="text-xs font-bold text-slate-800 px-2 select-none">
+            Semana: {formatarDataBR(diasDaSemana[0])} a {formatarDataBR(diasDaSemana[4])}
+          </span>
+          <button
+            type="button"
+            onClick={() => mudarSemana(1)}
+            className="p-1 hover:bg-slate-200 rounded-lg text-slate-600 transition-colors cursor-pointer"
+            title="Próxima semana"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setDataReferencia(new Date())}
+          className="text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl border border-indigo-200/60 transition-colors cursor-pointer flex items-center gap-1.5 self-start sm:self-auto"
+        >
+          <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+          <span>Semana Atual (Hoje)</span>
+        </button>
       </div>
 
       {/* Mensagem Toast */}
@@ -763,19 +809,33 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                                   <span>Esgotado</span>
                                 </div>
                                 <div className="space-y-1 text-left text-[11px]">
-                                  {agendadosAqui.map((ag, i) => (
-                                    <div
-                                      key={i}
-                                      className="p-1 rounded bg-white/70 border border-rose-200 leading-tight"
-                                    >
-                                      <span className="font-bold text-slate-800">
-                                        • {formatarPrimeiroEUltimoNome(ag.professor)} ({ag.tablets} tab.)
-                                      </span>
-                                      <span className="text-[10px] text-rose-700 block font-medium">
-                                        Turma: {ag.turma}
-                                      </span>
-                                    </div>
-                                  ))}
+                                  {agendadosAqui.map((ag, i) => {
+                                    const ehMinha = isMinhaReserva(ag);
+                                    return (
+                                      <div
+                                        key={i}
+                                        className={`p-1.5 rounded-lg border leading-tight ${
+                                          ehMinha
+                                            ? 'bg-emerald-50 border-emerald-300 shadow-2xs'
+                                            : 'bg-white/80 border-rose-200'
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between gap-1">
+                                          <span className={`font-bold ${ehMinha ? 'text-emerald-900' : 'text-slate-800'}`}>
+                                            • {formatarPrimeiroEUltimoNome(ag.professor)} ({ag.tablets} tab.)
+                                          </span>
+                                          {ehMinha && (
+                                            <span className="text-[9px] font-black px-1.5 py-0.2 bg-emerald-600 text-white rounded">
+                                              Você
+                                            </span>
+                                          )}
+                                        </div>
+                                        <span className={`text-[10px] block font-medium ${ehMinha ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                          Turma: {ag.turma}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             ) : (
@@ -785,19 +845,33 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                                   <Tablet className="w-3.5 h-3.5" />
                                 </div>
                                 <div className="space-y-1 text-left text-[11px]">
-                                  {agendadosAqui.map((ag, i) => (
-                                    <div
-                                      key={i}
-                                      className="p-1 rounded bg-white/80 border border-amber-200 leading-tight"
-                                    >
-                                      <span className="font-bold text-slate-800">
-                                        • {formatarPrimeiroEUltimoNome(ag.professor)} ({ag.tablets} tab.)
-                                      </span>
-                                      <span className="text-[10px] text-slate-600 block">
-                                        Turma: {ag.turma}
-                                      </span>
-                                    </div>
-                                  ))}
+                                  {agendadosAqui.map((ag, i) => {
+                                    const ehMinha = isMinhaReserva(ag);
+                                    return (
+                                      <div
+                                        key={i}
+                                        className={`p-1.5 rounded-lg border leading-tight ${
+                                          ehMinha
+                                            ? 'bg-emerald-50 border-emerald-300 shadow-2xs'
+                                            : 'bg-white/90 border-amber-200'
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between gap-1">
+                                          <span className={`font-bold ${ehMinha ? 'text-emerald-900' : 'text-slate-800'}`}>
+                                            • {formatarPrimeiroEUltimoNome(ag.professor)} ({ag.tablets} tab.)
+                                          </span>
+                                          {ehMinha && (
+                                            <span className="text-[9px] font-black px-1.5 py-0.2 bg-emerald-600 text-white rounded">
+                                              Você
+                                            </span>
+                                          )}
+                                        </div>
+                                        <span className={`text-[10px] block ${ehMinha ? 'text-emerald-700 font-medium' : 'text-slate-600'}`}>
+                                          Turma: {ag.turma}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             )}
@@ -878,9 +952,9 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
 
               {/* FORMULÁRIO 1: AGENDAR */}
               {operacao === 'agendar' && (
-                <form onSubmit={handleAgendar} className="space-y-3 pt-2 border-t border-slate-200">
-                  {/* Bloco Exclusivo do Administrador: Escolha do Solicitante */}
-                  {isAdmin && (
+                <form onSubmit={handleAgendar} className="space-y-3.5 pt-2 border-t border-slate-200">
+                  {/* Identificação do Solicitante */}
+                  {isAdmin ? (
                     <div className="bg-purple-50/90 border border-purple-200 rounded-xl p-3">
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <span className="text-[11px] font-extrabold text-purple-900 uppercase flex items-center gap-1.5">
@@ -899,8 +973,8 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                             setProfessorCustomizado('');
                             setFormAgendar(prev => ({
                               ...prev,
-                              professor: currentUser?.name || '',
-                              senha: currentUser?.pin || '',
+                              professor: userName,
+                              senha: currentUser?.pin || '1234',
                             }));
                           }}
                           className={`py-2 px-2.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
@@ -919,7 +993,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                             setFormAgendar(prev => ({
                               ...prev,
                               professor: '',
-                              senha: currentUser?.pin || '',
+                              senha: currentUser?.pin || '1234',
                             }));
                           }}
                           className={`py-2 px-2.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
@@ -935,60 +1009,73 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
 
                       {modoAdminOutroUsuario && (
                         <p className="text-[10px] text-purple-800 font-medium mt-2 leading-relaxed bg-purple-100/60 p-2 rounded-lg border border-purple-200/60">
-                          🛡️ <strong>Modo Administrador Ativo:</strong> Você pode agendar os tablets em nome de qualquer professor ou servidor da escola. A autorização será concedida com o seu PIN de Administrador.
+                          🛡️ <strong>Modo Administrador:</strong> Selecione abaixo o professor que utilizará os tablets nesta aula.
                         </p>
                       )}
                     </div>
-                  )}
-
-                  {/* Campo de Professor/Docente Solicitante */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      {isAdmin && modoAdminOutroUsuario
-                        ? 'Selecione o(a) Professor(a) / Usuário Beneficiário'
-                        : 'Professor(a) Solicitante'}
-                    </label>
-                    <select
-                      value={formAgendar.professor}
-                      onChange={e => setFormAgendar({ ...formAgendar, professor: e.target.value })}
-                      required
-                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 font-semibold text-slate-800 bg-white"
-                    >
-                      <option value="">
-                        {isAdmin && modoAdminOutroUsuario
-                          ? 'Selecione o professor para quem deseja agendar...'
-                          : 'Selecione seu nome...'}
-                      </option>
-                      {listaProfessores.map(p => (
-                        <option key={p} value={p}>
-                          {p} {p === currentUser?.name ? '(Você)' : ''}
-                        </option>
-                      ))}
-                      {isAdmin && (
-                        <option value="__OUTRO__">
-                          ➕ Outro Docente / Professor Eventual (Digitar nome)
-                        </option>
-                      )}
-                    </select>
-                  </div>
-
-                  {/* Campo de Texto para Nome Customizado de Docente se selecionado __OUTRO__ */}
-                  {isAdmin && formAgendar.professor === '__OUTRO__' && (
-                    <div className="animate-in fade-in">
-                      <label className="block text-xs font-bold text-purple-900 uppercase mb-1">
-                        Nome do Professor(a) / Docente Eventual
-                      </label>
-                      <input
-                        type="text"
-                        value={professorCustomizado}
-                        onChange={e => setProfessorCustomizado(e.target.value)}
-                        required
-                        placeholder="Digite o nome completo do professor..."
-                        className="w-full p-2.5 text-xs border border-purple-300 bg-purple-50/50 rounded-xl focus:ring-2 focus:ring-purple-500 font-bold text-slate-800"
-                      />
+                  ) : (
+                    /* Identificação Automática do Docente Logado (Sem dropdown manual) */
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-sky-600 text-white flex items-center justify-center font-black text-xs shrink-0 shadow-2xs">
+                          {userName.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-500 font-bold uppercase block">
+                            Docente Solicitante
+                          </span>
+                          <span className="text-xs font-bold text-slate-900">{userName}</span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        <span>Identificado</span>
+                      </span>
                     </div>
                   )}
 
+                  {/* Seleção de Docente quando o Administrador agenda para terceiros */}
+                  {isAdmin && modoAdminOutroUsuario && (
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                        Selecione o(a) Professor(a) / Usuário
+                      </label>
+                      <select
+                        value={formAgendar.professor}
+                        onChange={e => setFormAgendar({ ...formAgendar, professor: e.target.value })}
+                        required
+                        className="w-full p-2.5 text-xs border border-purple-300 rounded-xl focus:ring-2 focus:ring-purple-500 font-semibold text-slate-800 bg-purple-50/30"
+                      >
+                        <option value="">Selecione o professor na lista...</option>
+                        {listaProfessores.map(p => (
+                          <option key={p} value={p}>
+                            {p} {p === currentUser?.name ? '(Você)' : ''}
+                          </option>
+                        ))}
+                        <option value="__OUTRO__">
+                          ➕ Outro Docente / Professor Eventual (Digitar nome)
+                        </option>
+                      </select>
+
+                      {formAgendar.professor === '__OUTRO__' && (
+                        <div className="animate-in fade-in pt-1">
+                          <label className="block text-xs font-bold text-purple-900 uppercase mb-1">
+                            Nome do Professor(a) Eventual
+                          </label>
+                          <input
+                            type="text"
+                            value={professorCustomizado}
+                            onChange={e => setProfessorCustomizado(e.target.value)}
+                            required
+                            placeholder="Digite o nome completo do professor..."
+                            className="w-full p-2.5 text-xs border border-purple-300 bg-white rounded-xl focus:ring-2 focus:ring-purple-500 font-bold text-slate-800"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Seleção de Turma */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                       Turma
@@ -1008,13 +1095,14 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                     </select>
                   </div>
 
+                  {/* Quantidade de Tablets */}
                   <div>
                     <div className="flex justify-between items-center mb-1">
                       <label className="text-xs font-bold text-slate-700 uppercase">
                         Quantidade de Tablets
                       </label>
                       <span className="text-[11px] font-bold text-sky-600">
-                        (Máx: {modalContext.disponiveis})
+                        (Máx: {modalContext.disponiveis} disponíveis)
                       </span>
                     </div>
                     <input
@@ -1030,43 +1118,27 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                     />
                   </div>
 
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="text-xs font-bold text-slate-700 uppercase">
-                        {isAdmin
-                          ? 'Sua Senha / PIN de Administrador (Autorização)'
-                          : 'Sua Senha / PIN de Autorização'}
-                      </label>
-                      {isAdmin && (
-                        <span className="text-[10px] text-purple-700 font-bold">
-                          Autorizado via Direção
-                        </span>
-                      )}
-                    </div>
-                    <input
-                      type="password"
-                      value={formAgendar.senha}
-                      onChange={e => setFormAgendar({ ...formAgendar, senha: e.target.value })}
-                      required
-                      placeholder="Digite seu PIN/senha cadastrado"
-                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 font-mono tracking-widest text-slate-800"
-                    />
-                  </div>
-
+                  {/* Botão de Confirmação Unificada */}
                   <button
                     type="submit"
                     disabled={enviandoOperacao}
-                    className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-3 rounded-xl transition-all shadow-md text-xs cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
+                    className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-3 rounded-xl transition-all shadow-md text-xs cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 mt-3"
                   >
                     <ShieldCheck className="w-4 h-4" />
-                    <span>{enviandoOperacao ? 'Gravando Reserva...' : (isAdmin && modoAdminOutroUsuario ? 'Confirmar Agendamento p/ Docente' : 'Confirmar Agendamento')}</span>
+                    <span>
+                      {enviandoOperacao
+                        ? 'Gravando Reserva...'
+                        : (isAdmin && modoAdminOutroUsuario
+                            ? 'Confirmar Agendamento p/ Docente'
+                            : 'Confirmar Agendamento')}
+                    </span>
                   </button>
                 </form>
               )}
 
               {/* FORMULÁRIO 2: CANCELAR */}
               {operacao === 'cancelar' && (
-                <form onSubmit={handleCancelar} className="space-y-3 pt-2 border-t border-slate-200">
+                <form onSubmit={handleCancelar} className="space-y-3.5 pt-2 border-t border-slate-200">
                   {(() => {
                     const agendadosAqui = baseDeDados.agendamentos.filter(
                       a =>
@@ -1098,7 +1170,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                             <strong>{agendadosAqui.map(a => formatarPrimeiroEUltimoNome(a.professor)).join(', ')}</strong>.
                           </p>
                           <p className="text-slate-500 text-[11px] leading-relaxed">
-                            Apenas o(a) próprio(a) professor(a) responsável pelo agendamento ou o <strong>perfil Administrador</strong> têm permissão para cancelar esta reserva.
+                            Apenas o(a) próprio(a) professor(a) responsável pelo agendamento ou a <strong>Direção Escolar</strong> têm permissão para cancelar esta reserva.
                           </p>
                         </div>
                       );
@@ -1117,7 +1189,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
 
                         <div>
                           <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                            Agendamento a Cancelar
+                            Selecione o Agendamento para Cancelar
                           </label>
                           <select
                             value={reservaSelecionadaParaCancelar}
@@ -1134,18 +1206,11 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                           </select>
                         </div>
 
-                        <div>
-                          <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                            {isAdmin ? 'Sua Senha / PIN de Administrador' : 'Sua Senha / PIN para Confirmar'}
-                          </label>
-                          <input
-                            type="password"
-                            value={senhaCancelar}
-                            onChange={e => setSenhaCancelar(e.target.value)}
-                            required
-                            placeholder="Digite sua senha cadastrada"
-                            className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-rose-500 font-mono tracking-widest text-slate-800"
-                          />
+                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>
+                            Cancelamento validado automaticamente pela sessão de <strong>{userName}</strong>.
+                          </span>
                         </div>
 
                         <button
