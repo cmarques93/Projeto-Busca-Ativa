@@ -395,8 +395,17 @@ export const storageService = {
       notes?: string;
       durationDays?: number;
       justification?: string;
+      justificationDays?: number;
+      justificationDayCurrent?: number;
+      justificationDaysRemaining?: number;
+      justificationStartDate?: string;
+      justificationEndDate?: string;
       medicalCertificate?: string;
       medicalDays?: number;
+      medicalDayCurrent?: number;
+      medicalDaysRemaining?: number;
+      medicalStartDate?: string;
+      medicalEndDate?: string;
       studentName?: string;
       className?: string;
     }[],
@@ -439,7 +448,8 @@ export const storageService = {
             studentName: item.studentName || student?.name || 'Estudante',
             classId: classId || student?.classId || '',
             className: item.className || student?.className || targetClass?.name || '',
-            startDate: recordDate,
+            startDate: item.medicalStartDate || recordDate,
+            recordDate: recordDate,
             totalDays: duration,
             justification: item.justification,
             medicalCertificateNote: item.medicalCertificate,
@@ -452,7 +462,8 @@ export const storageService = {
             studentName: item.studentName || student?.name || 'Estudante',
             classId: classId || student?.classId || '',
             className: item.className || student?.className || targetClass?.name || '',
-            startDate: recordDate,
+            startDate: item.justificationStartDate || recordDate,
+            recordDate: recordDate,
             totalDays: duration,
             justification: item.justification,
             recordedBy,

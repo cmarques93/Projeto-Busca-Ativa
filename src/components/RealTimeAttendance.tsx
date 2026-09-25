@@ -88,6 +88,42 @@ export const isRecordInClass = (r: AttendanceRecord, cls: { id: string; name: st
   return false;
 };
 
+// Helper para determinar se a frequência da turma foi efetivamente lançada e concluída nesta data.
+// Quando há apenas registros pré-existentes de atestados médicos ou faltas justificadas de dias anteriores,
+// a turma deve PERMANECER com o status Pendente (com o pré-preenchimento visível), aguardando a chamada do dia.
+export const isClassAttendanceCompleted = (
+  classRecords: AttendanceRecord[],
+  classStudents: Student[]
+): boolean => {
+  if (!classRecords || classRecords.length === 0) return false;
+
+  // Marcador explícito de chamada concluída da turma
+  if (classRecords.some(r => r.studentId.startsWith('cls-marker-') || r.id.startsWith('att-cls-'))) {
+    return true;
+  }
+
+  // Turma sem estudantes cadastrados
+  if (classStudents.length === 0) {
+    return classRecords.length > 0;
+  }
+
+  // Se todos os estudantes da turma possuem registros gravados no dia
+  if (classRecords.length >= classStudents.length) {
+    return true;
+  }
+
+  // Se há registros de chamada convencional (alunos presentes, faltas injustificadas ou atrasos)
+  const hasRollCallRecords = classRecords.some(
+    r => r.status === 'presente' || r.status === 'falta_injustificada' || (r.status as any) === 'atraso'
+  );
+  if (hasRollCallRecords && classRecords.length >= Math.min(classStudents.length, 2)) {
+    return true;
+  }
+
+  // Caso tenha apenas registros isolados de atestados ou justificativas sem a chamada dos demais alunos
+  return false;
+};
+
 interface RealTimeAttendanceProps {
   classes: SchoolClass[];
   selectedClassId?: string;
@@ -100,8 +136,17 @@ interface RealTimeAttendanceProps {
       status: AttendanceStatus;
       durationDays?: number;
       justification?: string;
+      justificationDays?: number;
+      justificationDayCurrent?: number;
+      justificationDaysRemaining?: number;
+      justificationStartDate?: string;
+      justificationEndDate?: string;
       medicalCertificate?: string;
       medicalDays?: number;
+      medicalDayCurrent?: number;
+      medicalDaysRemaining?: number;
+      medicalStartDate?: string;
+      medicalEndDate?: string;
       studentName?: string;
       className?: string;
     }[],
@@ -536,8 +581,16 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
           durationDays: duration,
           justification: entry.justification,
           justificationDays: entry.justificationDays,
+          justificationDayCurrent: entry.justificationDayCurrent,
+          justificationDaysRemaining: entry.justificationDaysRemaining,
+          justificationStartDate: entry.justificationStartDate,
+          justificationEndDate: entry.justificationEndDate,
           medicalCertificate: entry.medicalCertificate,
           medicalDays: entry.medicalDays,
+          medicalDayCurrent: entry.medicalDayCurrent,
+          medicalDaysRemaining: entry.medicalDaysRemaining,
+          medicalStartDate: entry.medicalStartDate,
+          medicalEndDate: entry.medicalEndDate,
         };
       });
 
@@ -554,8 +607,16 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
             durationDays: item.durationDays,
             justification: item.justification,
             justificationDays: item.justificationDays,
+            justificationDayCurrent: item.justificationDayCurrent,
+            justificationDaysRemaining: item.justificationDaysRemaining,
+            justificationStartDate: item.justificationStartDate,
+            justificationEndDate: item.justificationEndDate,
             medicalCertificate: item.medicalCertificate,
             medicalDays: item.medicalDays,
+            medicalDayCurrent: item.medicalDayCurrent,
+            medicalDaysRemaining: item.medicalDaysRemaining,
+            medicalStartDate: item.medicalStartDate,
+            medicalEndDate: item.medicalEndDate,
             recordedBy: teacherName,
             recordedAt: new Date().toISOString(),
           }))
@@ -605,8 +666,9 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
         cls.id.toLowerCase().includes(classSearch.toLowerCase());
       const matchesShift = shiftFilter === 'todos' || cls.shift === shiftFilter;
 
+      const classStudents = students.filter(s => isStudentInClass(s, cls));
       const classRecords = dailyRecords.filter(r => isSameDay(r.date, selectedDate) && isRecordInClass(r, cls));
-      const isRecorded = classRecords.length > 0;
+      const isRecorded = isClassAttendanceCompleted(classRecords, classStudents);
 
       let matchesStatus = true;
       if (statusFilter === 'realizadas') {
@@ -617,13 +679,17 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
 
       return matchesSearch && matchesShift && matchesStatus;
     });
-  }, [classes, classSearch, shiftFilter, statusFilter, dailyRecords, selectedDate]);
+  }, [classes, students, classSearch, shiftFilter, statusFilter, dailyRecords, selectedDate]);
 
   // Overall grid statistics
   const totalClassesCount = classes.length;
   const recordedClassesCount = useMemo(() => {
-    return classes.filter(c => dailyRecords.some(r => isSameDay(r.date, selectedDate) && isRecordInClass(r, c))).length;
-  }, [classes, dailyRecords, selectedDate]);
+    return classes.filter(c => {
+      const classStudents = students.filter(s => isStudentInClass(s, c));
+      const classRecords = dailyRecords.filter(r => isSameDay(r.date, selectedDate) && isRecordInClass(r, c));
+      return isClassAttendanceCompleted(classRecords, classStudents);
+    }).length;
+  }, [classes, students, dailyRecords, selectedDate]);
   const pendingClassesCount = Math.max(0, totalClassesCount - recordedClassesCount);
 
   // Modal active students filtered
@@ -850,7 +916,7 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
           filteredClasses.map(cls => {
             const classStudents = students.filter(s => isStudentInClass(s, cls));
             const classRecords = dailyRecords.filter(r => isSameDay(r.date, selectedDate) && isRecordInClass(r, cls));
-            const isRecorded = classRecords.length > 0;
+            const isRecorded = isClassAttendanceCompleted(classRecords, classStudents);
 
             const presentCount = classRecords.filter(r => r.status === 'presente').length;
             const unjustifiedCount = classRecords.filter(r => r.status === 'falta_injustificada').length;

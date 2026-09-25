@@ -36,6 +36,7 @@ export function formatMedicalDaysInfo(currentDay: number, totalDays: number): st
 
 /**
  * Cria os registros automáticos de chamada para todos os dias compreendidos no período do atestado médico.
+ * Se o atestado já estava em vigência antes de recordDate, preserva a data original de início e gera apenas os dias restantes.
  */
 export function generateAtestadoRecordsSequence(params: {
   studentId: string;
@@ -43,6 +44,7 @@ export function generateAtestadoRecordsSequence(params: {
   classId: string;
   className?: string;
   startDate: string;
+  recordDate?: string;
   totalDays: number;
   justification?: string;
   medicalCertificateNote?: string;
@@ -54,6 +56,7 @@ export function generateAtestadoRecordsSequence(params: {
     classId,
     className,
     startDate,
+    recordDate = startDate,
     totalDays,
     justification,
     medicalCertificateNote,
@@ -61,29 +64,36 @@ export function generateAtestadoRecordsSequence(params: {
   } = params;
 
   const validDays = Math.max(1, totalDays);
-  const endDate = addDaysToDateStr(startDate, validDays - 1);
+  // Se a data de início original for anterior ou igual a recordDate, usamos a data original de início
+  const originalStart = startDate && startDate <= recordDate ? startDate : recordDate;
+  const endDate = addDaysToDateStr(originalStart, validDays - 1);
   const records: AttendanceRecord[] = [];
 
-  for (let i = 0; i < validDays; i++) {
-    const recordDate = addDaysToDateStr(startDate, i);
+  // Gera registros a partir de recordDate até endDate (nunca ultrapassando o período do atestado)
+  const startD = new Date(originalStart + 'T00:00:00');
+  const fromD = new Date(recordDate + 'T00:00:00');
+  const startOffset = Math.max(0, Math.round((fromD.getTime() - startD.getTime()) / (1000 * 3600 * 24)));
+
+  for (let i = startOffset; i < validDays; i++) {
+    const currentRecDate = addDaysToDateStr(originalStart, i);
     const currentDay = i + 1;
-    const remainingDays = validDays - currentDay;
+    const remainingDays = Math.max(0, validDays - currentDay);
     const infoText = formatMedicalDaysInfo(currentDay, validDays);
     const customNote = medicalCertificateNote ? ` | Motivo: ${medicalCertificateNote}` : '';
 
     records.push({
-      id: `att-med-${studentId}-${recordDate}`,
+      id: `att-med-${studentId}-${currentRecDate}`,
       studentId,
       studentName,
       classId,
       className: className || '',
-      date: recordDate,
+      date: currentRecDate,
       status: 'atestado_medico',
       durationDays: validDays,
       medicalDays: validDays,
       medicalDayCurrent: currentDay,
       medicalDaysRemaining: remainingDays,
-      medicalStartDate: startDate,
+      medicalStartDate: originalStart,
       medicalEndDate: endDate,
       justification: justification || `Atestado Médico de ${validDays} dia(s) (${infoText})${customNote}`,
       medicalCertificate: `${validDays} dia(s) de atestado • ${infoText}${customNote}`,
@@ -112,6 +122,7 @@ export function formatJustificationDaysInfo(currentDay: number, totalDays: numbe
 
 /**
  * Cria os registros automáticos de chamada para todos os dias compreendidos no período de falta justificada previamente.
+ * Se a justificativa já estava em vigência antes de recordDate, preserva a data original de início e gera apenas os dias restantes.
  */
 export function generateJustifiedAbsenceSequence(params: {
   studentId: string;
@@ -119,6 +130,7 @@ export function generateJustifiedAbsenceSequence(params: {
   classId: string;
   className?: string;
   startDate: string;
+  recordDate?: string;
   totalDays: number;
   justification?: string;
   recordedBy: string;
@@ -129,35 +141,41 @@ export function generateJustifiedAbsenceSequence(params: {
     classId,
     className,
     startDate,
+    recordDate = startDate,
     totalDays,
     justification,
     recordedBy
   } = params;
 
   const validDays = Math.max(1, totalDays);
-  const endDate = addDaysToDateStr(startDate, validDays - 1);
+  const originalStart = startDate && startDate <= recordDate ? startDate : recordDate;
+  const endDate = addDaysToDateStr(originalStart, validDays - 1);
   const records: AttendanceRecord[] = [];
 
-  for (let i = 0; i < validDays; i++) {
-    const recordDate = addDaysToDateStr(startDate, i);
+  const startD = new Date(originalStart + 'T00:00:00');
+  const fromD = new Date(recordDate + 'T00:00:00');
+  const startOffset = Math.max(0, Math.round((fromD.getTime() - startD.getTime()) / (1000 * 3600 * 24)));
+
+  for (let i = startOffset; i < validDays; i++) {
+    const currentRecDate = addDaysToDateStr(originalStart, i);
     const currentDay = i + 1;
-    const remainingDays = validDays - currentDay;
+    const remainingDays = Math.max(0, validDays - currentDay);
     const infoText = formatJustificationDaysInfo(currentDay, validDays);
     const baseJust = justification?.trim() || 'Comunicação familiar prévia homologada';
 
     records.push({
-      id: `att-just-${studentId}-${recordDate}`,
+      id: `att-just-${studentId}-${currentRecDate}`,
       studentId,
       studentName,
       classId,
       className: className || '',
-      date: recordDate,
+      date: currentRecDate,
       status: 'falta_justificada',
       durationDays: validDays,
       justificationDays: validDays,
       justificationDayCurrent: currentDay,
       justificationDaysRemaining: remainingDays,
-      justificationStartDate: startDate,
+      justificationStartDate: originalStart,
       justificationEndDate: endDate,
       justification: validDays > 1 ? `${baseJust} • ${infoText}` : baseJust,
       isCountedAsAbsence: true,
@@ -186,7 +204,45 @@ export function findActiveAbsenceForDate(
     (r.status === 'atestado_medico' || r.status === 'falta_justificada') &&
     r.date === targetDate
   );
-  if (exact) return exact;
+  if (exact) {
+    if (exact.status === 'atestado_medico') {
+      const total = exact.medicalDays || exact.durationDays || 1;
+      const start = exact.medicalStartDate || exact.date;
+      const startD = new Date(start + 'T00:00:00');
+      const targetD = new Date(targetDate + 'T00:00:00');
+      const diffDays = Math.max(0, Math.round((targetD.getTime() - startD.getTime()) / (1000 * 3600 * 24)));
+      const curDay = Math.min(total, Math.max(1, diffDays + 1));
+      const remDays = Math.max(0, total - curDay);
+      return {
+        ...exact,
+        medicalStartDate: start,
+        medicalEndDate: exact.medicalEndDate || addDaysToDateStr(start, total - 1),
+        medicalDays: total,
+        durationDays: total,
+        medicalDayCurrent: curDay,
+        medicalDaysRemaining: remDays,
+      };
+    }
+    if (exact.status === 'falta_justificada') {
+      const total = exact.justificationDays || exact.durationDays || 1;
+      const start = exact.justificationStartDate || exact.date;
+      const startD = new Date(start + 'T00:00:00');
+      const targetD = new Date(targetDate + 'T00:00:00');
+      const diffDays = Math.max(0, Math.round((targetD.getTime() - startD.getTime()) / (1000 * 3600 * 24)));
+      const curDay = Math.min(total, Math.max(1, diffDays + 1));
+      const remDays = Math.max(0, total - curDay);
+      return {
+        ...exact,
+        justificationStartDate: start,
+        justificationEndDate: exact.justificationEndDate || addDaysToDateStr(start, total - 1),
+        justificationDays: total,
+        durationDays: total,
+        justificationDayCurrent: curDay,
+        justificationDaysRemaining: remDays,
+      };
+    }
+    return exact;
+  }
 
   // 2. Procura em registros com intervalo de vigência que englobem a targetDate
   for (const r of records) {

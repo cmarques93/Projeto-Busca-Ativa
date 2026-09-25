@@ -1100,12 +1100,19 @@ export class SchoolDatabase {
 
       if (item.status === 'atestado_medico') {
         const validDays = Math.max(1, duration);
-        const endDate = addDaysToDateStr(recordDate, validDays - 1);
+        const originalStart = (item as any).medicalStartDate && (item as any).medicalStartDate <= recordDate
+          ? (item as any).medicalStartDate
+          : recordDate;
+        const endDate = addDaysToDateStr(originalStart, validDays - 1);
 
-        for (let i = 0; i < validDays; i++) {
-          const recDate = addDaysToDateStr(recordDate, i);
+        const startD = new Date(originalStart + 'T00:00:00');
+        const fromD = new Date(recordDate + 'T00:00:00');
+        const startOffset = Math.max(0, Math.round((fromD.getTime() - startD.getTime()) / (1000 * 3600 * 24)));
+
+        for (let i = startOffset; i < validDays; i++) {
+          const recDate = addDaysToDateStr(originalStart, i);
           const curDay = i + 1;
-          const remDays = validDays - curDay;
+          const remDays = Math.max(0, validDays - curDay);
           const infoText = remDays === 0
             ? `Dia ${curDay} de ${validDays} • Último dia de atestado (conclui hoje)`
             : remDays === 1
@@ -1129,7 +1136,7 @@ export class SchoolDatabase {
             medicalDays: validDays,
             medicalDayCurrent: curDay,
             medicalDaysRemaining: remDays,
-            medicalStartDate: recordDate,
+            medicalStartDate: originalStart,
             medicalEndDate: endDate,
             justification: item.justification || `Atestado Médico de ${validDays} dia(s) (${infoText})`,
             medicalCertificate: `${validDays} dia(s) de atestado • ${infoText}`,
@@ -1140,13 +1147,20 @@ export class SchoolDatabase {
         }
       } else if (item.status === 'falta_justificada' && duration > 1) {
         const validDays = Math.max(1, duration);
-        const endDate = addDaysToDateStr(recordDate, validDays - 1);
+        const originalStart = (item as any).justificationStartDate && (item as any).justificationStartDate <= recordDate
+          ? (item as any).justificationStartDate
+          : recordDate;
+        const endDate = addDaysToDateStr(originalStart, validDays - 1);
         const baseJust = item.justification?.trim() || 'Comunicação familiar prévia homologada';
 
-        for (let i = 0; i < validDays; i++) {
-          const recDate = addDaysToDateStr(recordDate, i);
+        const startD = new Date(originalStart + 'T00:00:00');
+        const fromD = new Date(recordDate + 'T00:00:00');
+        const startOffset = Math.max(0, Math.round((fromD.getTime() - startD.getTime()) / (1000 * 3600 * 24)));
+
+        for (let i = startOffset; i < validDays; i++) {
+          const recDate = addDaysToDateStr(originalStart, i);
           const curDay = i + 1;
-          const remDays = validDays - curDay;
+          const remDays = Math.max(0, validDays - curDay);
           const infoText = remDays === 0
             ? `Dia ${curDay} de ${validDays} • Último dia justificado (conclui hoje)`
             : remDays === 1
@@ -1170,7 +1184,7 @@ export class SchoolDatabase {
             justificationDays: validDays,
             justificationDayCurrent: curDay,
             justificationDaysRemaining: remDays,
-            justificationStartDate: recordDate,
+            justificationStartDate: originalStart,
             justificationEndDate: endDate,
             justification: `${baseJust} • ${infoText}`,
             isCountedAsAbsence: true,
