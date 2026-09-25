@@ -33,7 +33,8 @@ import {
   Settings,
   Edit2,
   Plus,
-  Loader2
+  Loader2,
+  School
 } from 'lucide-react';
 import { SchoolClass, Student, AttendanceRecord, UserAccount } from '../types';
 import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
@@ -219,17 +220,17 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     'registrar'
   );
 
-  // Estados do Painel de Administração (Edição de Turmas, Ocorrências e Medidas)
-  const [abaAdminConfig, setAbaAdminConfig] = useState<'turmas' | 'ocorrencias' | 'medidas'>('turmas');
+  // Estados do Painel de Administração (Edição de Ocorrências Principais e Medidas Tomadas)
+  const [abaAdminConfig, setAbaAdminConfig] = useState<'ocorrencias' | 'medidas'>('ocorrencias');
   const [novoItemConfig, setNovoItemConfig] = useState('');
   const [itemEditando, setItemEditando] = useState<{
-    tipo: 'turma' | 'ocorrencia' | 'medida';
+    tipo: 'ocorrencia' | 'medida';
     index: number;
     valorAntigo: string;
     valorNovo: string;
   } | null>(null);
   const [itemParaExcluirConfig, setItemParaExcluirConfig] = useState<{
-    tipo: 'turma' | 'ocorrencia' | 'medida';
+    tipo: 'ocorrencia' | 'medida';
     index: number;
     valor: string;
   } | null>(null);
@@ -444,33 +445,64 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     carregarDados();
   }, []);
 
-  // Turmas e Estudantes disponíveis
+  // Turmas e Estudantes disponíveis - buscados EXCLUSIVAMENTE no cadastro de Turmas do sistema de Busca Ativa
   const turmasUnicas = useMemo(() => {
-    const doSheets = bancoDeDados.estudantes.map(e => e.turma);
-    const daPlataforma = classes.map(c => c.name);
-    const personalizadas = bancoDeDados.turmasPersonalizadas || [
-      '6ºA', '6ºB', '6ºC', '7ºA', '7ºB', '8ºA', '8ºB', '9ºA', '9ºB', '1ªEM A', '2ªEM A', '3ªEM A'
-    ];
-    const combinadas = Array.from(new Set([...personalizadas, ...doSheets, ...daPlataforma])).filter(Boolean);
-    return combinadas.sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
-  }, [bancoDeDados.estudantes, bancoDeDados.turmasPersonalizadas, classes]);
+    const turmasFromClasses = (classes || []).map(c => c.name.trim()).filter(Boolean);
+    let lista: string[] = Array.from(new Set(turmasFromClasses));
+    if (lista.length === 0 && storageService) {
+      try {
+        const stClasses = storageService.getClasses();
+        if (stClasses && stClasses.length > 0) {
+          lista = Array.from(new Set(stClasses.map(c => c.name.trim()).filter(Boolean)));
+        }
+      } catch {}
+    }
+    if (lista.length === 0 && students && students.length > 0) {
+      const studentTurmas = students
+        .map(s => {
+          const cls = (classes || []).find(c => c.id === s.classId);
+          return cls ? cls.name.trim() : (s as any).className || '';
+        })
+        .filter(Boolean);
+      lista = Array.from(new Set(studentTurmas));
+    }
+    return lista.sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+  }, [classes, students]);
 
   const alunosDaTurma = useMemo(() => {
     if (!form.turma) return [];
-    const deSheets = bancoDeDados.estudantes.filter(e => e.turma === form.turma);
-    if (deSheets.length > 0) {
-      return [...deSheets].sort((a, b) => a.nome.localeCompare(b.nome));
+    const turmaNormalizada = form.turma.trim().toLowerCase();
+    const turmaObj = (classes || []).find(
+      c => c.name.trim().toLowerCase() === turmaNormalizada || c.id === form.turma
+    );
+
+    let listaAlunos = (students || []).filter(s => {
+      if (turmaObj && s.classId === turmaObj.id) return true;
+      if (s.className && s.className.trim().toLowerCase() === turmaNormalizada) return true;
+      const sCls = (classes || []).find(c => c.id === s.classId);
+      return sCls && sCls.name.trim().toLowerCase() === turmaNormalizada;
+    });
+
+    if (listaAlunos.length === 0 && storageService) {
+      try {
+        const stStudents = storageService.getStudents();
+        listaAlunos = (stStudents || []).filter(s => {
+          if (turmaObj && s.classId === turmaObj.id) return true;
+          if (s.className && s.className.trim().toLowerCase() === turmaNormalizada) return true;
+          const sCls = (classes || []).find(c => c.id === s.classId);
+          return sCls && sCls.name.trim().toLowerCase() === turmaNormalizada;
+        });
+      } catch {}
     }
-    // Fallback: alunos da plataforma nessa turma
-    const turmaPlat = classes.find(c => c.name === form.turma);
-    if (turmaPlat) {
-      return students
-        .filter(s => s.classId === turmaPlat.id)
-        .map(s => ({ nome: s.name, turma: turmaPlat.name, tutor: 'Equipe Pedagógica' }))
-        .sort((a, b) => a.nome.localeCompare(b.nome));
-    }
-    return [];
-  }, [form.turma, bancoDeDados.estudantes, classes, students]);
+
+    return listaAlunos
+      .map(s => ({
+        nome: s.name.trim(),
+        turma: form.turma,
+        tutor: s.tutor || (s as any).responsibleTutor || 'Equipe Pedagógica',
+      }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }, [form.turma, classes, students]);
 
   // Handle Form Change
   const handleChange = (
@@ -805,26 +837,22 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
   // --- FORMATAÇÃO INTELIGENTE DE DESCRIÇÃO COM GEMINI ---
   const handleFormatarDescricaoIA = async () => {
-    if (!form.descricao && !form.ocorrencia) {
+    const textoRelato = (form.descricao || '').trim();
+    if (!textoRelato) {
       setMensagem({
-        texto: '⚠️ Digite algumas palavras no relato ou selecione a ocorrência para a IA formatar.',
+        texto: '⚠️ Digite o texto do relato na descrição para que a IA possa reformular e corrigir a gramática.',
         tipo: 'erro',
       });
       return;
     }
     setFormatandoComIA(true);
     try {
-      const res = await fetch('/api/ai/format-occurrence', {
+      const res = await fetch('/api/ai/format-description', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          descricao: form.descricao || form.ocorrencia,
-          estudante: form.estudantes.map(e => e.nome).join(', ') || 'Estudante',
-          turma: form.turma || 'Turma',
-          ocorrencia: form.ocorrencia,
-          medida: form.medida,
-          professor: userName,
-          aula: form.aula,
+          texto: textoRelato,
+          descricao: textoRelato,
         }),
       });
 
@@ -833,21 +861,24 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         if (data.descricaoFormatada) {
           setForm(prev => ({ ...prev, descricao: data.descricaoFormatada }));
           setMensagem({
-            texto: '✨ Relato formatado com sucesso pela IA (Gemini) para linguagem formal e pedagógica!',
+            texto: '✨ Texto revisado e formatado com sucesso pelo Gemini com tom respeitoso e norma-padrão!',
             tipo: 'sucesso',
           });
           setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
+          return;
         }
-      } else {
-        throw new Error('Falha ao processar com IA');
       }
+      throw new Error('Falha ao processar com IA');
     } catch (err: any) {
       console.warn('Erro ao formatar com IA:', err);
-      const raw = form.descricao || form.ocorrencia;
-      const ref = `Registro pedagógico em sala (${form.aula || 'aula'} - Prof. ${userName}): ${raw}. Medida adotada: ${form.medida || 'orientação individual de conduta'}.`;
-      setForm(prev => ({ ...prev, descricao: ref }));
+      // Fallback local: corrige primeira letra maiúscula e ponto final sem injetar opções
+      let raw = textoRelato.charAt(0).toUpperCase() + textoRelato.slice(1);
+      if (!/[.!?]$/.test(raw)) {
+        raw += '.';
+      }
+      setForm(prev => ({ ...prev, descricao: raw }));
       setMensagem({
-        texto: '✨ Relato estruturado pedagogicamente!',
+        texto: '✨ Texto da descrição ajustado com sucesso!',
         tipo: 'sucesso',
       });
       setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
@@ -904,24 +935,17 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     }
   };
 
-  // --- GESTÃO DE CONFIGURAÇÕES DE TURMAS, OCORRÊNCIAS E MEDIDAS (ADMIN) ---
-  const handleAdicionarItemConfig = async (tipo: 'turma' | 'ocorrencia' | 'medida') => {
+  // --- GESTÃO DE CONFIGURAÇÕES DE OCORRÊNCIAS E MEDIDAS (ADMIN) ---
+  const handleAdicionarItemConfig = async (tipo: 'ocorrencia' | 'medida') => {
     const valor = novoItemConfig.trim();
     if (!valor) return;
     setSalvandoConfig(true);
 
     try {
-      let novasTurmas = bancoDeDados.turmasPersonalizadas || [
-        '6ºA', '6ºB', '6ºC', '7ºA', '7ºB', '8ºA', '8ºB', '9ºA', '9ºB', '1ªEM A', '2ªEM A', '3ªEM A'
-      ];
       let novasOcorrencias = [...bancoDeDados.ocorrencias];
       let novasMedidas = [...bancoDeDados.medidas];
 
-      if (tipo === 'turma') {
-        if (!novasTurmas.includes(valor)) {
-          novasTurmas = [...novasTurmas, valor];
-        }
-      } else if (tipo === 'ocorrencia') {
+      if (tipo === 'ocorrencia') {
         if (!novasOcorrencias.includes(valor)) {
           novasOcorrencias = [...novasOcorrencias, valor];
         }
@@ -933,21 +957,21 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
       const novoDb: OcorrenciasDatabase = {
         ...bancoDeDados,
-        turmasPersonalizadas: novasTurmas,
         ocorrencias: novasOcorrencias,
         medidas: novasMedidas,
       };
 
       setBancoDeDados(novoDb);
+      localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(novoDb));
+
       await salvarConfigOcorrenciasSeguro({
-        turmas: novasTurmas,
         ocorrencias: novasOcorrencias,
         medidas: novasMedidas,
       }, novoDb);
 
       setNovoItemConfig('');
       setMensagem({
-        texto: `✅ ${tipo === 'turma' ? 'Turma' : tipo === 'ocorrencia' ? 'Ocorrência' : 'Medida'} cadastrada com sucesso!`,
+        texto: `✅ ${tipo === 'ocorrencia' ? 'Ocorrência principal' : 'Medida pedagógica'} cadastrada e atualizada nas opções de registro!`,
         tipo: 'sucesso',
       });
       setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
@@ -965,15 +989,10 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     setSalvandoConfig(true);
 
     try {
-      let novasTurmas = [...(bancoDeDados.turmasPersonalizadas || [
-        '6ºA', '6ºB', '6ºC', '7ºA', '7ºB', '8ºA', '8ºB', '9ºA', '9ºB', '1ªEM A', '2ªEM A', '3ªEM A'
-      ])];
       let novasOcorrencias = [...bancoDeDados.ocorrencias];
       let novasMedidas = [...bancoDeDados.medidas];
 
-      if (itemEditando.tipo === 'turma') {
-        novasTurmas[itemEditando.index] = valorNovo;
-      } else if (itemEditando.tipo === 'ocorrencia') {
+      if (itemEditando.tipo === 'ocorrencia') {
         novasOcorrencias[itemEditando.index] = valorNovo;
       } else if (itemEditando.tipo === 'medida') {
         novasMedidas[itemEditando.index] = valorNovo;
@@ -981,20 +1000,20 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
       const novoDb: OcorrenciasDatabase = {
         ...bancoDeDados,
-        turmasPersonalizadas: novasTurmas,
         ocorrencias: novasOcorrencias,
         medidas: novasMedidas,
       };
 
       setBancoDeDados(novoDb);
+      localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(novoDb));
+
       await salvarConfigOcorrenciasSeguro({
-        turmas: novasTurmas,
         ocorrencias: novasOcorrencias,
         medidas: novasMedidas,
       }, novoDb);
 
       setItemEditando(null);
-      setMensagem({ texto: '✅ Alteração salva com sucesso!', tipo: 'sucesso' });
+      setMensagem({ texto: '✅ Alteração salva e atualizada em tempo real no formulário!', tipo: 'sucesso' });
       setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
     } catch (err: any) {
       setMensagem({ texto: 'Erro ao salvar edição: ' + err.message, tipo: 'erro' });
@@ -1008,15 +1027,10 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     setSalvandoConfig(true);
 
     try {
-      let novasTurmas = [...(bancoDeDados.turmasPersonalizadas || [
-        '6ºA', '6ºB', '6ºC', '7ºA', '7ºB', '8ºA', '8ºB', '9ºA', '9ºB', '1ªEM A', '2ªEM A', '3ªEM A'
-      ])];
       let novasOcorrencias = [...bancoDeDados.ocorrencias];
       let novasMedidas = [...bancoDeDados.medidas];
 
-      if (itemParaExcluirConfig.tipo === 'turma') {
-        novasTurmas = novasTurmas.filter((_, idx) => idx !== itemParaExcluirConfig.index);
-      } else if (itemParaExcluirConfig.tipo === 'ocorrencia') {
+      if (itemParaExcluirConfig.tipo === 'ocorrencia') {
         novasOcorrencias = novasOcorrencias.filter((_, idx) => idx !== itemParaExcluirConfig.index);
       } else if (itemParaExcluirConfig.tipo === 'medida') {
         novasMedidas = novasMedidas.filter((_, idx) => idx !== itemParaExcluirConfig.index);
@@ -1024,20 +1038,20 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
       const novoDb: OcorrenciasDatabase = {
         ...bancoDeDados,
-        turmasPersonalizadas: novasTurmas,
         ocorrencias: novasOcorrencias,
         medidas: novasMedidas,
       };
 
       setBancoDeDados(novoDb);
+      localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(novoDb));
+
       await salvarConfigOcorrenciasSeguro({
-        turmas: novasTurmas,
         ocorrencias: novasOcorrencias,
         medidas: novasMedidas,
       }, novoDb);
 
       setItemParaExcluirConfig(null);
-      setMensagem({ texto: '✅ Item excluído das opções com sucesso!', tipo: 'sucesso' });
+      setMensagem({ texto: '✅ Item excluído com sucesso das opções de registro!', tipo: 'sucesso' });
       setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
     } catch (err: any) {
       setMensagem({ texto: 'Erro ao excluir item: ' + err.message, tipo: 'erro' });
@@ -2065,11 +2079,8 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     );
   };
 
-  // Painel de Gestão do Administrador (Turmas, Ocorrências e Medidas)
+  // Painel de Gestão do Administrador (Ocorrências Principais e Medidas Pedagógicas)
   const renderPainelAdminConfig = () => {
-    const listaTurmas = bancoDeDados.turmasPersonalizadas || [
-      '6ºA', '6ºB', '6ºC', '7ºA', '7ºB', '8ºA', '8ºB', '9ºA', '9ºB', '1ªEM A', '2ªEM A', '3ªEM A'
-    ];
     const listaOcorrencias = bancoDeDados.ocorrencias || [];
     const listaMedidas = bancoDeDados.medidas || [];
 
@@ -2085,7 +2096,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 </h2>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Cadastre, edite ou exclua turmas, motivos de ocorrência e medidas pedagógicas disponíveis no formulário.
+                Cadastre, edite ou exclua motivos de ocorrência principal e medidas pedagógicas disponíveis no formulário de registro.
               </p>
             </div>
             <span className="self-start sm:self-auto bg-indigo-50 border border-indigo-200 text-indigo-800 text-[11px] font-bold px-2.5 py-1 rounded-lg">
@@ -2093,23 +2104,26 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             </span>
           </div>
 
+          {/* Banner Informativo: Turmas e Estudantes Integrados Exclusivamente do Busca Ativa */}
+          <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-xl p-4 mb-6 flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <School className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-indigo-950 flex items-center gap-1.5">
+                <span>Turmas e Estudantes Integrados Exclusivamente do Busca Ativa</span>
+                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                  Sincronização Oficial Ativa
+                </span>
+              </h4>
+              <p className="text-xs text-indigo-900/90 leading-relaxed mt-1">
+                Todas as <strong>{turmasUnicas.length} turmas</strong> disponíveis para registro de ocorrências e os estudantes correspondentes são carregados exclusivamente a partir do cadastro oficial do Sistema de Busca Ativa Escolar. Para adicionar ou alterar turmas e alunos, utilize o módulo principal de Cadastro de Turmas e Estudantes.
+              </p>
+            </div>
+          </div>
+
           {/* Sub-abas do Painel Admin */}
           <div className="flex flex-wrap gap-2 mb-6 border-b border-slate-100 pb-3">
-            <button
-              type="button"
-              onClick={() => { setAbaAdminConfig('turmas'); setNovoItemConfig(''); }}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
-                abaAdminConfig === 'turmas'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-              }`}
-            >
-              <span>🏫 Turmas Disponíveis</span>
-              <span className="bg-black/20 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono">
-                {listaTurmas.length}
-              </span>
-            </button>
-
             <button
               type="button"
               onClick={() => { setAbaAdminConfig('ocorrencias'); setNovoItemConfig(''); }}
@@ -2147,11 +2161,9 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
               <Plus className="w-3.5 h-3.5 text-indigo-600" />
               <span>
                 Cadastrar Novo(a){' '}
-                {abaAdminConfig === 'turmas'
-                  ? 'Turma'
-                  : abaAdminConfig === 'ocorrencias'
+                {abaAdminConfig === 'ocorrencias'
                   ? 'Tipo de Ocorrência Principal'
-                  : 'Medida Tomada'}
+                  : 'Medida Pedagógica Tomada'}
               </span>
             </h3>
             <div className="flex flex-col sm:flex-row gap-2">
@@ -2163,20 +2175,16 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                   if (e.key === 'Enter') {
                     e.preventDefault();
                     handleAdicionarItemConfig(
-                      abaAdminConfig === 'turmas'
-                        ? 'turma'
-                        : abaAdminConfig === 'ocorrencias'
+                      abaAdminConfig === 'ocorrencias'
                         ? 'ocorrencia'
                         : 'medida'
                     );
                   }
                 }}
                 placeholder={
-                  abaAdminConfig === 'turmas'
-                    ? 'Ex: 6ºD, 1ªEM B, Novo Ensino Médio...'
-                    : abaAdminConfig === 'ocorrencias'
+                  abaAdminConfig === 'ocorrencias'
                     ? 'Ex: Descumprimento de regras de laboratório...'
-                    : 'Ex: Mediação com o tutor pedagógico...'
+                    : 'Ex: Mediação formativa com o professor tutor...'
                 }
                 className="flex-1 p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-medium bg-white text-slate-800"
               />
@@ -2185,9 +2193,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 disabled={salvandoConfig || !novoItemConfig.trim()}
                 onClick={() =>
                   handleAdicionarItemConfig(
-                    abaAdminConfig === 'turmas'
-                      ? 'turma'
-                      : abaAdminConfig === 'ocorrencias'
+                    abaAdminConfig === 'ocorrencias'
                       ? 'ocorrencia'
                       : 'medida'
                   )
@@ -2195,71 +2201,23 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Adicionar</span>
+                <span>Adicionar às Opções</span>
               </button>
             </div>
+            <p className="text-[11px] text-slate-500 mt-2">
+              💡 Qualquer novo item adicionado, editado ou excluído é atualizado imediatamente no formulário de registro de ocorrências para todos os usuários.
+            </p>
           </div>
 
           {/* Lista de Itens com Ações de Edição e Exclusão */}
           <div className="space-y-2">
             <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-              Itens Ativos no Sistema (
-              {abaAdminConfig === 'turmas'
-                ? listaTurmas.length
-                : abaAdminConfig === 'ocorrencias'
+              Opções Ativas no Formulário de Registro (
+              {abaAdminConfig === 'ocorrencias'
                 ? listaOcorrencias.length
                 : listaMedidas.length}
               )
             </h3>
-
-            {abaAdminConfig === 'turmas' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                {listaTurmas.map((turma, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3 bg-white border border-slate-200 hover:border-indigo-200 rounded-xl flex items-center justify-between gap-2 shadow-2xs group transition-all"
-                  >
-                    <div className="flex items-center gap-2 truncate">
-                      <span className="w-5 h-5 rounded-md bg-indigo-50 text-indigo-700 text-[11px] font-mono font-bold flex items-center justify-center shrink-0">
-                        {idx + 1}
-                      </span>
-                      <span className="font-extrabold text-xs text-slate-800 truncate">{turma}</span>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setItemEditando({
-                            tipo: 'turma',
-                            index: idx,
-                            valorAntigo: turma,
-                            valorNovo: turma,
-                          })
-                        }
-                        className="p-1.5 hover:bg-indigo-50 text-indigo-600 hover:text-indigo-800 rounded-lg text-xs cursor-pointer transition-colors"
-                        title="Editar nome da turma"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setItemParaExcluirConfig({
-                            tipo: 'turma',
-                            index: idx,
-                            valor: turma,
-                          })
-                        }
-                        className="p-1.5 hover:bg-rose-50 text-rose-600 hover:text-rose-800 rounded-lg text-xs cursor-pointer transition-colors"
-                        title="Excluir turma"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
 
             {abaAdminConfig === 'ocorrencias' && (
               <div className="space-y-2">
@@ -3364,7 +3322,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         </div>
       )}
 
-      {/* MODAL 7: EDIÇÃO DE ITEM DE CONFIGURAÇÃO (TURMAS, OCORRÊNCIAS, MEDIDAS) */}
+      {/* MODAL 7: EDIÇÃO DE ITEM DE CONFIGURAÇÃO (OCORRÊNCIAS, MEDIDAS) */}
       {itemEditando && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95">
@@ -3373,9 +3331,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 <Edit2 className="w-4 h-4" />
                 <span>
                   Editar{' '}
-                  {itemEditando.tipo === 'turma'
-                    ? 'Turma'
-                    : itemEditando.tipo === 'ocorrencia'
+                  {itemEditando.tipo === 'ocorrencia'
                     ? 'Tipo de Ocorrência'
                     : 'Medida Pedagógica'}
                 </span>
@@ -3393,27 +3349,16 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                  Texto / Descrição
+                  Texto / Descrição da Opção
                 </label>
-                {itemEditando.tipo === 'turma' ? (
-                  <input
-                    type="text"
-                    value={itemEditando.valorNovo}
-                    onChange={e =>
-                      setItemEditando({ ...itemEditando, valorNovo: e.target.value })
-                    }
-                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-bold text-slate-800"
-                  />
-                ) : (
-                  <textarea
-                    rows={3}
-                    value={itemEditando.valorNovo}
-                    onChange={e =>
-                      setItemEditando({ ...itemEditando, valorNovo: e.target.value })
-                    }
-                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-medium text-slate-800"
-                  />
-                )}
+                <textarea
+                  rows={3}
+                  value={itemEditando.valorNovo}
+                  onChange={e =>
+                    setItemEditando({ ...itemEditando, valorNovo: e.target.value })
+                  }
+                  className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-medium text-slate-800"
+                />
               </div>
 
               <div className="flex gap-3 pt-2">
@@ -3440,7 +3385,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         </div>
       )}
 
-      {/* MODAL 8: EXCLUSÃO DE ITEM DE CONFIGURAÇÃO (TURMAS, OCORRÊNCIAS, MEDIDAS) */}
+      {/* MODAL 8: EXCLUSÃO DE ITEM DE CONFIGURAÇÃO (OCORRÊNCIAS, MEDIDAS) */}
       {itemParaExcluirConfig && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 animate-in zoom-in-95">
@@ -3449,9 +3394,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 <Trash2 className="w-4 h-4" />
                 <span>
                   Excluir{' '}
-                  {itemParaExcluirConfig.tipo === 'turma'
-                    ? 'Turma'
-                    : itemParaExcluirConfig.tipo === 'ocorrencia'
+                  {itemParaExcluirConfig.tipo === 'ocorrencia'
                     ? 'Tipo de Ocorrência'
                     : 'Medida Pedagógica'}
                 </span>

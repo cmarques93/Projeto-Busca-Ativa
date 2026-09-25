@@ -32,10 +32,19 @@ async function startServer() {
   // Lazy Gemini initialization helper
   let aiClient: GoogleGenAI | null = null;
   function getGeminiClient(): GoogleGenAI | null {
-    if (!aiClient && process.env.GEMINI_API_KEY) {
-      aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    if (aiClient) return aiClient;
+    try {
+      const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+      if (apiKey) {
+        aiClient = new GoogleGenAI({ apiKey });
+      } else {
+        aiClient = new GoogleGenAI();
+      }
+      return aiClient;
+    } catch (err) {
+      console.warn('Gemini client initialization warning:', err);
+      return null;
     }
-    return aiClient;
   }
 
   // --- SISTEMA DE GESTÃO E PROTEÇÃO DE COTA GRATUITA DA IA ---
@@ -775,20 +784,24 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
       aula = '',
     } = req.body;
 
+    const rawTrim = (descricao || '').trim();
+
     const generateFallback = () => {
-      const rawTrim = (descricao || '').trim();
+      // Fallback estrito: reformula apenas o texto digitado, sem injetar opções
       let formattedDescription = rawTrim;
-      if (!formattedDescription && ocorrencia) {
-        formattedDescription = `Foi registrado na presente data (${aula || 'horário letivo'}) apontamento referente a: ${ocorrencia}. Ocorrência mediada com aplicação da medida pedagógica: ${medida || 'orientação individual'}.`;
-      } else if (formattedDescription) {
-        formattedDescription = `Registro pedagógico em sala (${aula || 'aula'} - Prof. ${professor || 'Docente'}): ${rawTrim}. Medida pedagógica adotada: ${medida || 'orientação formativa e alinhamento de conduta'}.`;
+      if (formattedDescription) {
+        // Correção básica de primeira letra e ponto final
+        formattedDescription = formattedDescription.charAt(0).toUpperCase() + formattedDescription.slice(1);
+        if (!/[.!?]$/.test(formattedDescription)) {
+          formattedDescription += '.';
+        }
       }
 
       const whatsappMsg = `*EE Prof. Arlindo Silvestre - Acompanhamento Escolar*\n\n` +
         `Olá, família de *${estudante}* (${turma || 'Turma'}).\n\n` +
-        `Gostaríamos de informar que hoje, durante a aula (${aula || 'horário letivo'}), o(a) estudante apresentou uma ocorrência referente a *${ocorrencia || 'disciplina em sala'}*.\n\n` +
-        `📝 *Relato da aula:* "${rawTrim || ocorrencia}"\n` +
-        `⚖️ *Medida pedagógica aplicada:* ${medida || 'Conversa orientativa individual'}\n\n` +
+        `Gostaríamos de informar que hoje, durante a aula (${aula || 'horário letivo'}), foi registrado um apontamento referente a *${ocorrencia || 'convivência escolar'}*.\n\n` +
+        (formattedDescription ? `📝 *Relato da aula:* "${formattedDescription}"\n` : '') +
+        (medida ? `⚖️ *Medida pedagógica aplicada:* ${medida}\n\n` : '\n') +
         `Pedimos o apoio e o diálogo da família em casa para reforçarmos juntos o compromisso com os estudos e a convivência respeitosa na escola. Estamos sempre de portas abertas para qualquer dúvida ou apoio.\n\n` +
         `Atenciosamente,\n*Equipe Gestora Escolar*`;
 
@@ -806,24 +819,32 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
     const ai = getGeminiClient();
     if (ai) {
       try {
-        const prompt = `Você é um especialista em mediação escolar, convivência pedagógica e comunicação empática da rede estadual de ensino de São Paulo (SEDUC-SP).
-Sua missão é aprimorar o registro de uma ocorrência disciplinar escolar para dois propósitos essenciais:
+        const prompt = `Você é um assistente pedagógico especializado em mediação escolar, correção gramatical e comunicação clara e respeitosa com famílias e responsáveis na educação básica da rede pública.
 
-1. "descricaoFormatada": Uma descrição formal, objetiva, pedagógica e respeitosa dos fatos ocorridos em sala de aula para constar no histórico oficial da escola (sem termos ofensivos, gírias ou desabafos, mantendo fidelidade factual ao relato do docente).
-2. "mensagemWhatsApp": Uma mensagem clara, amigável, formal e acolhedora em português simples, pronta para ser enviada aos pais/responsáveis pelo WhatsApp pela Equipe Gestora da EE Prof. Arlindo Silvestre. A mensagem deve explicar o ocorrido com clareza, respeito e sem tom acusatório exagerado, convidando os pais para somar com a escola e dialogar com o jovem.
+Sua tarefa principal é ler o texto do relato digitado pelo professor e reformular EXCLUSIVAMENTE o texto escrito ali:
+1. "descricaoFormatada": Reformule APENAS o relato escrito pelo professor.
+   - Corrija erros gramaticais, de concordância, pontuação e ortografia em português (pt-BR).
+   - Ajuste a linguagem para que seja formal, respeitosa, educada e empática.
+   - Deixe o texto claro e simples, de fácil compreensão para que qualquer pai, mãe ou responsável compreenda com exatidão o que aconteceu em sala.
+   - Mantenha 100% de fidelidade aos fatos narrados pelo professor, eliminando desabafos ou gírias sem alterar o conteúdo factual.
+   - REGRA CRÍTICA: NÃO adicione metadados (como "Registro pedagógico em sala", nome do professor, nome da turma, medidas tomadas ou opções prévias) na "descricaoFormatada". Retorne apenas o parágrafo do relato reescrito.
 
-DADOS DA OCORRÊNCIA:
+2. "mensagemWhatsApp": Mensagem completa, empática e acolhedora pronta para ser enviada aos pais pelo WhatsApp da escola, explicando o ocorrido de forma gentil e solicitando diálogo da família.
+
+TEXTO DO RELATO DIGITADO PELO PROFESSOR:
+"${rawTrim || ocorrencia}"
+
+CONTEXTO ADICIONAL PARA O WHATSAPP:
 - Estudante: ${estudante}
 - Turma: ${turma}
 - Horário / Aula: ${aula}
-- Professor(a) Relator(a): ${professor}
-- Infração Principal: ${ocorrencia}
-- Medida Pedagógica Aplicada: ${medida}
-- Relato Bruto / Anotações do Docente: "${descricao || ocorrencia}"
+- Professor: ${professor}
+- Ocorrência: ${ocorrencia}
+- Medida Aplicada: ${medida}
 
 Responda ESTRITAMENTE em formato JSON com as chaves:
 {
-  "descricaoFormatada": "Texto formal e objetivo para o dossiê oficial da escola",
+  "descricaoFormatada": "Texto reformulado exclusivamente a partir do relato do professor, com gramática correta e tom educado/respeitoso para compreensão dos responsáveis",
   "mensagemWhatsApp": "Mensagem formatada com emojis discretos (*negrito* para nomes e destaques) para enviar aos pais no WhatsApp"
 }`;
 
@@ -838,7 +859,7 @@ Responda ESTRITAMENTE em formato JSON com as chaves:
 
         quotaTracker.requestsToday++;
         return res.json({
-          descricaoFormatada: parsed.descricaoFormatada || generateFallback().descricaoFormatada,
+          descricaoFormatada: parsed.descricaoFormatada ? parsed.descricaoFormatada.trim() : generateFallback().descricaoFormatada,
           mensagemWhatsApp: parsed.mensagemWhatsApp || generateFallback().mensagemWhatsApp,
           source: 'gemini_ai'
         });
@@ -850,6 +871,65 @@ Responda ESTRITAMENTE em formato JSON com as chaves:
 
     return res.json(generateFallback());
   };
+
+  // --- FORMATAÇÃO INTELIGENTE DE DESCRIÇÃO COM GEMINI (PROMPT PEDAGÓGICO REQUISITADO) ---
+  app.post('/api/ai/format-description', async (req: express.Request, res: express.Response) => {
+    syncDailyQuota();
+    const { texto = '', descricao = '' } = req.body;
+    const rawTrim = (texto || descricao || '').trim();
+
+    if (!rawTrim) {
+      return res.status(400).json({ error: 'Texto não fornecido para formatação' });
+    }
+
+    const fallbackText = () => {
+      let f = rawTrim.charAt(0).toUpperCase() + rawTrim.slice(1);
+      if (!/[.!?]$/.test(f)) f += '.';
+      return f;
+    };
+
+    const ai = getGeminiClient();
+    if (ai) {
+      try {
+        const prompt = `Atue como um assistente pedagógico. Sua tarefa é reescrever, revisar e formatar esse texto, pois uma cópia será entregue aos responsáveis do estudante.
+Siga estas diretrizes:
+Correção Gramatical: Aplique a norma-padrão da língua portuguesa, corrigindo erros de digitação, pontuação e concordância.
+Linguagem Simples e Acessível: Reescreva o texto de forma que qualquer responsável compreenda o contexto sem dificuldade. Evite jargões técnicos da área da educação.
+Tom Profissional: Mantenha a objetividade, o respeito e a imparcialidade. O texto deve relatar o fato de forma descritiva, sem julgamentos de valor desnecessários.
+Fidelidade aos Fatos: Apenas organize e estruture as informações fornecidas. Nunca adicione detalhes ou fatos que não estejam nas minhas anotações originais.
+Estruturação: Entregue o resultado em um formato limpo e fácil de ler.
+
+TEXTO ORIGINAL:
+"${rawTrim}"
+
+IMPORTANTE: Responda APENAS com o texto reescrito e formatado, sem introduções ("Aqui está o texto:"), sem aspas adicionais, sem preâmbulos e sem explicações.`;
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+        });
+
+        const formatted = response.text ? response.text.trim() : fallbackText();
+        quotaTracker.requestsToday++;
+        return res.json({
+          descricaoFormatada: formatted,
+          source: 'gemini_ai'
+        });
+      } catch (err: any) {
+        console.warn('Erro ao formatar descrição com Gemini API:', err?.message || err);
+        return res.json({
+          descricaoFormatada: fallbackText(),
+          source: 'motor_pedagogico_fallback',
+          error: err?.message
+        });
+      }
+    }
+
+    return res.json({
+      descricaoFormatada: fallbackText(),
+      source: 'motor_pedagogico_fallback'
+    });
+  });
 
   app.post('/api/ai/format-occurrence', handleFormatOccurrence);
   app.post('/api/ai/format-occurrence-whatsapp', handleFormatOccurrence);
