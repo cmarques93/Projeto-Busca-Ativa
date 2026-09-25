@@ -100,11 +100,8 @@ export default function App() {
           setAlerts(res.alerts);
           storageService.setAlerts(res.alerts);
         }
-        if (res.attendance && res.attendance.length > 0) {
-          const localAttendance = storageService.getAttendanceRecords();
-          const cloudIds = new Set(res.attendance.map((a: any) => a.id));
-          const localOnly = localAttendance.filter(a => !cloudIds.has(a.id));
-          storageService.setAttendanceRecords([...res.attendance, ...localOnly]);
+        if (res.attendance !== undefined) {
+          storageService.setAttendanceRecords(res.attendance);
         }
         if (res.interventions && res.interventions.length > 0) {
           setInterventions(res.interventions);
@@ -162,8 +159,7 @@ export default function App() {
       if (ok) {
         setSyncMessage('Firebase sincronizado!');
       } else {
-        await migrateToFirebase(true);
-        setSyncMessage('Sincronização concluída!');
+        setSyncMessage('Conectado à base local.');
       }
     } catch (error) {
       console.error('Erro na sincronização:', error);

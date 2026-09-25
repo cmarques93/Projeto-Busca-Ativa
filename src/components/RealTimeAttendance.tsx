@@ -166,6 +166,9 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
   const [deleteTargetClass, setDeleteTargetClass] = useState<SchoolClass | null>(null);
   const [isDeletingRecords, setIsDeletingRecords] = useState(false);
 
+  // Edit / Replacement Confirmation Modal state
+  const [isEditConfirmOpen, setIsEditConfirmOpen] = useState(false);
+
   const handleOpenDeleteModal = (targetClass: SchoolClass | null = null) => {
     setDeleteTargetClass(targetClass);
     setIsDeleteDialogOpen(true);
@@ -474,90 +477,110 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
     });
   };
 
-  // Submit modal attendance and return to grid
-  const handleSaveModalAttendance = async () => {
+  // Trigger modal save (with confirmation if editing already recorded attendance)
+  const handleTriggerSaveModalAttendance = () => {
+    if (!activeModalClass) return;
+    const isAlreadyRecorded = dailyRecords.some(
+      r => isSameDay(r.date, selectedDate) && isRecordInClass(r, activeModalClass)
+    );
+    if (isAlreadyRecorded) {
+      setIsEditConfirmOpen(true);
+    } else {
+      executeSaveModalAttendance();
+    }
+  };
+
+  // Submit modal attendance and return to grid (completely deleting previous records on edit)
+  const executeSaveModalAttendance = async () => {
     if (!activeModalClass) return;
     setIsSubmittingModal(true);
-
-    const classStudents = students.filter(s => isStudentInClass(s, activeModalClass));
-    const items = classStudents.map(s => {
-      const entry = modalAttendanceState[s.id] || { status: 'presente' as AttendanceStatus, durationDays: 1 };
-      const duration = entry.status === 'atestado_medico'
-        ? (entry.medicalDays || entry.durationDays || 1)
-        : entry.status === 'falta_justificada'
-        ? (entry.justificationDays || entry.durationDays || 1)
-        : 1;
-
-      return {
-        studentId: s.id,
-        studentName: s.name,
-        className: s.className || activeModalClass.name,
-        status: entry.status,
-        durationDays: duration,
-        justification: entry.justification,
-        justificationDays: entry.justificationDays,
-        medicalCertificate: entry.medicalCertificate,
-        medicalDays: entry.medicalDays,
-      };
-    });
-
-    // Atualização otimista imediata para que a barra de progresso e o card da turma atualizem instantaneamente
-    const optimisticRecords: AttendanceRecord[] = items.length > 0
-      ? items.map(item => ({
-          id: `att-opt-${Date.now()}-${item.studentId}`,
-          studentId: item.studentId,
-          studentName: item.studentName || 'Estudante',
-          classId: activeModalClass.id,
-          className: activeModalClass.name,
-          date: selectedDate,
-          status: item.status,
-          durationDays: item.durationDays,
-          justification: item.justification,
-          justificationDays: item.justificationDays,
-          medicalCertificate: item.medicalCertificate,
-          medicalDays: item.medicalDays,
-          recordedBy: teacherName,
-          recordedAt: new Date().toISOString(),
-        }))
-      : [{
-          id: `att-cls-${activeModalClass.id}-${selectedDate}`,
-          studentId: `cls-marker-${activeModalClass.id}`,
-          studentName: `Turma ${activeModalClass.name} (Chamada Concluída)`,
-          classId: activeModalClass.id,
-          className: activeModalClass.name,
-          date: selectedDate,
-          status: 'presente',
-          durationDays: 1,
-          isCountedAsAbsence: false,
-          recordedBy: teacherName,
-          recordedAt: new Date().toISOString(),
-          justification: 'Frequência da turma registrada',
-        }];
-
-    setDailyRecords(prev => {
-      const filtered = prev.filter(r => !(isSameDay(r.date, selectedDate) && isRecordInClass(r, activeModalClass)));
-      return [...filtered, ...optimisticRecords];
-    });
+    setIsEditConfirmOpen(false);
 
     try {
-      await onSaveAttendance(items, activeModalClass.id, teacherName, selectedDate);
-      // Reload daily records to refresh badges from Firestore
-      const updated = await loadDailyRecords(selectedDate);
-      if (!updated || updated.length === 0 || !updated.some(r => isSameDay(r.date, selectedDate) && isRecordInClass(r, activeModalClass))) {
-        // Preserva os dados otimistas se houver latência de propagação
-        setDailyRecords(prev => {
-          const filtered = prev.filter(r => !(isSameDay(r.date, selectedDate) && isRecordInClass(r, activeModalClass)));
-          return [...filtered, ...optimisticRecords];
+      // 1. Apaga prévia e explicitamente os registros antigos desta turma nesta data para garantir substituição limpa no Firebase Firestore e storageService
+      await firestoreService.deleteAttendanceByDate(selectedDate, activeModalClass.id);
+      await storageService.deleteAttendanceByDate(selectedDate, activeModalClass.id);
+      try {
+        await fetch(`/api/attendance?date=${selectedDate}&classId=${encodeURIComponent(activeModalClass.id)}`, {
+          method: 'DELETE',
         });
+      } catch (errDel) {
+        console.warn('DELETE prévio backend:', errDel);
       }
 
-      setSaveSuccessMsg(`Frequência da turma "${activeModalClass.name}" registrada com sucesso!`);
-      setTimeout(() => setSaveSuccessMsg(null), 5000);
+      const classStudents = students.filter(s => isStudentInClass(s, activeModalClass));
+      const items = classStudents.map(s => {
+        const entry = modalAttendanceState[s.id] || { status: 'presente' as AttendanceStatus, durationDays: 1 };
+        const duration = entry.status === 'atestado_medico'
+          ? (entry.medicalDays || entry.durationDays || 1)
+          : entry.status === 'falta_justificada'
+          ? (entry.justificationDays || entry.durationDays || 1)
+          : 1;
+
+        return {
+          studentId: s.id,
+          studentName: s.name,
+          className: s.className || activeModalClass.name,
+          status: entry.status,
+          durationDays: duration,
+          justification: entry.justification,
+          justificationDays: entry.justificationDays,
+          medicalCertificate: entry.medicalCertificate,
+          medicalDays: entry.medicalDays,
+        };
+      });
+
+      // Atualização otimista imediata para que a barra de progresso e o card da turma atualizem instantaneamente
+      const optimisticRecords: AttendanceRecord[] = items.length > 0
+        ? items.map(item => ({
+            id: `att-opt-${Date.now()}-${item.studentId}`,
+            studentId: item.studentId,
+            studentName: item.studentName || 'Estudante',
+            classId: activeModalClass.id,
+            className: activeModalClass.name,
+            date: selectedDate,
+            status: item.status,
+            durationDays: item.durationDays,
+            justification: item.justification,
+            justificationDays: item.justificationDays,
+            medicalCertificate: item.medicalCertificate,
+            medicalDays: item.medicalDays,
+            recordedBy: teacherName,
+            recordedAt: new Date().toISOString(),
+          }))
+        : [{
+            id: `att-cls-${activeModalClass.id}-${selectedDate}`,
+            studentId: `cls-marker-${activeModalClass.id}`,
+            studentName: `Turma ${activeModalClass.name} (Chamada Concluída)`,
+            classId: activeModalClass.id,
+            className: activeModalClass.name,
+            date: selectedDate,
+            status: 'presente',
+            durationDays: 1,
+            isCountedAsAbsence: false,
+            recordedBy: teacherName,
+            recordedAt: new Date().toISOString(),
+            justification: 'Frequência da turma registrada',
+          }];
+
+      setDailyRecords(prev => {
+        const filtered = prev.filter(r => !(isSameDay(r.date, selectedDate) && isRecordInClass(r, activeModalClass)));
+        return [...filtered, ...optimisticRecords];
+      });
+
+      await onSaveAttendance(items, activeModalClass.id, teacherName, selectedDate);
+      // Reload daily records directly from Firestore
+      await loadDailyRecords(selectedDate);
+
+      const formattedDate = new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR');
+      setSaveSuccessMsg(`Registro anterior apagado e nova frequência da turma "${activeModalClass.name}" (${formattedDate}) gravada com sucesso no Firebase!`);
+      setTimeout(() => setSaveSuccessMsg(null), 6000);
 
       // Closes modal and returns to grid
       setActiveModalClass(null);
     } catch (err) {
-      console.error('Erro ao registrar frequência:', err);
+      console.error('Erro ao registrar/substituir frequência:', err);
+      alert('Erro ao registrar frequência. Tente novamente.');
     } finally {
       setIsSubmittingModal(false);
     }
@@ -1311,14 +1334,75 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
 
                   <button
                     type="button"
-                    onClick={handleSaveModalAttendance}
+                    onClick={handleTriggerSaveModalAttendance}
                     disabled={isSubmittingModal || isDeletingRecords}
                     className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md cursor-pointer transition-all active:scale-95 disabled:opacity-50"
                   >
                     <CheckCircle2 className="w-4 h-4" />
-                    <span>{isSubmittingModal ? 'Gravando no Banco...' : 'Registrar Frequência'}</span>
+                    <span>
+                      {isSubmittingModal
+                        ? 'Gravando no Banco...'
+                        : dailyRecords.some(r => isSameDay(r.date, selectedDate) && isRecordInClass(r, activeModalClass))
+                        ? 'Salvar Alterações'
+                        : 'Registrar Frequência'}
+                    </span>
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL DE CONFIRMAÇÃO: EDITAR / SUBSTITUIR REGISTRO            */}
+      {/* ============================================================== */}
+      {isEditConfirmOpen && activeModalClass && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-indigo-100 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
+            <div className="p-6">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center mb-4">
+                <AlertTriangle className="w-6 h-6 text-indigo-600" />
+              </div>
+
+              <h2 className="text-base font-black text-slate-900 mb-2">
+                Aviso: Confirmar Edição e Substituição
+              </h2>
+
+              <p className="text-xs text-slate-600 leading-relaxed mb-4">
+                A turma <strong>{activeModalClass.name}</strong> já possui chamada lançada para o dia{' '}
+                <strong>{new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR')}</strong>.
+              </p>
+
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start gap-2.5 mb-6">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <p className="font-bold text-amber-950">Substituição Completa no Banco de Dados:</p>
+                  <p className="text-[11px] leading-relaxed text-amber-900">
+                    Ao confirmar, os <strong>registros anteriores desta turma nesta data serão apagados</strong> e o novo lançamento será gravado e sincronizado no <strong>Firebase Firestore</strong> em tempo real.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsEditConfirmOpen(false)}
+                  disabled={isSubmittingModal}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  type="button"
+                  onClick={executeSaveModalAttendance}
+                  disabled={isSubmittingModal}
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-md cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>{isSubmittingModal ? 'Substituindo no Firebase...' : 'Confirmar e Gravar Novo Registro'}</span>
+                </button>
               </div>
             </div>
           </div>
