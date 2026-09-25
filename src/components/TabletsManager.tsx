@@ -18,9 +18,11 @@ import {
   KeyRound,
   ShieldCheck,
   Shield,
-  Calendar
+  Calendar,
+  UserPlus
 } from 'lucide-react';
 import { SchoolClass } from '../types';
+import { storageService } from '../data/storageService';
 import { carregarTabletsSeguro, salvarReservaTabletsSeguro } from '../lib/sheetsSyncService';
 import tabletsBaseline from '../data/tabletsBaseline.json';
 
@@ -104,6 +106,8 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
   } | null>(null);
 
   const [operacao, setOperacao] = useState<'agendar' | 'cancelar'>('agendar');
+  const [modoAdminOutroUsuario, setModoAdminOutroUsuario] = useState(false);
+  const [professorCustomizado, setProfessorCustomizado] = useState('');
   const [formAgendar, setFormAgendar] = useState({
     professor: currentUser?.name || '',
     turma: '',
@@ -293,16 +297,33 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
     carregarDadosDoSheets();
   }, []);
 
-  // Lista de Professores Unificada
+  // Lista de Professores e Usuários Unificada
   const listaProfessores = useMemo(() => {
     const doSheets = baseDeDados.professores.map(p =>
       typeof p === 'object' && p !== null ? (p as any).nome : String(p)
     );
+    let dosUsuarios: string[] = [];
+    try {
+      const users = storageService.getUsers();
+      dosUsuarios = users.map(u => u.name);
+    } catch {}
+
+    const dasTurmas: string[] = [];
+    classes.forEach(c => {
+      if ((c as any).tutor) dasTurmas.push((c as any).tutor);
+    });
+
     if (currentUser?.name && !doSheets.includes(currentUser.name)) {
       doSheets.push(currentUser.name);
     }
-    return Array.from(new Set(doSheets)).filter(Boolean).sort();
-  }, [baseDeDados.professores, currentUser]);
+
+    const unicos = Array.from(new Set([...doSheets, ...dosUsuarios, ...dasTurmas]))
+      .map(s => (s || '').trim())
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+    return unicos;
+  }, [baseDeDados.professores, classes, currentUser]);
 
   // Lista de Turmas Unificada
   const listaTurmas = useMemo(() => {
@@ -326,12 +347,14 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
     if (disponiveis > 0) {
       setOperacao('agendar');
       const maxPermitido = disponiveis;
-      setFormAgendar(prev => ({
-        ...prev,
+      setModoAdminOutroUsuario(false);
+      setProfessorCustomizado('');
+      setFormAgendar({
         tablets: maxPermitido > 17 ? 17 : maxPermitido,
-        professor: currentUser?.name || prev.professor,
-        senha: currentUser?.pin || prev.senha,
-      }));
+        professor: currentUser?.name || '',
+        senha: currentUser?.pin || '',
+        turma: '',
+      });
     } else {
       setOperacao('cancelar');
     }
@@ -349,12 +372,23 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
   const fecharModal = () => {
     setModalAberto(false);
     setModalContext(null);
+    setModoAdminOutroUsuario(false);
+    setProfessorCustomizado('');
   };
 
   // Submit: Agendar
   const handleAgendar = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!modalContext) return;
+
+    const professorFinal = modoAdminOutroUsuario && formAgendar.professor === '__OUTRO__'
+      ? professorCustomizado.trim()
+      : formAgendar.professor.trim();
+
+    if (!professorFinal) {
+      setMensagem({ texto: 'Por favor, selecione ou informe o nome do(a) professor(a).', tipo: 'erro' });
+      return;
+    }
 
     if (!formAgendar.turma) {
       setMensagem({ texto: 'Por favor, selecione uma turma.', tipo: 'erro' });
@@ -366,10 +400,10 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
       action: 'agendar',
       data: modalContext.dataIso,
       aula: modalContext.aula,
-      professor: formAgendar.professor,
+      professor: professorFinal,
       turma: formAgendar.turma,
       tablets: Number(formAgendar.tablets),
-      senha: formAgendar.senha,
+      senha: formAgendar.senha || currentUser?.pin || '1234',
     };
 
     try {
@@ -377,8 +411,12 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
       if (!res.ok) {
         setMensagem({ texto: 'Erro ao registrar reserva: ' + (res.msg || 'Verifique a senha informada.'), tipo: 'erro' });
       } else {
+        const msgSucesso = isAdmin && modoAdminOutroUsuario
+          ? `✅ Agendamento de ${formAgendar.tablets} tablets realizado com sucesso pela Administração em nome de ${professorFinal} (${formAgendar.turma})!`
+          : `✅ Agendamento de ${formAgendar.tablets} tablets confirmado com sucesso para ${formAgendar.turma}!`;
+
         setMensagem({
-          texto: `✅ Agendamento de ${formAgendar.tablets} tablets confirmado com sucesso para ${formAgendar.turma}!`,
+          texto: msgSucesso,
           tipo: 'sucesso',
         });
         fecharModal();
@@ -387,7 +425,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
         const novaReserva: AgendamentoTablet = {
           data: modalContext.dataIso,
           aula: modalContext.aula,
-          professor: formAgendar.professor,
+          professor: professorFinal,
           turma: formAgendar.turma,
           tablets: Number(formAgendar.tablets),
         };
@@ -841,24 +879,115 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
               {/* FORMULÁRIO 1: AGENDAR */}
               {operacao === 'agendar' && (
                 <form onSubmit={handleAgendar} className="space-y-3 pt-2 border-t border-slate-200">
+                  {/* Bloco Exclusivo do Administrador: Escolha do Solicitante */}
+                  {isAdmin && (
+                    <div className="bg-purple-50/90 border border-purple-200 rounded-xl p-3">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="text-[11px] font-extrabold text-purple-900 uppercase flex items-center gap-1.5">
+                          <Shield className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                          <span>Opção de Agendamento (Administrador)</span>
+                        </span>
+                        <span className="text-[10px] font-bold text-purple-700 bg-purple-200/70 px-2 py-0.5 rounded-full">
+                          Direção Escolar
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setModoAdminOutroUsuario(false);
+                            setProfessorCustomizado('');
+                            setFormAgendar(prev => ({
+                              ...prev,
+                              professor: currentUser?.name || '',
+                              senha: currentUser?.pin || '',
+                            }));
+                          }}
+                          className={`py-2 px-2.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                            !modoAdminOutroUsuario
+                              ? 'bg-purple-700 text-white shadow-xs'
+                              : 'bg-white text-purple-800 border border-purple-200 hover:bg-purple-100/60'
+                          }`}
+                        >
+                          <User className="w-3.5 h-3.5" />
+                          <span>Em meu nome</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setModoAdminOutroUsuario(true);
+                            setFormAgendar(prev => ({
+                              ...prev,
+                              professor: '',
+                              senha: currentUser?.pin || '',
+                            }));
+                          }}
+                          className={`py-2 px-2.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                            modoAdminOutroUsuario
+                              ? 'bg-purple-700 text-white shadow-xs'
+                              : 'bg-white text-purple-800 border border-purple-200 hover:bg-purple-100/60'
+                          }`}
+                        >
+                          <Users className="w-3.5 h-3.5" />
+                          <span>Em nome de outro usuário</span>
+                        </button>
+                      </div>
+
+                      {modoAdminOutroUsuario && (
+                        <p className="text-[10px] text-purple-800 font-medium mt-2 leading-relaxed bg-purple-100/60 p-2 rounded-lg border border-purple-200/60">
+                          🛡️ <strong>Modo Administrador Ativo:</strong> Você pode agendar os tablets em nome de qualquer professor ou servidor da escola. A autorização será concedida com o seu PIN de Administrador.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Campo de Professor/Docente Solicitante */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Professor(a) Solicitante
+                      {isAdmin && modoAdminOutroUsuario
+                        ? 'Selecione o(a) Professor(a) / Usuário Beneficiário'
+                        : 'Professor(a) Solicitante'}
                     </label>
                     <select
                       value={formAgendar.professor}
                       onChange={e => setFormAgendar({ ...formAgendar, professor: e.target.value })}
                       required
-                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 font-semibold text-slate-800"
+                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 font-semibold text-slate-800 bg-white"
                     >
-                      <option value="">Selecione seu nome...</option>
+                      <option value="">
+                        {isAdmin && modoAdminOutroUsuario
+                          ? 'Selecione o professor para quem deseja agendar...'
+                          : 'Selecione seu nome...'}
+                      </option>
                       {listaProfessores.map(p => (
                         <option key={p} value={p}>
-                          {p}
+                          {p} {p === currentUser?.name ? '(Você)' : ''}
                         </option>
                       ))}
+                      {isAdmin && (
+                        <option value="__OUTRO__">
+                          ➕ Outro Docente / Professor Eventual (Digitar nome)
+                        </option>
+                      )}
                     </select>
                   </div>
+
+                  {/* Campo de Texto para Nome Customizado de Docente se selecionado __OUTRO__ */}
+                  {isAdmin && formAgendar.professor === '__OUTRO__' && (
+                    <div className="animate-in fade-in">
+                      <label className="block text-xs font-bold text-purple-900 uppercase mb-1">
+                        Nome do Professor(a) / Docente Eventual
+                      </label>
+                      <input
+                        type="text"
+                        value={professorCustomizado}
+                        onChange={e => setProfessorCustomizado(e.target.value)}
+                        required
+                        placeholder="Digite o nome completo do professor..."
+                        className="w-full p-2.5 text-xs border border-purple-300 bg-purple-50/50 rounded-xl focus:ring-2 focus:ring-purple-500 font-bold text-slate-800"
+                      />
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
@@ -868,7 +997,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                       value={formAgendar.turma}
                       onChange={e => setFormAgendar({ ...formAgendar, turma: e.target.value })}
                       required
-                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 font-semibold text-slate-800"
+                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 font-semibold text-slate-800 bg-white"
                     >
                       <option value="">Selecione a turma...</option>
                       {listaTurmas.map(t => (
@@ -902,9 +1031,18 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Sua Senha / PIN de Autorização
-                    </label>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="text-xs font-bold text-slate-700 uppercase">
+                        {isAdmin
+                          ? 'Sua Senha / PIN de Administrador (Autorização)'
+                          : 'Sua Senha / PIN de Autorização'}
+                      </label>
+                      {isAdmin && (
+                        <span className="text-[10px] text-purple-700 font-bold">
+                          Autorizado via Direção
+                        </span>
+                      )}
+                    </div>
                     <input
                       type="password"
                       value={formAgendar.senha}
@@ -921,7 +1059,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                     className="w-full bg-sky-600 hover:bg-sky-700 text-white font-bold py-3 rounded-xl transition-all shadow-md text-xs cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 mt-2"
                   >
                     <ShieldCheck className="w-4 h-4" />
-                    <span>{enviandoOperacao ? 'Gravando Reserva...' : 'Confirmar Agendamento'}</span>
+                    <span>{enviandoOperacao ? 'Gravando Reserva...' : (isAdmin && modoAdminOutroUsuario ? 'Confirmar Agendamento p/ Docente' : 'Confirmar Agendamento')}</span>
                   </button>
                 </form>
               )}
