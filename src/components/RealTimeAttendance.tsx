@@ -72,7 +72,18 @@ export const isRecordInClass = (r: AttendanceRecord, cls: { id: string; name: st
   const normRName = rClassName.replace(/[^a-z0-9]/gi, '');
   if (normRName && (normRName === normCName || normRName === normCId)) return true;
 
-  if (r.studentId && (r.studentId === `cls-marker-${cls.id}` || r.studentId === `cls-marker-${cId}` || (normCId && r.studentId.includes(normCId)))) return true;
+  // Marcador de classe específico (sem usar .includes em IDs de estudantes para não colidir entre turmas como 8A e 8B)
+  if (r.studentId && (
+    r.studentId === `cls-marker-${cls.id}` ||
+    r.studentId === `cls-marker-${cId}` ||
+    (normCId && r.studentId.toLowerCase() === `cls-marker-${normCId}`)
+  )) return true;
+
+  if (r.id && (
+    r.id.startsWith(`att-cls-${cls.id}-`) ||
+    r.id.startsWith(`att-cls-${cId}-`) ||
+    (normCId && r.id.toLowerCase().startsWith(`att-cls-${normCId}-`))
+  )) return true;
 
   return false;
 };

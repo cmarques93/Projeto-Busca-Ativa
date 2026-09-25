@@ -300,8 +300,19 @@ export const firestoreService = {
           } else {
             const rClassId = (data.classId || '').trim().toLowerCase();
             const rClassName = (data.className || '').trim().toLowerCase();
-            const idMatchesClass = d.id.toLowerCase().includes(cleanClass);
-            if (rClassId === cleanClass || rClassName === cleanClass || idMatchesClass) {
+            const normRId = rClassId.replace(/[^a-z0-9]/gi, '');
+            const normRName = rClassName.replace(/[^a-z0-9]/gi, '');
+            const normC = cleanClass.replace(/[^a-z0-9]/gi, '');
+            const isMarkerForClass = data.studentId === `cls-marker-${classId}` || (normC && data.studentId.toLowerCase() === `cls-marker-${normC}`);
+            const isPrefixForClass = d.id.startsWith(`att-cls-${classId}-`) || (normC && d.id.toLowerCase().startsWith(`att-cls-${normC}-`));
+            
+            if (
+              rClassId === cleanClass ||
+              rClassName === cleanClass ||
+              (normC && (normRId === normC || normRName === normC)) ||
+              isMarkerForClass ||
+              isPrefixForClass
+            ) {
               toDelete.push(d.id);
             }
           }

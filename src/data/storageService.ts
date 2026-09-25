@@ -588,8 +588,20 @@ export const storageService = {
       if (cleanClass) {
         const rClassId = (r.classId || '').trim().toLowerCase();
         const rClassName = (r.className || '').trim().toLowerCase();
-        const idMatchesClass = r.id.toLowerCase().includes(cleanClass);
-        if (rClassId !== cleanClass && rClassName !== cleanClass && !idMatchesClass) {
+        const normRId = rClassId.replace(/[^a-z0-9]/gi, '');
+        const normRName = rClassName.replace(/[^a-z0-9]/gi, '');
+        const normC = cleanClass.replace(/[^a-z0-9]/gi, '');
+        const isMarkerForClass = r.studentId === `cls-marker-${classId}` || (normC && r.studentId.toLowerCase() === `cls-marker-${normC}`);
+        const isPrefixForClass = r.id.startsWith(`att-cls-${classId}-`) || (normC && r.id.toLowerCase().startsWith(`att-cls-${normC}-`));
+
+        const isMatch =
+          rClassId === cleanClass ||
+          rClassName === cleanClass ||
+          (normC && (normRId === normC || normRName === normC)) ||
+          isMarkerForClass ||
+          isPrefixForClass;
+
+        if (!isMatch) {
           return true; // Keep record of other classes
         }
       }

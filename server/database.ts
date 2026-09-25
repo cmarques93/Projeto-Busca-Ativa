@@ -1390,7 +1390,19 @@ export class SchoolDatabase {
         const cleanClass = classId.trim().toLowerCase();
         const rCId = (r.classId || '').trim().toLowerCase();
         const rCName = (r.className || '').trim().toLowerCase();
-        const isMatchClass = rCId === cleanClass || rCName === cleanClass || r.id.toLowerCase().includes(cleanClass);
+        const normRId = rCId.replace(/[^a-z0-9]/gi, '');
+        const normRName = rCName.replace(/[^a-z0-9]/gi, '');
+        const normC = cleanClass.replace(/[^a-z0-9]/gi, '');
+        const isMarkerForClass = r.studentId === `cls-marker-${classId}` || (normC && r.studentId.toLowerCase() === `cls-marker-${normC}`);
+        const isPrefixForClass = r.id.startsWith(`att-cls-${classId}-`) || (normC && r.id.toLowerCase().startsWith(`att-cls-${normC}-`));
+
+        const isMatchClass =
+          rCId === cleanClass ||
+          rCName === cleanClass ||
+          (normC && (normRId === normC || normRName === normC)) ||
+          isMarkerForClass ||
+          isPrefixForClass;
+
         if (!isMatchClass) return true;
       }
       affectedStudentIds.add(r.studentId);
