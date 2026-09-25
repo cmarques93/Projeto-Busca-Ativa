@@ -1384,10 +1384,13 @@ export class SchoolDatabase {
     const affectedStudentIds = new Set<string>();
 
     this.data.attendanceRecords = this.data.attendanceRecords.filter(r => {
-      const isMatchDate = r.date === dateStr;
+      const isMatchDate = r.date === dateStr || (r.date && r.date.startsWith(dateStr)) || r.id.includes(dateStr);
       if (!isMatchDate) return true;
       if (classId) {
-        const isMatchClass = r.classId === classId || (r.className && r.className.toLowerCase() === classId.toLowerCase());
+        const cleanClass = classId.trim().toLowerCase();
+        const rCId = (r.classId || '').trim().toLowerCase();
+        const rCName = (r.className || '').trim().toLowerCase();
+        const isMatchClass = rCId === cleanClass || rCName === cleanClass || r.id.toLowerCase().includes(cleanClass);
         if (!isMatchClass) return true;
       }
       affectedStudentIds.add(r.studentId);

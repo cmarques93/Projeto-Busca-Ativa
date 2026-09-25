@@ -285,12 +285,25 @@ export const firestoreService = {
     try {
       const snap = await getDocs(collection(db, 'attendance_records'));
       const toDelete: string[] = [];
+      const cleanDate = normalizeDateStr(dateStr);
+      const cleanClass = classId ? classId.trim().toLowerCase() : null;
+
       snap.forEach(d => {
         const data = d.data() as AttendanceRecord;
         const recordDate = normalizeDateStr(data.date) || data.date;
-        if (isSameDay(recordDate, dateStr)) {
-          if (!classId || data.classId === classId || (data.className && data.className.toLowerCase() === classId.toLowerCase())) {
+        const idMatchesDate = d.id.includes(cleanDate) || d.id.includes(dateStr);
+        const dateMatches = isSameDay(recordDate, dateStr) || idMatchesDate;
+
+        if (dateMatches) {
+          if (!cleanClass) {
             toDelete.push(d.id);
+          } else {
+            const rClassId = (data.classId || '').trim().toLowerCase();
+            const rClassName = (data.className || '').trim().toLowerCase();
+            const idMatchesClass = d.id.toLowerCase().includes(cleanClass);
+            if (rClassId === cleanClass || rClassName === cleanClass || idMatchesClass) {
+              toDelete.push(d.id);
+            }
           }
         }
       });

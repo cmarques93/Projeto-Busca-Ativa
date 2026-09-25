@@ -575,15 +575,25 @@ export const storageService = {
     const allRecords = getStored<AttendanceRecord[]>('school_attendance', []);
     const allStudents = getStored<Student[]>('school_students', []);
     const affectedStudentIds = new Set<string>();
+    const cleanDate = normalizeDateStr(dateStr);
+    const cleanClass = classId ? classId.trim().toLowerCase() : null;
 
     const remainingRecords = allRecords.filter(r => {
-      const matchDate = isSameDay(r.date, dateStr);
-      if (!matchDate) return true;
-      if (classId) {
-        const cleanCId = classId.trim().toLowerCase();
-        const matchClass = (r.classId || '').trim().toLowerCase() === cleanCId || (r.className || '').trim().toLowerCase() === cleanCId;
-        if (!matchClass) return true;
+      const recordDate = normalizeDateStr(r.date) || r.date;
+      const idMatchesDate = r.id.includes(cleanDate) || r.id.includes(dateStr);
+      const dateMatches = isSameDay(recordDate, dateStr) || idMatchesDate;
+
+      if (!dateMatches) return true;
+
+      if (cleanClass) {
+        const rClassId = (r.classId || '').trim().toLowerCase();
+        const rClassName = (r.className || '').trim().toLowerCase();
+        const idMatchesClass = r.id.toLowerCase().includes(cleanClass);
+        if (rClassId !== cleanClass && rClassName !== cleanClass && !idMatchesClass) {
+          return true; // Keep record of other classes
+        }
       }
+
       affectedStudentIds.add(r.studentId);
       return false; // delete
     });

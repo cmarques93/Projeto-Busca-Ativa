@@ -175,6 +175,14 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
     setIsDeletingRecords(true);
     try {
       const classId = deleteTargetClass?.id;
+
+      // Atualização de estado imediata (UI otimista instantânea)
+      if (classId) {
+        setDailyRecords(prev => prev.filter(r => !(isSameDay(r.date, selectedDate) && isRecordInClass(r, deleteTargetClass!))));
+      } else {
+        setDailyRecords([]);
+      }
+
       // 1. Apaga do storageService e atualiza Firebase Firestore
       await storageService.deleteAttendanceByDate(selectedDate, classId);
 
@@ -260,23 +268,6 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
       }
     }
 
-    // 4. Incorpora ausências ativas por atestado ou justificativa vigentes na data
-    const allStored = storageService.getAttendanceRecords();
-    const recordMap = new Map<string, AttendanceRecord>();
-    records.forEach(r => recordMap.set(r.studentId, r));
-
-    students.forEach(st => {
-      const activeAbs = findActiveAbsenceForDate(allStored, st.id, date);
-      if (activeAbs) {
-        // Se não há registro ou se o registro atual for 'presente' genérico, prioriza a ausência documental ativa
-        const existing = recordMap.get(st.id);
-        if (!existing || (existing.status !== 'atestado_medico' && existing.status !== 'falta_justificada')) {
-          recordMap.set(st.id, activeAbs);
-        }
-      }
-    });
-
-    records = Array.from(recordMap.values());
     setDailyRecords(records);
     setIsLoadingRecords(false);
     return records;
