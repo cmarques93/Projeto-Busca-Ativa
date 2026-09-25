@@ -41,6 +41,7 @@ import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
 import { storageService } from '../data/storageService';
 import { carregarOcorrenciasSeguro, salvarOcorrenciaSeguro, excluirOcorrenciaSeguro, salvarConfigOcorrenciasSeguro } from '../lib/sheetsSyncService';
 import { firestoreService } from '../lib/firestoreService';
+import { formatarRelatoComGemini, limparTextoFormatado } from '../lib/geminiClient';
 import ocorrenciasBaseline from '../data/ocorrenciasBaseline.json';
 
 export interface OcorrenciaRecord {
@@ -852,36 +853,25 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     }
     setFormatandoComIA(true);
     try {
-      const res = await fetch('/api/ai/format-description', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          texto: textoRelato,
-          descricao: textoRelato,
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.descricaoFormatada) {
-          setForm(prev => ({ ...prev, descricao: data.descricaoFormatada }));
-          setMensagem({
-            texto: '✨ Texto revisado e formatado com sucesso pelo Gemini com tom respeitoso e norma-padrão!',
-            tipo: 'sucesso',
-          });
-          setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
-          return;
-        }
+      const textoFormatado = await formatarRelatoComGemini(textoRelato);
+      if (textoFormatado) {
+        setForm(prev => ({ ...prev, descricao: textoFormatado }));
+        setMensagem({
+          texto: '✨ Relato revisado com sucesso pelo Gemini com gramática correta e tom respeitoso aos responsáveis!',
+          tipo: 'sucesso',
+        });
+        setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
+      } else {
+        throw new Error('Retorno vazio');
       }
-      throw new Error('Falha ao processar com IA');
     } catch (err: any) {
       console.warn('Erro ao formatar com IA:', err);
-      // Fallback local: corrige primeira letra maiúscula e ponto final sem injetar opções
+      // Fallback local: corrige primeira letra maiúscula e ponto final sem injetar opções nem títulos
       let raw = textoRelato.charAt(0).toUpperCase() + textoRelato.slice(1);
       if (!/[.!?]$/.test(raw)) {
         raw += '.';
       }
-      setForm(prev => ({ ...prev, descricao: raw }));
+      setForm(prev => ({ ...prev, descricao: limparTextoFormatado(raw) }));
       setMensagem({
         texto: '✨ Texto da descrição ajustado com sucesso!',
         tipo: 'sucesso',

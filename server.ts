@@ -899,10 +899,21 @@ Responda ESTRITAMENTE em formato JSON com as chaves:
       return res.status(400).json({ error: 'Texto não fornecido para formatação' });
     }
 
+    const sanitizeText = (t: string) => {
+      if (!t) return '';
+      let limpo = t.trim();
+      limpo = limpo.replace(/^#+\s+.*?\n+/i, '');
+      limpo = limpo.replace(/^\*\*.*?\*\*\s*:?\s*/i, '');
+      limpo = limpo.replace(/^(comunicado|notificação|aviso|informe|relato|registro|parecer|mensagem|termo)\s+(aos\s+responsáveis|aos\s+pais|à\s+família|escolar|pedagógico|disciplinar)\s*:?\s*/gi, '');
+      limpo = limpo.replace(/^(prezados|senhores|caros)\s+(pais|responsáveis|familiares)\s*:?,?\s*/gi, '');
+      limpo = limpo.replace(/^["'«»“”]/g, '').replace(/["'«»“”]$/g, '');
+      return limpo.trim();
+    };
+
     const fallbackText = () => {
       let f = rawTrim.charAt(0).toUpperCase() + rawTrim.slice(1);
       if (!/[.!?]$/.test(f)) f += '.';
-      return f;
+      return sanitizeText(f);
     };
 
     const ai = getGeminiClient();
@@ -919,14 +930,17 @@ Estruturação: Entregue o resultado em um formato limpo e fácil de ler.
 TEXTO ORIGINAL:
 "${rawTrim}"
 
-IMPORTANTE: Responda APENAS com o texto reescrito e formatado, sem introduções ("Aqui está o texto:"), sem aspas adicionais, sem preâmbulos e sem explicações.`;
+REGRA CRÍTICA E ABSOLUTA:
+- NÃO coloque títulos, cabeçalhos nem saudações como "Comunicado aos Responsáveis", "Prezados Pais", "Relato Pedagógico", "Comunicado Escolar" ou similares.
+- NÃO adicione introduções ("Aqui está o texto:"), sem aspas adicionais, sem preâmbulos e sem explicações.
+- Retorne APENAS o parágrafo descritivo do fato ocorrido.`;
 
         const response = await callGeminiGenerateContent(ai, prompt);
 
-        const formatted = response.text ? response.text.trim() : fallbackText();
+        const formatted = response.text ? sanitizeText(response.text.trim()) : fallbackText();
         quotaTracker.requestsToday++;
         return res.json({
-          descricaoFormatada: formatted,
+          descricaoFormatada: formatted || fallbackText(),
           source: 'gemini_ai'
         });
       } catch (err: any) {
