@@ -74,10 +74,16 @@ REGRA CRÍTICA E ABSOLUTA:
 - NÃO adicione introduções ("Aqui está o texto:"), sem aspas adicionais, sem preâmbulos e sem explicações.
 - Retorne APENAS o parágrafo descritivo do fato ocorrido.`;
 
-const CANDIDATE_MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.1-pro-preview'];
+// Modelos 100% compatíveis com a cota gratuita (Free Tier) do Google AI Studio sem gerar cobranças
+// Modelos 'pro' NÃO devem ser incluídos aqui pois possuem cota limit: 0 na versão gratuita padrão.
+const CANDIDATE_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-flash-latest'
+];
 
 /**
- * Chamada direta via REST ao Google Generative AI (Client-Side)
+ * Chamada direta via REST ao Google Generative AI (Client-Side) com temperatura fria e fidelidade estrita
  */
 async function chamarGeminiDiretoRest(texto: string, apiKey: string): Promise<string> {
   let lastErr = '';
@@ -88,7 +94,12 @@ async function chamarGeminiDiretoRest(texto: string, apiKey: string): Promise<st
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: PROMPT_PEDAGOGICO(texto) }] }]
+          contents: [{ parts: [{ text: PROMPT_PEDAGOGICO(texto) }] }],
+          generationConfig: {
+            temperature: 0.1,
+            topP: 0.95,
+            maxOutputTokens: 1024,
+          }
         }),
       });
 
@@ -100,14 +111,23 @@ async function chamarGeminiDiretoRest(texto: string, apiKey: string): Promise<st
         }
       } else {
         const errJson = await res.json().catch(() => ({}));
-        lastErr = errJson?.error?.message || `HTTP ${res.status}`;
-        console.warn(`Tentativa REST modelo ${model} retornou erro:`, lastErr);
+        const rawErrMsg = errJson?.error?.message || `HTTP ${res.status}`;
+        lastErr = rawErrMsg;
+        
+        // Se for erro de demanda temporária (503/429), prossegue para o próximo modelo Flash Lite gratuito
+        console.warn(`Tentativa REST modelo ${model} retornou:`, rawErrMsg);
       }
     } catch (e: any) {
       lastErr = e?.message || String(e);
       console.warn(`Falha na conexão com modelo ${model}:`, e);
     }
   }
+
+  // Se o erro for cota ou taxa, formata uma mensagem clara em português
+  if (lastErr.toLowerCase().includes('quota') || lastErr.toLowerCase().includes('resource_exhausted') || lastErr.toLowerCase().includes('rate limit')) {
+    throw new Error('A cota momentânea de requisições da sua chave no Google AI Studio foi atingida. Aguarde alguns segundos e tente novamente.');
+  }
+
   throw new Error(lastErr || 'Não foi possível obter resposta dos modelos Gemini.');
 }
 

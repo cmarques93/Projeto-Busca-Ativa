@@ -48,20 +48,24 @@ async function startServer() {
   }
 
   async function callGeminiGenerateContent(ai: GoogleGenAI, contents: string, config?: any) {
-    // Modelos oficiais suportados pela biblioteca @google/genai na ordem recomendada
+    // Modelos oficiais 100% gratuitos da família Flash (sem limitação de cota zero)
     const candidateModels = [
       'gemini-3.8-flash',
       'gemini-3.1-flash-lite',
-      'gemini-flash-latest',
-      'gemini-3.1-pro-preview'
+      'gemini-flash-latest'
     ];
     let lastError: any = null;
+    const finalConfig = {
+      temperature: 0.1,
+      topP: 0.95,
+      ...(config || {})
+    };
     for (const model of candidateModels) {
       try {
         const response = await ai.models.generateContent({
           model,
           contents,
-          ...(config ? { config } : {})
+          config: finalConfig
         });
         return response;
       } catch (err: any) {

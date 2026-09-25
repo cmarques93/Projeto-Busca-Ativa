@@ -75,14 +75,19 @@ REGRA CRÍTICA E ABSOLUTA:
 - NÃO adicione introduções ("Aqui está o texto:"), sem aspas adicionais, sem preâmbulos e sem explicações.
 - Retorne APENAS o parágrafo descritivo do fato ocorrido.`;
 
-    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemini-3.1-pro-preview'];
+    // Modelos exclusivamente gratuitos (Flash / Flash-Lite) sem cota zero
+    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
     let formatted = '';
 
     for (const model of candidateModels) {
       try {
         const response = await ai.models.generateContent({
           model,
-          contents: prompt
+          contents: prompt,
+          config: {
+            temperature: 0.1,
+            topP: 0.95
+          }
         });
         if (response.text) {
           formatted = limparTextoFormatado(response.text.trim());
