@@ -916,7 +916,8 @@ Responda ESTRITAMENTE em formato JSON com as chaves:
       return sanitizeText(f);
     };
 
-    const ai = getGeminiClient();
+    const customApiKey = req.body?.apiKey;
+    const ai = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : getGeminiClient();
     if (ai) {
       try {
         const prompt = `Atue como um assistente pedagógico. Sua tarefa é reescrever, revisar e formatar esse texto, pois uma cópia será entregue aos responsáveis do estudante.

@@ -44,6 +44,7 @@ export default async function handler(req: any, res: any) {
   };
 
   const apiKey =
+    req.body?.apiKey ||
     process.env.GEMINI_API_KEY ||
     process.env.API_KEY ||
     process.env.VITE_GEMINI_API_KEY ||

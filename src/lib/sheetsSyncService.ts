@@ -286,7 +286,7 @@ export async function excluirOcorrenciaSeguro(ocorrenciaId: string, currentDb?: 
  * Salva as configurações de turmas, ocorrências principais e medidas pedagógicas (Exclusivo Administrador)
  */
 export async function salvarConfigOcorrenciasSeguro(
-  config: { turmas?: string[]; ocorrencias?: string[]; medidas?: string[]; aulas?: string[] },
+  config: { turmas?: string[]; ocorrencias?: string[]; medidas?: string[]; aulas?: string[]; geminiApiKey?: string },
   currentDb?: any
 ): Promise<boolean> {
   try {
@@ -301,6 +301,7 @@ export async function salvarConfigOcorrenciasSeguro(
         ocorrencias: config.ocorrencias !== undefined ? config.ocorrencias : base.ocorrencias,
         medidas: config.medidas !== undefined ? config.medidas : base.medidas,
         aulas: config.aulas !== undefined ? config.aulas : base.aulas,
+        geminiApiKey: config.geminiApiKey !== undefined ? config.geminiApiKey : base.geminiApiKey,
       };
       await firestoreService.saveOcorrencias(updatedBase);
       salvarCacheOcorrencias(updatedBase);
