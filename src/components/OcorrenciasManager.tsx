@@ -29,12 +29,16 @@ import {
   Lock,
   Percent,
   CheckCircle,
-  Trash2
+  Trash2,
+  Settings,
+  Edit2,
+  Plus,
+  Loader2
 } from 'lucide-react';
 import { SchoolClass, Student, AttendanceRecord, UserAccount } from '../types';
 import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
 import { storageService } from '../data/storageService';
-import { carregarOcorrenciasSeguro, salvarOcorrenciaSeguro, excluirOcorrenciaSeguro } from '../lib/sheetsSyncService';
+import { carregarOcorrenciasSeguro, salvarOcorrenciaSeguro, excluirOcorrenciaSeguro, salvarConfigOcorrenciasSeguro } from '../lib/sheetsSyncService';
 import { firestoreService } from '../lib/firestoreService';
 import ocorrenciasBaseline from '../data/ocorrenciasBaseline.json';
 
@@ -66,6 +70,7 @@ export interface TratativaFamilia {
 export interface OcorrenciasDatabase {
   estudantes: Array<{ nome: string; turma: string; tutor: string }>;
   professores: Array<{ nome: string; pin: string | number; perfil: string }>;
+  turmasPersonalizadas?: string[];
   ocorrencias: string[];
   medidas: string[];
   aulas: string[];
@@ -207,12 +212,32 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
   // Abas de Navegação
   const [abaGestao, setAbaGestao] = useState<
-    'pendentes' | 'sala' | 'consulta' | 'estatisticas' | 'registrar' | 'devolutivas' | 'tutorados'
+    'pendentes' | 'sala' | 'consulta' | 'estatisticas' | 'registrar' | 'devolutivas' | 'tutorados' | 'config_admin'
   >(isGestao ? 'pendentes' : 'registrar');
 
   const [abaProfessor, setAbaProfessor] = useState<'registrar' | 'devolutivas' | 'tutorados'>(
     'registrar'
   );
+
+  // Estados do Painel de Administração (Edição de Turmas, Ocorrências e Medidas)
+  const [abaAdminConfig, setAbaAdminConfig] = useState<'turmas' | 'ocorrencias' | 'medidas'>('turmas');
+  const [novoItemConfig, setNovoItemConfig] = useState('');
+  const [itemEditando, setItemEditando] = useState<{
+    tipo: 'turma' | 'ocorrencia' | 'medida';
+    index: number;
+    valorAntigo: string;
+    valorNovo: string;
+  } | null>(null);
+  const [itemParaExcluirConfig, setItemParaExcluirConfig] = useState<{
+    tipo: 'turma' | 'ocorrencia' | 'medida';
+    index: number;
+    valor: string;
+  } | null>(null);
+  const [salvandoConfig, setSalvandoConfig] = useState(false);
+
+  // Estados de IA Gemini para Formatação Pedagógica e WhatsApp
+  const [formatandoComIA, setFormatandoComIA] = useState(false);
+  const [formatandoWhatsAppIA, setFormatandoWhatsAppIA] = useState(false);
 
   // Estados de Interface
   const [tutoradosExpandidos, setTutoradosExpandidos] = useState<Record<string, boolean>>({});
@@ -365,6 +390,12 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         const novoDb: OcorrenciasDatabase = {
           estudantes: listaEstudantes,
           professores: data.professores || [],
+          turmasPersonalizadas:
+            data.turmasPersonalizadas && data.turmasPersonalizadas.length > 0
+              ? data.turmasPersonalizadas
+              : bancoDeDados.turmasPersonalizadas || [
+                  '6ºA', '6ºB', '6ºC', '7ºA', '7ºB', '8ºA', '8ºB', '9ºA', '9ºB', '1ªEM A', '2ªEM A', '3ªEM A'
+                ],
           ocorrencias:
             data.ocorrencias && data.ocorrencias.length > 0
               ? data.ocorrencias
@@ -417,9 +448,12 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
   const turmasUnicas = useMemo(() => {
     const doSheets = bancoDeDados.estudantes.map(e => e.turma);
     const daPlataforma = classes.map(c => c.name);
-    const combinadas = Array.from(new Set([...doSheets, ...daPlataforma])).filter(Boolean);
-    return combinadas.sort();
-  }, [bancoDeDados.estudantes, classes]);
+    const personalizadas = bancoDeDados.turmasPersonalizadas || [
+      '6ºA', '6ºB', '6ºC', '7ºA', '7ºB', '8ºA', '8ºB', '9ºA', '9ºB', '1ªEM A', '2ªEM A', '3ªEM A'
+    ];
+    const combinadas = Array.from(new Set([...personalizadas, ...doSheets, ...daPlataforma])).filter(Boolean);
+    return combinadas.sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
+  }, [bancoDeDados.estudantes, bancoDeDados.turmasPersonalizadas, classes]);
 
   const alunosDaTurma = useMemo(() => {
     if (!form.turma) return [];
@@ -769,6 +803,249 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     });
   };
 
+  // --- FORMATAÇÃO INTELIGENTE DE DESCRIÇÃO COM GEMINI ---
+  const handleFormatarDescricaoIA = async () => {
+    if (!form.descricao && !form.ocorrencia) {
+      setMensagem({
+        texto: '⚠️ Digite algumas palavras no relato ou selecione a ocorrência para a IA formatar.',
+        tipo: 'erro',
+      });
+      return;
+    }
+    setFormatandoComIA(true);
+    try {
+      const res = await fetch('/api/ai/format-occurrence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          descricao: form.descricao || form.ocorrencia,
+          estudante: form.estudantes.map(e => e.nome).join(', ') || 'Estudante',
+          turma: form.turma || 'Turma',
+          ocorrencia: form.ocorrencia,
+          medida: form.medida,
+          professor: userName,
+          aula: form.aula,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.descricaoFormatada) {
+          setForm(prev => ({ ...prev, descricao: data.descricaoFormatada }));
+          setMensagem({
+            texto: '✨ Relato formatado com sucesso pela IA (Gemini) para linguagem formal e pedagógica!',
+            tipo: 'sucesso',
+          });
+          setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
+        }
+      } else {
+        throw new Error('Falha ao processar com IA');
+      }
+    } catch (err: any) {
+      console.warn('Erro ao formatar com IA:', err);
+      const raw = form.descricao || form.ocorrencia;
+      const ref = `Registro pedagógico em sala (${form.aula || 'aula'} - Prof. ${userName}): ${raw}. Medida adotada: ${form.medida || 'orientação individual de conduta'}.`;
+      setForm(prev => ({ ...prev, descricao: ref }));
+      setMensagem({
+        texto: '✨ Relato estruturado pedagogicamente!',
+        tipo: 'sucesso',
+      });
+      setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
+    } finally {
+      setFormatandoComIA(false);
+    }
+  };
+
+  // --- FORMATAÇÃO INTELIGENTE DA MENSAGEM WHATSAPP COM GEMINI ---
+  const handleFormatarWhatsAppIA = async () => {
+    if (!modalWhatsApp) return;
+    setFormatandoWhatsAppIA(true);
+    try {
+      const res = await fetch('/api/ai/format-occurrence-whatsapp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          descricao: modalWhatsApp.ocorrencia.descricao || modalWhatsApp.ocorrencia.ocorrencia,
+          estudante: modalWhatsApp.ocorrencia.estudante,
+          turma: modalWhatsApp.ocorrencia.turma,
+          ocorrencia: modalWhatsApp.ocorrencia.ocorrencia,
+          medida: modalWhatsApp.ocorrencia.medida,
+          professor: modalWhatsApp.ocorrencia.professor,
+          aula: modalWhatsApp.ocorrencia.aula,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.mensagemWhatsApp) {
+          const novaMsg = data.mensagemWhatsApp;
+          setModalWhatsApp(prev => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              mensagemPadrao: novaMsg,
+              guardianPhones: prev.guardianPhones.map(p => ({
+                ...p,
+                whatsAppUrl: `https://wa.me/${p.digits}?text=${encodeURIComponent(novaMsg)}`,
+              })),
+            };
+          });
+          setMensagem({
+            texto: '✨ Mensagem para o WhatsApp dos responsáveis reescrita com clareza e empatia pelo Gemini!',
+            tipo: 'sucesso',
+          });
+          setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
+        }
+      }
+    } catch (err: any) {
+      console.warn('Erro ao formatar mensagem para WhatsApp:', err);
+    } finally {
+      setFormatandoWhatsAppIA(false);
+    }
+  };
+
+  // --- GESTÃO DE CONFIGURAÇÕES DE TURMAS, OCORRÊNCIAS E MEDIDAS (ADMIN) ---
+  const handleAdicionarItemConfig = async (tipo: 'turma' | 'ocorrencia' | 'medida') => {
+    const valor = novoItemConfig.trim();
+    if (!valor) return;
+    setSalvandoConfig(true);
+
+    try {
+      let novasTurmas = bancoDeDados.turmasPersonalizadas || [
+        '6ºA', '6ºB', '6ºC', '7ºA', '7ºB', '8ºA', '8ºB', '9ºA', '9ºB', '1ªEM A', '2ªEM A', '3ªEM A'
+      ];
+      let novasOcorrencias = [...bancoDeDados.ocorrencias];
+      let novasMedidas = [...bancoDeDados.medidas];
+
+      if (tipo === 'turma') {
+        if (!novasTurmas.includes(valor)) {
+          novasTurmas = [...novasTurmas, valor];
+        }
+      } else if (tipo === 'ocorrencia') {
+        if (!novasOcorrencias.includes(valor)) {
+          novasOcorrencias = [...novasOcorrencias, valor];
+        }
+      } else if (tipo === 'medida') {
+        if (!novasMedidas.includes(valor)) {
+          novasMedidas = [...novasMedidas, valor];
+        }
+      }
+
+      const novoDb: OcorrenciasDatabase = {
+        ...bancoDeDados,
+        turmasPersonalizadas: novasTurmas,
+        ocorrencias: novasOcorrencias,
+        medidas: novasMedidas,
+      };
+
+      setBancoDeDados(novoDb);
+      await salvarConfigOcorrenciasSeguro({
+        turmas: novasTurmas,
+        ocorrencias: novasOcorrencias,
+        medidas: novasMedidas,
+      }, novoDb);
+
+      setNovoItemConfig('');
+      setMensagem({
+        texto: `✅ ${tipo === 'turma' ? 'Turma' : tipo === 'ocorrencia' ? 'Ocorrência' : 'Medida'} cadastrada com sucesso!`,
+        tipo: 'sucesso',
+      });
+      setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
+    } catch (err: any) {
+      setMensagem({ texto: 'Erro ao salvar configuração: ' + err.message, tipo: 'erro' });
+    } finally {
+      setSalvandoConfig(false);
+    }
+  };
+
+  const handleSalvarEdicaoConfig = async () => {
+    if (!itemEditando) return;
+    const valorNovo = itemEditando.valorNovo.trim();
+    if (!valorNovo) return;
+    setSalvandoConfig(true);
+
+    try {
+      let novasTurmas = [...(bancoDeDados.turmasPersonalizadas || [
+        '6ºA', '6ºB', '6ºC', '7ºA', '7ºB', '8ºA', '8ºB', '9ºA', '9ºB', '1ªEM A', '2ªEM A', '3ªEM A'
+      ])];
+      let novasOcorrencias = [...bancoDeDados.ocorrencias];
+      let novasMedidas = [...bancoDeDados.medidas];
+
+      if (itemEditando.tipo === 'turma') {
+        novasTurmas[itemEditando.index] = valorNovo;
+      } else if (itemEditando.tipo === 'ocorrencia') {
+        novasOcorrencias[itemEditando.index] = valorNovo;
+      } else if (itemEditando.tipo === 'medida') {
+        novasMedidas[itemEditando.index] = valorNovo;
+      }
+
+      const novoDb: OcorrenciasDatabase = {
+        ...bancoDeDados,
+        turmasPersonalizadas: novasTurmas,
+        ocorrencias: novasOcorrencias,
+        medidas: novasMedidas,
+      };
+
+      setBancoDeDados(novoDb);
+      await salvarConfigOcorrenciasSeguro({
+        turmas: novasTurmas,
+        ocorrencias: novasOcorrencias,
+        medidas: novasMedidas,
+      }, novoDb);
+
+      setItemEditando(null);
+      setMensagem({ texto: '✅ Alteração salva com sucesso!', tipo: 'sucesso' });
+      setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
+    } catch (err: any) {
+      setMensagem({ texto: 'Erro ao salvar edição: ' + err.message, tipo: 'erro' });
+    } finally {
+      setSalvandoConfig(false);
+    }
+  };
+
+  const handleConfirmarExclusaoConfig = async () => {
+    if (!itemParaExcluirConfig) return;
+    setSalvandoConfig(true);
+
+    try {
+      let novasTurmas = [...(bancoDeDados.turmasPersonalizadas || [
+        '6ºA', '6ºB', '6ºC', '7ºA', '7ºB', '8ºA', '8ºB', '9ºA', '9ºB', '1ªEM A', '2ªEM A', '3ªEM A'
+      ])];
+      let novasOcorrencias = [...bancoDeDados.ocorrencias];
+      let novasMedidas = [...bancoDeDados.medidas];
+
+      if (itemParaExcluirConfig.tipo === 'turma') {
+        novasTurmas = novasTurmas.filter((_, idx) => idx !== itemParaExcluirConfig.index);
+      } else if (itemParaExcluirConfig.tipo === 'ocorrencia') {
+        novasOcorrencias = novasOcorrencias.filter((_, idx) => idx !== itemParaExcluirConfig.index);
+      } else if (itemParaExcluirConfig.tipo === 'medida') {
+        novasMedidas = novasMedidas.filter((_, idx) => idx !== itemParaExcluirConfig.index);
+      }
+
+      const novoDb: OcorrenciasDatabase = {
+        ...bancoDeDados,
+        turmasPersonalizadas: novasTurmas,
+        ocorrencias: novasOcorrencias,
+        medidas: novasMedidas,
+      };
+
+      setBancoDeDados(novoDb);
+      await salvarConfigOcorrenciasSeguro({
+        turmas: novasTurmas,
+        ocorrencias: novasOcorrencias,
+        medidas: novasMedidas,
+      }, novoDb);
+
+      setItemParaExcluirConfig(null);
+      setMensagem({ texto: '✅ Item excluído das opções com sucesso!', tipo: 'sucesso' });
+      setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
+    } catch (err: any) {
+      setMensagem({ texto: 'Erro ao excluir item: ' + err.message, tipo: 'erro' });
+    } finally {
+      setSalvandoConfig(false);
+    }
+  };
+
   // Card de Ocorrência Reutilizável
   const OcorrenciaCard: React.FC<{
     reg: OcorrenciaRecord;
@@ -906,59 +1183,25 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         </div>
 
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="block text-xs font-bold text-slate-700 uppercase">
-              Professor(a) Relator(a) da Ocorrência
-            </label>
-            <button
-              type="button"
-              onClick={() => setModoProfessorAvulso(!modoProfessorAvulso)}
-              className="text-[11px] text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
-            >
-              {modoProfessorAvulso ? 'Selecionar da lista' : 'Ou digitar outro nome (sistema antigo)'}
-            </button>
-          </div>
-
-          {modoProfessorAvulso ? (
-            <div className="space-y-1">
-              <input
-                type="text"
-                name="professor"
-                value={form.professor}
-                onChange={handleChange}
-                required
-                placeholder="Digite o nome do(a) professor(a)..."
-                className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
-              />
-              <p className="text-[11px] text-slate-500">
-                Permite registrar ocorrência no nome de qualquer professor ou importar do sistema antigo.
-              </p>
+          <label className="block text-xs font-bold text-slate-700 uppercase mb-1 flex items-center justify-between">
+            <span>Professor(a) Relator(a)</span>
+            <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
+              <Lock className="w-3 h-3 text-slate-500" />
+              <span>Login do Docente (Não editável)</span>
+            </span>
+          </label>
+          <div className="flex items-center gap-2 p-2 bg-slate-100/90 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 shadow-inner">
+            <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-black text-xs shrink-0">
+              {userName.slice(0, 2).toUpperCase()}
             </div>
-          ) : (
-            <select
-              name="professor"
-              value={form.professor}
-              onChange={e => {
-                if (e.target.value === '__DIGITAR_NOVO__') {
-                  setModoProfessorAvulso(true);
-                } else {
-                  handleChange(e);
-                }
-              }}
-              required
-              className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
-            >
-              {form.professor && !listaProfessoresDisponiveis.includes(form.professor) && (
-                <option value={form.professor}>{form.professor} (Atual)</option>
-              )}
-              {listaProfessoresDisponiveis.map(p => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-              <option value="__DIGITAR_NOVO__">✍️ Digitar outro nome de professor (Sistema Antigo)...</option>
-            </select>
-          )}
+            <div className="flex-1 truncate">
+              <span className="text-slate-900">{userName}</span>
+              <span className="ml-2 text-[10px] text-indigo-700 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded">
+                Usuário Autenticado
+              </span>
+            </div>
+            <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          </div>
         </div>
       </div>
 
@@ -1170,17 +1413,42 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       </div>
 
       <div>
-        <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-          Descrição / Relato Detalhado (Opcional)
-        </label>
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-xs font-bold text-slate-700 uppercase">
+            Descrição / Relato Detalhado (Opcional)
+          </label>
+          <button
+            type="button"
+            onClick={handleFormatarDescricaoIA}
+            disabled={formatandoComIA}
+            className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+            title="Ajusta o texto com IA do Gemini para uma linguagem formal e pedagógica, ideal para comunicação com a família"
+          >
+            {formatandoComIA ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Formatando com IA...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <span>✨ Formatar com IA (Gemini)</span>
+              </>
+            )}
+          </button>
+        </div>
         <textarea
           name="descricao"
           value={form.descricao}
           onChange={handleChange}
           rows={3}
-          placeholder="Descreva detalhes específicos da ocorrência para histórico..."
-          className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-slate-800 font-medium"
+          placeholder="Descreva detalhes específicos da ocorrência ou anotações livres do professor. Clique em 'Formatar com IA' para converter em relatório formal e claro para os pais..."
+          className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-slate-800 font-medium bg-white"
         />
+        <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
+          <Sparkles className="w-3 h-3 text-indigo-500" />
+          <span>A IA Gemini formata o relato de forma formal, clara e acessível para envio aos responsáveis via WhatsApp.</span>
+        </p>
       </div>
 
       <button
@@ -1797,6 +2065,305 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     );
   };
 
+  // Painel de Gestão do Administrador (Turmas, Ocorrências e Medidas)
+  const renderPainelAdminConfig = () => {
+    const listaTurmas = bancoDeDados.turmasPersonalizadas || [
+      '6ºA', '6ºB', '6ºC', '7ºA', '7ºB', '8ºA', '8ºB', '9ºA', '9ºB', '1ªEM A', '2ªEM A', '3ªEM A'
+    ];
+    const listaOcorrencias = bancoDeDados.ocorrencias || [];
+    const listaMedidas = bancoDeDados.medidas || [];
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-white p-6 rounded-2xl shadow-xs border border-slate-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-4 mb-5">
+            <div>
+              <div className="flex items-center gap-2">
+                <Settings className="w-5 h-5 text-indigo-600" />
+                <h2 className="text-base font-black text-slate-900">
+                  Painel de Configurações & Cadastros (Exclusivo Administrador)
+                </h2>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Cadastre, edite ou exclua turmas, motivos de ocorrência e medidas pedagógicas disponíveis no formulário.
+              </p>
+            </div>
+            <span className="self-start sm:self-auto bg-indigo-50 border border-indigo-200 text-indigo-800 text-[11px] font-bold px-2.5 py-1 rounded-lg">
+              🛡️ Modo Administrador Ativo
+            </span>
+          </div>
+
+          {/* Sub-abas do Painel Admin */}
+          <div className="flex flex-wrap gap-2 mb-6 border-b border-slate-100 pb-3">
+            <button
+              type="button"
+              onClick={() => { setAbaAdminConfig('turmas'); setNovoItemConfig(''); }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                abaAdminConfig === 'turmas'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              <span>🏫 Turmas Disponíveis</span>
+              <span className="bg-black/20 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                {listaTurmas.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setAbaAdminConfig('ocorrencias'); setNovoItemConfig(''); }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                abaAdminConfig === 'ocorrencias'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              <span>⚠️ Ocorrência Principal (Motivos)</span>
+              <span className="bg-black/20 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                {listaOcorrencias.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setAbaAdminConfig('medidas'); setNovoItemConfig(''); }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                abaAdminConfig === 'medidas'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              <span>⚖️ Medidas Pedagógicas Tomadas</span>
+              <span className="bg-black/20 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                {listaMedidas.length}
+              </span>
+            </button>
+          </div>
+
+          {/* Form para Adicionar Novo Item */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6">
+            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Plus className="w-3.5 h-3.5 text-indigo-600" />
+              <span>
+                Cadastrar Novo(a){' '}
+                {abaAdminConfig === 'turmas'
+                  ? 'Turma'
+                  : abaAdminConfig === 'ocorrencias'
+                  ? 'Tipo de Ocorrência Principal'
+                  : 'Medida Tomada'}
+              </span>
+            </h3>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={novoItemConfig}
+                onChange={e => setNovoItemConfig(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAdicionarItemConfig(
+                      abaAdminConfig === 'turmas'
+                        ? 'turma'
+                        : abaAdminConfig === 'ocorrencias'
+                        ? 'ocorrencia'
+                        : 'medida'
+                    );
+                  }
+                }}
+                placeholder={
+                  abaAdminConfig === 'turmas'
+                    ? 'Ex: 6ºD, 1ªEM B, Novo Ensino Médio...'
+                    : abaAdminConfig === 'ocorrencias'
+                    ? 'Ex: Descumprimento de regras de laboratório...'
+                    : 'Ex: Mediação com o tutor pedagógico...'
+                }
+                className="flex-1 p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-medium bg-white text-slate-800"
+              />
+              <button
+                type="button"
+                disabled={salvandoConfig || !novoItemConfig.trim()}
+                onClick={() =>
+                  handleAdicionarItemConfig(
+                    abaAdminConfig === 'turmas'
+                      ? 'turma'
+                      : abaAdminConfig === 'ocorrencias'
+                      ? 'ocorrencia'
+                      : 'medida'
+                  )
+                }
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Adicionar</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Lista de Itens com Ações de Edição e Exclusão */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+              Itens Ativos no Sistema (
+              {abaAdminConfig === 'turmas'
+                ? listaTurmas.length
+                : abaAdminConfig === 'ocorrencias'
+                ? listaOcorrencias.length
+                : listaMedidas.length}
+              )
+            </h3>
+
+            {abaAdminConfig === 'turmas' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                {listaTurmas.map((turma, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 bg-white border border-slate-200 hover:border-indigo-200 rounded-xl flex items-center justify-between gap-2 shadow-2xs group transition-all"
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <span className="w-5 h-5 rounded-md bg-indigo-50 text-indigo-700 text-[11px] font-mono font-bold flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      <span className="font-extrabold text-xs text-slate-800 truncate">{turma}</span>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setItemEditando({
+                            tipo: 'turma',
+                            index: idx,
+                            valorAntigo: turma,
+                            valorNovo: turma,
+                          })
+                        }
+                        className="p-1.5 hover:bg-indigo-50 text-indigo-600 hover:text-indigo-800 rounded-lg text-xs cursor-pointer transition-colors"
+                        title="Editar nome da turma"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setItemParaExcluirConfig({
+                            tipo: 'turma',
+                            index: idx,
+                            valor: turma,
+                          })
+                        }
+                        className="p-1.5 hover:bg-rose-50 text-rose-600 hover:text-rose-800 rounded-lg text-xs cursor-pointer transition-colors"
+                        title="Excluir turma"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {abaAdminConfig === 'ocorrencias' && (
+              <div className="space-y-2">
+                {listaOcorrencias.map((ocorr, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 bg-white border border-slate-200 hover:border-indigo-200 rounded-xl flex items-start justify-between gap-3 shadow-2xs group transition-all"
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <span className="w-5 h-5 rounded-md bg-amber-50 text-amber-800 text-[11px] font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <p className="font-semibold text-xs text-slate-800 leading-relaxed">{ocorr}</p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setItemEditando({
+                            tipo: 'ocorrencia',
+                            index: idx,
+                            valorAntigo: ocorr,
+                            valorNovo: ocorr,
+                          })
+                        }
+                        className="p-1.5 hover:bg-indigo-50 text-indigo-600 hover:text-indigo-800 rounded-lg text-xs cursor-pointer transition-colors"
+                        title="Editar ocorrência"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setItemParaExcluirConfig({
+                            tipo: 'ocorrencia',
+                            index: idx,
+                            valor: ocorr,
+                          })
+                        }
+                        className="p-1.5 hover:bg-rose-50 text-rose-600 hover:text-rose-800 rounded-lg text-xs cursor-pointer transition-colors"
+                        title="Excluir ocorrência"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {abaAdminConfig === 'medidas' && (
+              <div className="space-y-2">
+                {listaMedidas.map((med, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 bg-white border border-slate-200 hover:border-indigo-200 rounded-xl flex items-start justify-between gap-3 shadow-2xs group transition-all"
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <span className="w-5 h-5 rounded-md bg-emerald-50 text-emerald-800 text-[11px] font-mono font-bold flex items-center justify-center shrink-0 mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <p className="font-semibold text-xs text-slate-800 leading-relaxed">{med}</p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setItemEditando({
+                            tipo: 'medida',
+                            index: idx,
+                            valorAntigo: med,
+                            valorNovo: med,
+                          })
+                        }
+                        className="p-1.5 hover:bg-indigo-50 text-indigo-600 hover:text-indigo-800 rounded-lg text-xs cursor-pointer transition-colors"
+                        title="Editar medida"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setItemParaExcluirConfig({
+                            tipo: 'medida',
+                            index: idx,
+                            valor: med,
+                          })
+                        }
+                        className="p-1.5 hover:bg-rose-50 text-rose-600 hover:text-rose-800 rounded-lg text-xs cursor-pointer transition-colors"
+                        title="Excluir medida"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const pendentes = bancoDeDados.registros.filter(r => r.status !== 'Resolvido').reverse();
   const resolvidosEmSala = bancoDeDados.registros
     .filter(r => r.status === 'Resolvido' && verificarResolvidoEmSala(r.auxilio))
@@ -1816,7 +2383,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 Gestão de Ocorrências & Mediação Disciplinar
               </h1>
               <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 uppercase">
-                {isGestao ? 'Painel de Gestão' : 'Portal do Professor'}
+                {isAdmin ? 'Painel Administrador (Master)' : isGestao ? 'Painel de Gestão' : 'Portal do Professor'}
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium">
@@ -1935,6 +2502,20 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             >
               👨‍🎓 Meus Tutorados
             </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setAbaGestao('config_admin')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                  abaGestao === 'config_admin'
+                    ? 'bg-indigo-900 text-white shadow-2xs'
+                    : 'text-indigo-800 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200'
+                }`}
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>⚙️ Configurações (Admin)</span>
+              </button>
+            )}
           </>
         ) : (
           <>
@@ -2038,6 +2619,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             {abaGestao === 'registrar' && renderFormularioRegistro()}
             {abaGestao === 'devolutivas' && renderMinhasDevolutivas()}
             {abaGestao === 'tutorados' && renderMeusTutorados()}
+            {abaGestao === 'config_admin' && renderPainelAdminConfig()}
           </>
         ) : (
           <>
@@ -2631,26 +3213,67 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
               {/* Prévia da Mensagem */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1 flex items-center justify-between">
-                  <span>Mensagem Pronta para Envio</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(modalWhatsApp.mensagemPadrao);
-                      setMensagem({ texto: '📋 Mensagem copiada com sucesso!', tipo: 'sucesso' });
-                      setTimeout(() => setMensagem({ texto: '', tipo: '' }), 3000);
-                    }}
-                    className="text-emerald-700 hover:text-emerald-800 text-[11px] font-bold cursor-pointer"
-                  >
-                    Copiar Texto
-                  </button>
-                </label>
+                <div className="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+                  <label className="block text-xs font-bold text-slate-700 uppercase">
+                    Mensagem Pronta para Envio
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleFormatarWhatsAppIA}
+                      disabled={formatandoWhatsAppIA}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                      title="Usa o Gemini para reescrever a mensagem aos pais em tom compreensível, acolhedor e formal"
+                    >
+                      {formatandoWhatsAppIA ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Otimizando com IA...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                          <span>✨ Reformular com IA (Gemini)</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(modalWhatsApp.mensagemPadrao);
+                        setMensagem({ texto: '📋 Mensagem copiada com sucesso!', tipo: 'sucesso' });
+                        setTimeout(() => setMensagem({ texto: '', tipo: '' }), 3000);
+                      }}
+                      className="text-emerald-700 hover:text-emerald-800 text-[11px] font-bold cursor-pointer bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200"
+                    >
+                      Copiar Texto
+                    </button>
+                  </div>
+                </div>
                 <textarea
-                  readOnly
-                  rows={6}
+                  rows={7}
                   value={modalWhatsApp.mensagemPadrao}
-                  className="w-full p-3 text-xs bg-slate-50 border border-slate-300 rounded-xl font-mono text-slate-800 leading-relaxed resize-none"
+                  onChange={e => {
+                    const val = e.target.value;
+                    setModalWhatsApp(prev => {
+                      if (!prev) return null;
+                      return {
+                        ...prev,
+                        mensagemPadrao: val,
+                        guardianPhones: prev.guardianPhones.map(p => ({
+                          ...p,
+                          whatsAppUrl: `https://wa.me/${p.digits}?text=${encodeURIComponent(val)}`,
+                        })),
+                      };
+                    });
+                  }}
+                  placeholder="Mensagem para WhatsApp..."
+                  className="w-full p-3 text-xs bg-slate-50 border border-slate-300 rounded-xl font-mono text-slate-800 leading-relaxed resize-none focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
                 />
+                <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-emerald-600" />
+                  <span>Você pode editar o texto livremente ou clicar em 'Reformular com IA' para uma abordagem acolhedora aos pais.</span>
+                </p>
               </div>
 
               <div className="pt-2 flex justify-end">
@@ -2667,7 +3290,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         </div>
       )}
 
-      {/* MODAL 5: CONFIRMAÇÃO DE EXCLUSÃO DE OCORRÊNCIA (EXCLUSIVO ADMINISTRADOR) */}
+      {/* MODAL 6: CONFIRMAÇÃO DE EXCLUSÃO DE OCORRÊNCIA (EXCLUSIVO ADMINISTRADOR) */}
       {ocorrenciaParaExcluir && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 animate-in zoom-in-95">
@@ -2734,6 +3357,141 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   <span>{excluindoOcorrencia ? 'Excluindo...' : 'Sim, Excluir'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 7: EDIÇÃO DE ITEM DE CONFIGURAÇÃO (TURMAS, OCORRÊNCIAS, MEDIDAS) */}
+      {itemEditando && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95">
+            <div className="bg-indigo-600 px-6 py-4 flex justify-between items-center text-white">
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <Edit2 className="w-4 h-4" />
+                <span>
+                  Editar{' '}
+                  {itemEditando.tipo === 'turma'
+                    ? 'Turma'
+                    : itemEditando.tipo === 'ocorrencia'
+                    ? 'Tipo de Ocorrência'
+                    : 'Medida Pedagógica'}
+                </span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setItemEditando(null)}
+                disabled={salvandoConfig}
+                className="font-bold text-lg cursor-pointer hover:text-indigo-200 disabled:opacity-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Texto / Descrição
+                </label>
+                {itemEditando.tipo === 'turma' ? (
+                  <input
+                    type="text"
+                    value={itemEditando.valorNovo}
+                    onChange={e =>
+                      setItemEditando({ ...itemEditando, valorNovo: e.target.value })
+                    }
+                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-bold text-slate-800"
+                  />
+                ) : (
+                  <textarea
+                    rows={3}
+                    value={itemEditando.valorNovo}
+                    onChange={e =>
+                      setItemEditando({ ...itemEditando, valorNovo: e.target.value })
+                    }
+                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-medium text-slate-800"
+                  />
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setItemEditando(null)}
+                  disabled={salvandoConfig}
+                  className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50 cursor-pointer disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSalvarEdicaoConfig}
+                  disabled={salvandoConfig || !itemEditando.valorNovo.trim()}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-700 cursor-pointer flex items-center justify-center gap-1.5 shadow-xs transition-colors disabled:opacity-50"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>{salvandoConfig ? 'Salvando...' : 'Salvar Alteração'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 8: EXCLUSÃO DE ITEM DE CONFIGURAÇÃO (TURMAS, OCORRÊNCIAS, MEDIDAS) */}
+      {itemParaExcluirConfig && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 animate-in zoom-in-95">
+            <div className="bg-rose-600 px-6 py-4 flex justify-between items-center text-white">
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <Trash2 className="w-4 h-4" />
+                <span>
+                  Excluir{' '}
+                  {itemParaExcluirConfig.tipo === 'turma'
+                    ? 'Turma'
+                    : itemParaExcluirConfig.tipo === 'ocorrencia'
+                    ? 'Tipo de Ocorrência'
+                    : 'Medida Pedagógica'}
+                </span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setItemParaExcluirConfig(null)}
+                disabled={salvandoConfig}
+                className="font-bold text-lg cursor-pointer hover:text-rose-200 disabled:opacity-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-slate-700">
+                Tem certeza que deseja remover este item das opções de cadastro de ocorrências?
+              </p>
+
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800">
+                "{itemParaExcluirConfig.valor}"
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setItemParaExcluirConfig(null)}
+                  disabled={salvandoConfig}
+                  className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50 cursor-pointer disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmarExclusaoConfig}
+                  disabled={salvandoConfig}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 text-white font-bold text-xs hover:bg-rose-700 cursor-pointer flex items-center justify-center gap-1.5 shadow-xs transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{salvandoConfig ? 'Excluindo...' : 'Sim, Excluir'}</span>
                 </button>
               </div>
             </div>

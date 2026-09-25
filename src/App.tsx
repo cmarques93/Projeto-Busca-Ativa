@@ -726,6 +726,135 @@ export default function App() {
     }
   };
 
+  const handleCreateCase = async (caseData: Partial<InterventionCase>) => {
+    const newCase: InterventionCase = {
+      id: `int-${Date.now()}`,
+      studentId: caseData.studentId || '',
+      studentName: caseData.studentName || '',
+      classId: caseData.classId || '',
+      className: caseData.className || '',
+      guardianName: caseData.guardianName || '',
+      guardianPhone: caseData.guardianPhone || '',
+      priority: caseData.priority || 'alta',
+      stage: caseData.stage || 'alerta_inicial',
+      openedAt: new Date().toISOString().split('T')[0],
+      lastUpdatedAt: new Date().toISOString().split('T')[0],
+      assignedPedagogue: caseData.assignedPedagogue || currentUser.name || 'Coordenação Pedagógica / PAAC',
+      reason: caseData.reason || 'Infrequência escolar recorrente identificada',
+      actionPlan: caseData.actionPlan || [
+        'Contato telefônico e envio de notificação aos responsáveis via WhatsApp',
+        'Pactuação de compromisso e retorno às aulas presenciais',
+        'Encaminhamento ao Conselho Tutelar (FICAI) caso não haja comparecimento em 48h'
+      ],
+      actionLog: [
+        {
+          id: `act-${Date.now()}`,
+          date: new Date().toISOString().split('T')[0],
+          action: 'Abertura Formal do Caso de Busca Ativa',
+          author: currentUser.name || 'Coordenação Pedagógica',
+          notes: caseData.reason || 'Caso instaurado para acompanhamento pedagógico e garantia da frequência escolar.',
+          result: 'Aguardando primeiro contato com os responsáveis.',
+        }
+      ]
+    };
+
+    const list = storageService.getInterventions();
+    list.unshift(newCase);
+    storageService.setInterventions(list);
+    setInterventions(list);
+
+    try {
+      await firestoreService.saveIntervention(newCase);
+    } catch (err) {
+      console.warn('Erro ao salvar caso no Firestore:', err);
+    }
+    await fetchData();
+  };
+
+  const handleAutoGenerateCasesFromRiskStudents = async (): Promise<number> => {
+    const existingCases = storageService.getInterventions();
+    const existingStudentIds = new Set(existingCases.map(c => c.studentId));
+    
+    // Identifica estudantes em situação de atenção ou risco de infrequência
+    let riskStudents = students.filter(
+      s => (
+        s.riskLevel === 'critico' ||
+        s.riskLevel === 'alto' ||
+        s.status === 'evasao_iminente' ||
+        s.status === 'em_busca_ativa' ||
+        s.status === 'alerta' ||
+        (s.consecutiveAbsences && s.consecutiveAbsences >= 2) ||
+        (s.totalAbsences && s.totalAbsences >= 2) ||
+        (s.attendanceRate && s.attendanceRate <= 85)
+      ) && !existingStudentIds.has(s.id)
+    );
+
+    // Se nenhum estiver com risco elevado, busca qualquer estudante com histórico de faltas não justificadas
+    if (riskStudents.length === 0) {
+      riskStudents = students.filter(
+        s => (
+          (s.totalAbsences && s.totalAbsences > 0) ||
+          (s.consecutiveAbsences && s.consecutiveAbsences > 0) ||
+          (s.attendanceRate && s.attendanceRate < 100)
+        ) && !existingStudentIds.has(s.id)
+      );
+    }
+
+    if (riskStudents.length === 0) return 0;
+
+    const newCases: InterventionCase[] = riskStudents.map(st => {
+      const absences = st.consecutiveAbsences || st.totalAbsences || 1;
+      const rate = st.attendanceRate ?? 75;
+      const isUrgent = absences >= 4 || rate < 75 || st.riskLevel === 'critico';
+
+      return {
+        id: `int-${Date.now()}-${st.id}`,
+        studentId: st.id,
+        studentName: st.name,
+        classId: st.classId,
+        className: st.className,
+        guardianName: st.guardianName || 'Responsável Legal',
+        guardianPhone: st.guardianPhone || '',
+        priority: isUrgent ? 'urgente_conselho' : 'alta',
+        stage: 'alerta_inicial',
+        openedAt: new Date().toISOString().split('T')[0],
+        lastUpdatedAt: new Date().toISOString().split('T')[0],
+        assignedPedagogue: currentUser?.name || 'Coordenação Pedagógica / PAAC',
+        reason: `Gatilho de Busca Ativa (Resolução SEDUC 39/2023): ${absences} ausência(s) registrada(s). Frequência apurada: ${rate}%. ${st.vulnerabilityFactors?.join(', ') || ''}`.trim(),
+        actionPlan: [
+          'Contato telefônico e envio de notificação formal aos responsáveis via WhatsApp',
+          'Agendamento de reunião presencial para acolhimento e pactuação de retorno',
+          'Encaminhamento formal ao Conselho Tutelar (FICAI) caso persista a infrequência'
+        ],
+        actionLog: [
+          {
+            id: `act-${Date.now()}-${st.id}`,
+            date: new Date().toISOString().split('T')[0],
+            action: 'Identificação de Infrequência Escolar & Abertura de Caso',
+            author: currentUser?.name || 'Coordenação Pedagógica / PAAC',
+            notes: `Estudante com ${absences} ausência(s) e taxa de assiduidade de ${rate}%. Caso aberto para acompanhamento pedagógico contínuo.`,
+            result: 'Aguardando contato inicial com os responsáveis.',
+          }
+        ]
+      };
+    });
+
+    const updatedList = [...newCases, ...existingCases];
+    storageService.setInterventions(updatedList);
+    setInterventions(updatedList);
+
+    for (const c of newCases) {
+      try {
+        await firestoreService.saveIntervention(c);
+      } catch (e) {
+        console.warn('Erro ao salvar caso no Firestore:', e);
+      }
+    }
+
+    await fetchData();
+    return newCases.length;
+  };
+
   // Open alert modal for specific student
   const handleOpenAlertForStudent = (student: Student) => {
     if (currentUser?.role === 'professor') {
@@ -906,7 +1035,11 @@ export default function App() {
         {activeTab === 'interventions' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin') && (
           <InterventionsManager
             cases={interventions}
+            students={students}
+            currentUser={currentUser}
             onAddAction={handleAddInterventionAction}
+            onCreateCase={handleCreateCase}
+            onAutoGenerateCasesFromRiskStudents={handleAutoGenerateCasesFromRiskStudents}
             onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
             onGenerateAIPlan={handleGenerateAIPlan}
             isGeneratingAI={isGeneratingAI}

@@ -283,6 +283,42 @@ export async function excluirOcorrenciaSeguro(ocorrenciaId: string, currentDb?: 
 }
 
 /**
+ * Salva as configurações de turmas, ocorrências principais e medidas pedagógicas (Exclusivo Administrador)
+ */
+export async function salvarConfigOcorrenciasSeguro(
+  config: { turmas?: string[]; ocorrencias?: string[]; medidas?: string[]; aulas?: string[] },
+  currentDb?: any
+): Promise<boolean> {
+  try {
+    let base = currentDb;
+    if (!base) {
+      base = (await firestoreService.getOcorrencias()) || lerCacheOcorrencias() || ocorrenciasBaseline;
+    }
+    if (base) {
+      const updatedBase = {
+        ...base,
+        turmasPersonalizadas: config.turmas !== undefined ? config.turmas : base.turmasPersonalizadas,
+        ocorrencias: config.ocorrencias !== undefined ? config.ocorrencias : base.ocorrencias,
+        medidas: config.medidas !== undefined ? config.medidas : base.medidas,
+        aulas: config.aulas !== undefined ? config.aulas : base.aulas,
+      };
+      await firestoreService.saveOcorrencias(updatedBase);
+      salvarCacheOcorrencias(updatedBase);
+    }
+  } catch (err) {
+    console.warn('Erro ao salvar config no Firestore:', err);
+  }
+
+  safeFetchJson('/api/sheets-ocorrencias', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'salvar_config_ocorrencias', ...config }),
+  }).catch(() => {});
+
+  return true;
+}
+
+/**
  * Envia reserva de tablets para Firestore e Backend
  */
 export async function salvarReservaTabletsSeguro(payload: any, currentDb?: any): Promise<{ ok: boolean; msg?: string }> {

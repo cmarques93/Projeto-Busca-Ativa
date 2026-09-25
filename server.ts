@@ -761,6 +761,99 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
   app.post('/api/ai/pedagogical-plan', handlePedagogicalPlan);
   app.post('/api/ai/intervention-plan', handlePedagogicalPlan);
 
+  // --- FORMATAÇÃO INTELIGENTE DE OCORRÊNCIA E MENSAGEM WHATSAPP COM GEMINI ---
+  const handleFormatOccurrence = async (req: express.Request, res: express.Response) => {
+    syncDailyQuota();
+
+    const {
+      descricao = '',
+      estudante = 'Estudante',
+      turma = '',
+      ocorrencia = '',
+      medida = '',
+      professor = '',
+      aula = '',
+    } = req.body;
+
+    const generateFallback = () => {
+      const rawTrim = (descricao || '').trim();
+      let formattedDescription = rawTrim;
+      if (!formattedDescription && ocorrencia) {
+        formattedDescription = `Foi registrado na presente data (${aula || 'horário letivo'}) apontamento referente a: ${ocorrencia}. Ocorrência mediada com aplicação da medida pedagógica: ${medida || 'orientação individual'}.`;
+      } else if (formattedDescription) {
+        formattedDescription = `Registro pedagógico em sala (${aula || 'aula'} - Prof. ${professor || 'Docente'}): ${rawTrim}. Medida pedagógica adotada: ${medida || 'orientação formativa e alinhamento de conduta'}.`;
+      }
+
+      const whatsappMsg = `*EE Prof. Arlindo Silvestre - Acompanhamento Escolar*\n\n` +
+        `Olá, família de *${estudante}* (${turma || 'Turma'}).\n\n` +
+        `Gostaríamos de informar que hoje, durante a aula (${aula || 'horário letivo'}), o(a) estudante apresentou uma ocorrência referente a *${ocorrencia || 'disciplina em sala'}*.\n\n` +
+        `📝 *Relato da aula:* "${rawTrim || ocorrencia}"\n` +
+        `⚖️ *Medida pedagógica aplicada:* ${medida || 'Conversa orientativa individual'}\n\n` +
+        `Pedimos o apoio e o diálogo da família em casa para reforçarmos juntos o compromisso com os estudos e a convivência respeitosa na escola. Estamos sempre de portas abertas para qualquer dúvida ou apoio.\n\n` +
+        `Atenciosamente,\n*Equipe Gestora Escolar*`;
+
+      return {
+        descricaoFormatada: formattedDescription,
+        mensagemWhatsApp: whatsappMsg,
+        source: 'motor_pedagogico_fallback'
+      };
+    };
+
+    if (quotaTracker.isBlockedUntilNextDay || quotaTracker.requestsToday >= quotaTracker.maxFreeRequestsPerDay) {
+      return res.json(generateFallback());
+    }
+
+    const ai = getGeminiClient();
+    if (ai) {
+      try {
+        const prompt = `Você é um especialista em mediação escolar, convivência pedagógica e comunicação empática da rede estadual de ensino de São Paulo (SEDUC-SP).
+Sua missão é aprimorar o registro de uma ocorrência disciplinar escolar para dois propósitos essenciais:
+
+1. "descricaoFormatada": Uma descrição formal, objetiva, pedagógica e respeitosa dos fatos ocorridos em sala de aula para constar no histórico oficial da escola (sem termos ofensivos, gírias ou desabafos, mantendo fidelidade factual ao relato do docente).
+2. "mensagemWhatsApp": Uma mensagem clara, amigável, formal e acolhedora em português simples, pronta para ser enviada aos pais/responsáveis pelo WhatsApp pela Equipe Gestora da EE Prof. Arlindo Silvestre. A mensagem deve explicar o ocorrido com clareza, respeito e sem tom acusatório exagerado, convidando os pais para somar com a escola e dialogar com o jovem.
+
+DADOS DA OCORRÊNCIA:
+- Estudante: ${estudante}
+- Turma: ${turma}
+- Horário / Aula: ${aula}
+- Professor(a) Relator(a): ${professor}
+- Infração Principal: ${ocorrencia}
+- Medida Pedagógica Aplicada: ${medida}
+- Relato Bruto / Anotações do Docente: "${descricao || ocorrencia}"
+
+Responda ESTRITAMENTE em formato JSON com as chaves:
+{
+  "descricaoFormatada": "Texto formal e objetivo para o dossiê oficial da escola",
+  "mensagemWhatsApp": "Mensagem formatada com emojis discretos (*negrito* para nomes e destaques) para enviar aos pais no WhatsApp"
+}`;
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+          config: { responseMimeType: 'application/json' }
+        });
+
+        const text = response.text || '';
+        const parsed = JSON.parse(text);
+
+        quotaTracker.requestsToday++;
+        return res.json({
+          descricaoFormatada: parsed.descricaoFormatada || generateFallback().descricaoFormatada,
+          mensagemWhatsApp: parsed.mensagemWhatsApp || generateFallback().mensagemWhatsApp,
+          source: 'gemini_ai'
+        });
+      } catch (err: any) {
+        console.warn('Erro na formatação com Gemini:', err?.message || err);
+        return res.json(generateFallback());
+      }
+    }
+
+    return res.json(generateFallback());
+  };
+
+  app.post('/api/ai/format-occurrence', handleFormatOccurrence);
+  app.post('/api/ai/format-occurrence-whatsapp', handleFormatOccurrence);
+
   // --- GOOGLE SHEETS / DRIVE DATABASE INTEGRATION ---
 
   // Get current Google Sheets integration status and metadata
@@ -1127,7 +1220,12 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
       if (fs.existsSync(cleanFilePath)) {
         try {
           const currentClean = JSON.parse(fs.readFileSync(cleanFilePath, 'utf-8'));
-          if (body.action === 'excluir' || body.action === 'excluir_ocorrencia' || body.acao === 'excluir') {
+          if (body.action === 'salvar_config_ocorrencias' || body.action === 'salvar_config') {
+            if (Array.isArray(body.turmas)) currentClean.turmasPersonalizadas = body.turmas;
+            if (Array.isArray(body.ocorrencias)) currentClean.ocorrencias = body.ocorrencias;
+            if (Array.isArray(body.medidas)) currentClean.medidas = body.medidas;
+            if (Array.isArray(body.aulas)) currentClean.aulas = body.aulas;
+          } else if (body.action === 'excluir' || body.action === 'excluir_ocorrencia' || body.acao === 'excluir') {
             currentClean.registros = (currentClean.registros || []).filter((r: any) => r.id !== body.id);
           } else if (body.action === 'salvar_mediacao' || body.action === 'mediacao' || body.acao === 'mediar') {
             const idx = currentClean.registros.findIndex((r: any) => r.id === body.id);
