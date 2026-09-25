@@ -47,6 +47,31 @@ async function startServer() {
     }
   }
 
+  async function callGeminiGenerateContent(ai: GoogleGenAI, contents: string, config?: any) {
+    // Modelos oficiais suportados pela biblioteca @google/genai na ordem recomendada
+    const candidateModels = [
+      'gemini-3.8-flash',
+      'gemini-3.1-flash-lite',
+      'gemini-flash-latest',
+      'gemini-3.1-pro-preview'
+    ];
+    let lastError: any = null;
+    for (const model of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents,
+          ...(config ? { config } : {})
+        });
+        return response;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Tentativa de geração com modelo '${model}' falhou:`, err?.message || err);
+      }
+    }
+    throw lastError;
+  }
+
   // --- SISTEMA DE GESTÃO E PROTEÇÃO DE COTA GRATUITA DA IA ---
   interface DailyQuotaTracker {
     date: string; // YYYY-MM-DD (Horário de Brasília)
@@ -709,11 +734,7 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
   "mensagemSugerida": "Mensagem empática para WhatsApp para o responsável (sem tom punitivo, informando com respeito a fundamentação na Resolução SEDUC 39/2023 e convidando com acolhimento para a escola)"
 }`;
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-          config: { responseMimeType: 'application/json' }
-        });
+        const response = await callGeminiGenerateContent(ai, prompt, { responseMimeType: 'application/json' });
 
         const text = response.text || '';
         const parsed = JSON.parse(text);
@@ -848,11 +869,7 @@ Responda ESTRITAMENTE em formato JSON com as chaves:
   "mensagemWhatsApp": "Mensagem formatada com emojis discretos (*negrito* para nomes e destaques) para enviar aos pais no WhatsApp"
 }`;
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-          config: { responseMimeType: 'application/json' }
-        });
+        const response = await callGeminiGenerateContent(ai, prompt, { responseMimeType: 'application/json' });
 
         const text = response.text || '';
         const parsed = JSON.parse(text);
@@ -904,10 +921,7 @@ TEXTO ORIGINAL:
 
 IMPORTANTE: Responda APENAS com o texto reescrito e formatado, sem introduções ("Aqui está o texto:"), sem aspas adicionais, sem preâmbulos e sem explicações.`;
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-        });
+        const response = await callGeminiGenerateContent(ai, prompt);
 
         const formatted = response.text ? response.text.trim() : fallbackText();
         quotaTracker.requestsToday++;

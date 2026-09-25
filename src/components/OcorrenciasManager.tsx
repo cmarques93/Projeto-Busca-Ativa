@@ -524,6 +524,11 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       return;
     }
 
+    if (!form.descricao || !form.descricao.trim()) {
+      setMensagem({ texto: '⚠️ O campo descrição/relato da ocorrência é obrigatório.', tipo: 'erro' });
+      return;
+    }
+
     setEnviando(true);
     setMensagem({ texto: 'Salvando registros na planilha, aguarde...', tipo: 'sucesso' });
 
@@ -1429,14 +1434,14 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       <div>
         <div className="flex items-center justify-between mb-1">
           <label className="block text-xs font-bold text-slate-700 uppercase">
-            Descrição / Relato Detalhado (Opcional)
+            Descrição / Relato Detalhado <span className="text-rose-600 font-extrabold">* (Obrigatório)</span>
           </label>
           <button
             type="button"
             onClick={handleFormatarDescricaoIA}
             disabled={formatandoComIA}
             className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50"
-            title="Ajusta o texto com IA do Gemini para uma linguagem formal e pedagógica, ideal para comunicação com a família"
+            title="Ajusta o texto com IA do Gemini para uma linguagem formal, correta e clara para os responsáveis"
           >
             {formatandoComIA ? (
               <>
@@ -1455,8 +1460,9 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
           name="descricao"
           value={form.descricao}
           onChange={handleChange}
+          required
           rows={3}
-          placeholder="Descreva detalhes específicos da ocorrência ou anotações livres do professor. Clique em 'Formatar com IA' para converter em relatório formal e claro para os pais..."
+          placeholder="Descreva o relato detalhado da ocorrência (obrigatório). Em seguida, você pode clicar em '✨ Formatar com IA' para revisar a gramática e o tom respeitoso..."
           className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-slate-800 font-medium bg-white"
         />
         <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-1">
