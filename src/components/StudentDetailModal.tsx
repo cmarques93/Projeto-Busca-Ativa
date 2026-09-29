@@ -24,6 +24,7 @@ import { Student, AttendanceRecord, ParentAlert, InterventionCase } from '../typ
 import { storageService } from '../data/storageService';
 import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
 import { carregarOcorrenciasSeguro } from '../lib/sheetsSyncService';
+import { ordenarOcorrenciasPorMaisRecentes, parseDataOcorrenciaToTimestamp } from './OcorrenciasManager';
 
 interface OcorrenciaItem {
   id: string;
@@ -100,11 +101,16 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
         const listaRegs = res.data.registros || [];
         const listaTrat = res.data.tratativasFamilia || [];
 
-        ocorrencias = listaRegs.filter(
+        const filtradasOcorr = listaRegs.filter(
           (r: any) => r.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
         );
-        tratativas = listaTrat.filter(
+        ocorrencias = ordenarOcorrenciasPorMaisRecentes(filtradasOcorr) as unknown as OcorrenciaItem[];
+        
+        const filtradasTrat = listaTrat.filter(
           (t: any) => t.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
+        );
+        tratativas = filtradasTrat.sort(
+          (a: any, b: any) => parseDataOcorrenciaToTimestamp(b.data) - parseDataOcorrenciaToTimestamp(a.data)
         );
       }
     } catch (e) {

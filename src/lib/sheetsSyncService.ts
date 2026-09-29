@@ -73,6 +73,64 @@ export async function safeFetchJson<T = any>(
 }
 
 /**
+ * Converte qualquer formato de data de ocorrência para timestamp numérico
+ */
+export function parseDataOcorrenciaToTimestamp(dStr: string): number {
+  if (!dStr) return 0;
+  const str = String(dStr).trim();
+  if (str.includes('/')) {
+    const parts = str.split('/');
+    if (parts.length === 3) {
+      const [d, m, y] = parts;
+      const ano = y.length === 2 ? `20${y}` : y;
+      const ms = new Date(`${ano}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T12:00:00`).getTime();
+      if (!isNaN(ms)) return ms;
+    }
+  }
+  if (str.includes('-')) {
+    const parts = str.split('T')[0].split('-');
+    if (parts.length === 3) {
+      const [y, m, d] = parts;
+      const ano = y.length === 2 ? `20${y}` : y;
+      const ms = new Date(`${ano}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T12:00:00`).getTime();
+      if (!isNaN(ms)) return ms;
+    }
+  }
+  const parsed = new Date(str).getTime();
+  return isNaN(parsed) ? 0 : parsed;
+}
+
+/**
+ * Ordena ocorrências com as mais recentes em primeiro lugar
+ */
+export function ordenarOcorrenciasPorMaisRecentes(registros: any[]): any[] {
+  if (!registros || !Array.isArray(registros)) return [];
+  return [...registros].sort((a, b) => {
+    const timeA = parseDataOcorrenciaToTimestamp(a.data);
+    const timeB = parseDataOcorrenciaToTimestamp(b.data);
+    if (timeB !== timeA) return timeB - timeA;
+
+    const extractNum = (idStr: string) => {
+      const match = String(idStr || '').match(/\d+/g);
+      return match ? Number(match.join('')) : 0;
+    };
+    const numA = extractNum(a.id);
+    const numB = extractNum(b.id);
+    if (numB !== numA) return numB - numA;
+
+    const extrairAula = (aulaStr: string) => {
+      const match = String(aulaStr || '').match(/\d+/);
+      return match ? Number(match[0]) : 0;
+    };
+    const aulaA = extrairAula(a.aula);
+    const aulaB = extrairAula(b.aula);
+    if (aulaB !== aulaA) return aulaB - aulaA;
+
+    return (b.id || '').localeCompare(a.id || '', 'pt-BR', { numeric: true });
+  });
+}
+
+/**
  * Carrega a base de Ocorrências com estratégia de quadrupla redundância:
  * 1. Firestore Cloud (Nativo, direto do Google Firebase, 100% livre de bloqueio de cookies em iframes do Google Sites)
  * 2. API do Backend (/api/sheets-ocorrencias)
@@ -87,10 +145,14 @@ export async function carregarOcorrenciasSeguro(
   try {
     const cloudData = await firestoreService.getOcorrencias();
     if (cloudData && Array.isArray(cloudData.registros)) {
-      salvarCacheOcorrencias(cloudData);
+      const sortedCloudData = {
+        ...cloudData,
+        registros: ordenarOcorrenciasPorMaisRecentes(cloudData.registros),
+      };
+      salvarCacheOcorrencias(sortedCloudData);
       return {
         success: true,
-        data: cloudData,
+        data: sortedCloudData,
         source: 'firestore',
         message: 'Base sincronizada diretamente com o Firebase Firestore',
       };
@@ -102,11 +164,15 @@ export async function carregarOcorrenciasSeguro(
   // 2. Tenta API do Backend
   const apiRes = await safeFetchJson('/api/sheets-ocorrencias');
   if (apiRes.ok && apiRes.data && !apiRes.data.erro) {
-    salvarCacheOcorrencias(apiRes.data);
-    firestoreService.saveOcorrencias(apiRes.data).catch(() => {});
+    const sortedApiData = {
+      ...apiRes.data,
+      registros: ordenarOcorrenciasPorMaisRecentes(apiRes.data.registros || []),
+    };
+    salvarCacheOcorrencias(sortedApiData);
+    firestoreService.saveOcorrencias(sortedApiData).catch(() => {});
     return {
       success: true,
-      data: apiRes.data,
+      data: sortedApiData,
       source: 'api',
       message: 'Conectado via servidor do sistema',
     };
@@ -114,11 +180,15 @@ export async function carregarOcorrenciasSeguro(
 
   // 3. Base Oficial Embutida Garantida
   if (ocorrenciasBaseline && (ocorrenciasBaseline as any).registros && (ocorrenciasBaseline as any).registros.length > 0) {
-    salvarCacheOcorrencias(ocorrenciasBaseline);
-    firestoreService.saveOcorrencias(ocorrenciasBaseline).catch(() => {});
+    const sortedBaseline = {
+      ...ocorrenciasBaseline,
+      registros: ordenarOcorrenciasPorMaisRecentes((ocorrenciasBaseline as any).registros),
+    };
+    salvarCacheOcorrencias(sortedBaseline);
+    firestoreService.saveOcorrencias(sortedBaseline).catch(() => {});
     return {
       success: true,
-      data: ocorrenciasBaseline,
+      data: sortedBaseline,
       source: 'fallback',
       message: 'Base oficial de ocorrências carregada com sucesso!',
     };
@@ -127,9 +197,13 @@ export async function carregarOcorrenciasSeguro(
   // 4. Fallback para Cache Local
   const cached = lerCacheOcorrencias();
   if (cached && cached.registros && cached.registros.length > 0) {
+    const sortedCached = {
+      ...cached,
+      registros: ordenarOcorrenciasPorMaisRecentes(cached.registros),
+    };
     return {
       success: true,
-      data: cached,
+      data: sortedCached,
       source: 'cache',
       message: 'Operando com dados salvos no navegador',
     };
@@ -372,7 +446,14 @@ export async function salvarReservaTabletsSeguro(payload: any, currentDb?: any):
 // Helpers de Cache Local
 export function salvarCacheOcorrencias(data: any) {
   try {
-    localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(data));
+    let payload = data;
+    if (data && Array.isArray(data.registros)) {
+      payload = {
+        ...data,
+        registros: ordenarOcorrenciasPorMaisRecentes(data.registros),
+      };
+    }
+    localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(payload));
   } catch (e) {
     console.warn('Erro ao salvar cache de ocorrências:', e);
   }

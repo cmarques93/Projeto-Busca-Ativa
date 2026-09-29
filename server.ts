@@ -1221,25 +1221,120 @@ REGRA CRÍTICA E ABSOLUTA:
   // SERVIÇO DE DISPARO DE WHATSAPP EM SEGUNDO PLANO (GATEWAY & ANTI-SPAM)
   // Permite envio 100% automático no servidor sem abrir WhatsApp Web
   // =========================================================================
+  // =========================================================================
+  // SERVIÇO DE DISPARO DE WHATSAPP EM SEGUNDO PLANO (GATEWAY & ANTI-SPAM)
+  // Permite envio 100% automático no servidor sem abrir WhatsApp Web
+  // =========================================================================
   let whatsappGatewayConfig = {
-    provider: 'meta_cloud', // 'meta_cloud' | 'evolution' | 'zapi' | 'webhook' | 'simulated'
+    provider: 'meta_cloud', // 'meta_cloud' | 'evolution' | 'zapi' | 'webhook'
     endpointUrl: '',
     apiToken: '',
     instanceName: '',
     phoneId: '',
-    delaySeconds: 4, // Cadência segura anti-spam entre cada destinatário
+    delaySeconds: 15, // Cadência segura anti-spam padrão entre cada destinatário
+    isConfigured: false,
   };
 
   app.get('/api/whatsapp/config', (req, res) => {
-    res.json(whatsappGatewayConfig);
+    res.json({
+      ...whatsappGatewayConfig,
+      isConfigured: Boolean(
+        (whatsappGatewayConfig.endpointUrl && whatsappGatewayConfig.apiToken) ||
+        (whatsappGatewayConfig.provider === 'meta_cloud' && whatsappGatewayConfig.apiToken && whatsappGatewayConfig.phoneId)
+      ),
+      apiToken: whatsappGatewayConfig.apiToken ? '••••••••' + whatsappGatewayConfig.apiToken.slice(-4) : '',
+    });
   });
 
   app.post('/api/whatsapp/config', (req, res) => {
-    whatsappGatewayConfig = {
-      ...whatsappGatewayConfig,
-      ...req.body,
-    };
-    res.json({ success: true, config: whatsappGatewayConfig });
+    try {
+      const { provider, endpointUrl, apiToken, instanceName, phoneId, delaySeconds } = req.body;
+      whatsappGatewayConfig = {
+        provider: provider || whatsappGatewayConfig.provider,
+        endpointUrl: endpointUrl !== undefined ? endpointUrl.trim() : whatsappGatewayConfig.endpointUrl,
+        apiToken: apiToken !== undefined ? apiToken.trim() : whatsappGatewayConfig.apiToken,
+        instanceName: instanceName !== undefined ? instanceName.trim() : whatsappGatewayConfig.instanceName,
+        phoneId: phoneId !== undefined ? phoneId.trim() : whatsappGatewayConfig.phoneId,
+        delaySeconds: delaySeconds ? Number(delaySeconds) : whatsappGatewayConfig.delaySeconds,
+        isConfigured: Boolean(
+          (endpointUrl && apiToken) ||
+          (provider === 'meta_cloud' && apiToken && phoneId)
+        ),
+      };
+      res.json({ success: true, config: whatsappGatewayConfig });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  app.post('/api/whatsapp/test', async (req, res) => {
+    try {
+      const { phone = '11999999999', testMessage = 'Teste de conexão Busca Ativa' } = req.body;
+      const isConfigured = Boolean(
+        (whatsappGatewayConfig.endpointUrl && whatsappGatewayConfig.apiToken) ||
+        (whatsappGatewayConfig.provider === 'meta_cloud' && whatsappGatewayConfig.apiToken && whatsappGatewayConfig.phoneId)
+      );
+
+      if (!isConfigured) {
+        return res.status(400).json({
+          success: false,
+          error: 'Gateway não configurado. Forneça URL da API e Token/Chave de Acesso para habilitar envio autônomo.',
+        });
+      }
+
+      // Test real connection
+      const cleanPhone = String(phone).replace(/\D/g, '');
+      const fullPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
+
+      let fetchUrl = whatsappGatewayConfig.endpointUrl;
+      let headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'apikey': whatsappGatewayConfig.apiToken,
+        'Authorization': `Bearer ${whatsappGatewayConfig.apiToken}`,
+      };
+      let bodyPayload: any = {};
+
+      if (whatsappGatewayConfig.provider === 'meta_cloud') {
+        fetchUrl = `https://graph.facebook.com/v19.0/${whatsappGatewayConfig.phoneId || 'me'}/messages`;
+        bodyPayload = {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: fullPhone,
+          type: 'text',
+          text: { preview_url: false, body: testMessage },
+        };
+      } else if (whatsappGatewayConfig.provider === 'zapi') {
+        bodyPayload = {
+          phone: fullPhone,
+          message: testMessage,
+        };
+      } else {
+        // Evolution API / Gateway Webhook
+        bodyPayload = {
+          number: fullPhone,
+          text: testMessage,
+          options: { delay: 1200, presence: 'composing' },
+        };
+      }
+
+      const testResp = await fetch(fetchUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(bodyPayload),
+      });
+
+      const respData = await testResp.json().catch(() => ({}));
+      if (testResp.ok) {
+        return res.json({ success: true, message: 'Teste enviado com sucesso!', response: respData });
+      } else {
+        return res.status(testResp.status).json({
+          success: false,
+          error: `Erro retornado pelo Gateway (${testResp.status}): ${JSON.stringify(respData)}`,
+        });
+      }
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: err?.message || 'Falha ao testar conexão' });
+    }
   });
 
   app.post('/api/whatsapp/send', async (req, res) => {
@@ -1252,8 +1347,13 @@ REGRA CRÍTICA E ABSOLUTA:
       const cleanPhone = String(phone).replace(/\D/g, '');
       const fullPhone = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
 
+      const isConfigured = Boolean(
+        (whatsappGatewayConfig.endpointUrl && whatsappGatewayConfig.apiToken) ||
+        (whatsappGatewayConfig.provider === 'meta_cloud' && whatsappGatewayConfig.apiToken && whatsappGatewayConfig.phoneId)
+      );
+
       // Se houver Gateway ou Meta Cloud API configurada
-      if (whatsappGatewayConfig.endpointUrl && whatsappGatewayConfig.apiToken) {
+      if (isConfigured) {
         let fetchUrl = whatsappGatewayConfig.endpointUrl;
         let headers: Record<string, string> = {
           'Content-Type': 'application/json',
@@ -1292,8 +1392,18 @@ REGRA CRÍTICA E ABSOLUTA:
         });
 
         const respData = await gatewayResp.json().catch(() => ({}));
+
+        if (!gatewayResp.ok) {
+          return res.status(gatewayResp.status).json({
+            success: false,
+            error: `Erro no Gateway (${gatewayResp.status}): ${JSON.stringify(respData)}`,
+            provider: whatsappGatewayConfig.provider,
+            phone: fullPhone,
+          });
+        }
+
         return res.json({
-          success: gatewayResp.ok,
+          success: true,
           provider: whatsappGatewayConfig.provider,
           dispatchedAt: new Date().toISOString(),
           phone: fullPhone,
@@ -1301,13 +1411,11 @@ REGRA CRÍTICA E ABSOLUTA:
         });
       }
 
-      // Fila do servidor (Simulação / Contingência sem travar a escola)
-      return res.json({
-        success: true,
-        provider: 'server_queue_safe',
-        dispatchedAt: new Date().toISOString(),
-        phone: fullPhone,
-        message: 'Alerta processado pelo servidor com proteção anti-spam.',
+      // Se NÃO houver gateway de API configurado, recusa o envio autônomo com instrução clara
+      return res.status(422).json({
+        success: false,
+        notConfigured: true,
+        error: 'Nenhum Gateway de API de WhatsApp conectado no servidor. Para envio 100% automático em segundo plano, conecte um Gateway (Evolution API, Z-API ou Meta Cloud API) ou use o modo Fila Assistida (WhatsApp Web).',
       });
     } catch (err: any) {
       console.error('Erro no envio de WhatsApp pelo servidor:', err);
@@ -1405,7 +1513,44 @@ REGRA CRÍTICA E ABSOLUTA:
         data.registros = Array.from(seen.values());
       }
 
-      if (data) {
+      if (data && Array.isArray(data.registros)) {
+        const parseDateToMs = (dStr: string) => {
+          if (!dStr) return 0;
+          const str = String(dStr).trim();
+          if (str.includes('/')) {
+            const parts = str.split('/');
+            if (parts.length === 3) {
+              const [d, m, y] = parts;
+              const ano = y.length === 2 ? '20' + y : y;
+              const ms = new Date(`${ano}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T12:00:00`).getTime();
+              if (!isNaN(ms)) return ms;
+            }
+          }
+          if (str.includes('-')) {
+            const parts = str.split('T')[0].split('-');
+            if (parts.length === 3) {
+              const [y, m, d] = parts;
+              const ano = y.length === 2 ? '20' + y : y;
+              const ms = new Date(`${ano}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T12:00:00`).getTime();
+              if (!isNaN(ms)) return ms;
+            }
+          }
+          const parsed = new Date(str).getTime();
+          return isNaN(parsed) ? 0 : parsed;
+        };
+
+        data.registros.sort((a: any, b: any) => {
+          const timeA = parseDateToMs(a.data);
+          const timeB = parseDateToMs(b.data);
+          if (timeB !== timeA) return timeB - timeA;
+          const numA = Number((String(a.id || '').match(/\d+/g) || []).join('')) || 0;
+          const numB = Number((String(b.id || '').match(/\d+/g) || []).join('')) || 0;
+          if (numB !== numA) return numB - numA;
+          return (b.id || '').localeCompare(a.id || '', 'pt-BR', { numeric: true });
+        });
+
+        res.json(data);
+      } else if (data) {
         res.json(data);
       } else {
         res.status(502).json({

@@ -85,6 +85,76 @@ export interface OcorrenciasDatabase {
   geminiApiKey?: string;
 }
 
+/**
+ * Converte qualquer formato de data de ocorrência (DD/MM/YYYY, YYYY-MM-DD, ISO) para timestamp numérico
+ */
+export const parseDataOcorrenciaToTimestamp = (dStr: string): number => {
+  if (!dStr) return 0;
+  const str = String(dStr).trim();
+  // Formato brasileiro DD/MM/YYYY
+  if (str.includes('/')) {
+    const parts = str.split('/');
+    if (parts.length === 3) {
+      const [d, m, y] = parts;
+      const ano = y.length === 2 ? `20${y}` : y;
+      const ms = new Date(`${ano}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T12:00:00`).getTime();
+      if (!isNaN(ms)) return ms;
+    }
+  }
+  // Formato ISO ou YYYY-MM-DD
+  if (str.includes('-')) {
+    const parts = str.split('T')[0].split('-');
+    if (parts.length === 3) {
+      const [y, m, d] = parts;
+      const ano = y.length === 2 ? `20${y}` : y;
+      const ms = new Date(`${ano}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T12:00:00`).getTime();
+      if (!isNaN(ms)) return ms;
+    }
+  }
+  const parsed = new Date(str).getTime();
+  return isNaN(parsed) ? 0 : parsed;
+};
+
+/**
+ * Ordena ocorrências em ordem cronológica decrescente: OCORRÊNCIAS RECENTES SEMPRE EM PRIMEIRO LUGAR
+ */
+export const ordenarOcorrenciasPorMaisRecentes = (registros: OcorrenciaRecord[]): OcorrenciaRecord[] => {
+  if (!registros || !Array.isArray(registros)) return [];
+  return [...registros].sort((a, b) => {
+    const timeA = parseDataOcorrenciaToTimestamp(a.data);
+    const timeB = parseDataOcorrenciaToTimestamp(b.data);
+
+    // 1. Data mais recente primeiro (maior timestamp)
+    if (timeB !== timeA) {
+      return timeB - timeA;
+    }
+
+    // 2. Se as datas forem iguais, compara pelo número ou timestamp contido no ID
+    const extractNum = (idStr: string) => {
+      const match = String(idStr || '').match(/\d+/g);
+      return match ? Number(match.join('')) : 0;
+    };
+    const numA = extractNum(a.id);
+    const numB = extractNum(b.id);
+    if (numB !== numA) {
+      return numB - numA;
+    }
+
+    // 3. Se houver aula (ex: 7ª Aula vs 1ª Aula)
+    const extrairAula = (aulaStr: string) => {
+      const match = String(aulaStr || '').match(/\d+/);
+      return match ? Number(match[0]) : 0;
+    };
+    const aulaA = extrairAula(a.aula);
+    const aulaB = extrairAula(b.aula);
+    if (aulaB !== aulaA) {
+      return aulaB - aulaA;
+    }
+
+    return (b.id || '').localeCompare(a.id || '', 'pt-BR', { numeric: true });
+  });
+};
+
 interface OcorrenciasManagerProps {
   currentUser?: { id: string; name: string; role: string; pin?: string } | null;
   classes: SchoolClass[];
@@ -103,18 +173,21 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     tipo: '',
   });
 
-  // Base de Dados vinda do Firestore / Google Sheets + Fallback local e baseline oficial
+  // Base de Dados vinda do Firestore / Google Sheets + Fallback local e baseline oficial (com ocorrências recentes em 1º lugar)
   const [bancoDeDados, setBancoDeDados] = useState<OcorrenciasDatabase>(() => {
     try {
       const cached = localStorage.getItem('CACHE_OCORRENCIAS_APP');
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed.registros && parsed.registros.length > 0) {
-          return parsed;
+          return {
+            ...parsed,
+            registros: ordenarOcorrenciasPorMaisRecentes(parsed.registros),
+          };
         }
       }
     } catch {}
-    return (ocorrenciasBaseline as unknown as OcorrenciasDatabase) || {
+    const base = (ocorrenciasBaseline as unknown as OcorrenciasDatabase) || {
       estudantes: [],
       professores: [],
       ocorrencias: [
@@ -144,6 +217,10 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       ],
       registros: [],
       tratativasFamilia: [],
+    };
+    return {
+      ...base,
+      registros: ordenarOcorrenciasPorMaisRecentes(base.registros || []),
     };
   });
 
@@ -418,7 +495,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
           aulas: data.aulas && data.aulas.length > 0 ? data.aulas : bancoDeDados.aulas,
           auxilio:
             data.auxilio && data.auxilio.length > 0 ? data.auxilio : bancoDeDados.auxilio,
-          registros: registrosLimpos,
+          registros: ordenarOcorrenciasPorMaisRecentes(registrosLimpos),
           tratativasFamilia: data.tratativasFamilia || [],
           geminiApiKey: data.geminiApiKey || bancoDeDados.geminiApiKey || getStoredGeminiKey(),
         };
@@ -586,9 +663,9 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       });
     }
 
-    // Atualiza base local imediatamente
+    // Atualiza base local imediatamente (com registros recentes sempre no topo)
     setBancoDeDados(prev => {
-      const atualizados = [...novosRegistrosParaCache, ...prev.registros];
+      const atualizados = ordenarOcorrenciasPorMaisRecentes([...novosRegistrosParaCache, ...prev.registros]);
       const novoDb = { ...prev, registros: atualizados };
       localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(novoDb));
       return novoDb;
@@ -650,7 +727,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
     await salvarOcorrenciaSeguro(payload);
 
-    // Atualiza base local
+    // Atualiza base local com registros recentes sempre no topo
     setBancoDeDados(prev => {
       const registrosAtualizados = prev.registros.map(r =>
         r.id === modalMediacao.id
@@ -662,7 +739,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             }
           : r
       );
-      const novoDb = { ...prev, registros: registrosAtualizados };
+      const novoDb = { ...prev, registros: ordenarOcorrenciasPorMaisRecentes(registrosAtualizados) };
       localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(novoDb));
       return novoDb;
     });
@@ -811,6 +888,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
     setDossieAluno({
       ...aluno,
+      ocorrencias: ordenarOcorrenciasPorMaisRecentes(aluno.ocorrencias),
       estudanteObj: synchronizedStudent,
       historicoFrequencia: freqHistory,
     });
@@ -1863,9 +1941,11 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       a.nome.localeCompare(b.nome)
     );
     listaAlunos.forEach(alunoItem => {
+      // Ocorrências do aluno em ordem cronológica decrescente (mais recentes primeiro)
+      alunoItem.ocorrencias = ordenarOcorrenciasPorMaisRecentes(alunoItem.ocorrencias);
       alunoItem.tratativas = (bancoDeDados.tratativasFamilia || [])
-        .filter(t => t.estudante === alunoItem.nome)
-        .reverse();
+        .filter(t => t.estudante.trim().toLowerCase() === alunoItem.nome.trim().toLowerCase())
+        .sort((a, b) => parseDataOcorrenciaToTimestamp(b.data) - parseDataOcorrenciaToTimestamp(a.data));
     });
 
     const listaExibicao = busca ? listaAlunos : listaAlunos.slice(0, 15);
@@ -1936,7 +2016,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 <div className="p-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <div>
                     <h4 className="font-bold text-xs text-slate-700 border-b border-slate-200 pb-2 mb-2">
-                      Histórico de Infrações ({aluno.ocorrencias.length})
+                      Histórico de Infrações ({aluno.ocorrencias.length}) — Mais Recentes Primeiro
                     </h4>
                     {aluno.ocorrencias.length === 0 ? (
                       <p className="text-xs text-slate-400 italic">
@@ -2057,16 +2137,16 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     );
   };
 
-  // Minhas Devolutivas
+  // Minhas Devolutivas (Ocorrências mais recentes em primeiro lugar)
   const renderMinhasDevolutivas = () => {
-    const minhas = bancoDeDados.registros
-      .filter(r => r.professor.toLowerCase() === userName.toLowerCase())
-      .reverse();
+    const minhas = ordenarOcorrenciasPorMaisRecentes(
+      bancoDeDados.registros.filter(r => r.professor.toLowerCase() === userName.toLowerCase())
+    );
 
     return (
       <div className="space-y-4">
         <h2 className="text-base font-bold text-slate-900">
-          Ocorrências Lançadas por Mim ({minhas.length})
+          Ocorrências Lançadas por Mim ({minhas.length}) — Mais Recentes Primeiro
         </h2>
         {minhas.length === 0 ? (
           <div className="bg-white p-8 text-center rounded-2xl shadow-xs border border-slate-200 text-slate-500 text-xs">
@@ -2087,7 +2167,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     );
   };
 
-  // Meus Tutorados
+  // Meus Tutorados (Ocorrências mais recentes em primeiro lugar)
   const renderMeusTutorados = () => {
     const meus = bancoDeDados.estudantes
       .filter(e => e.tutor.toLowerCase() === userName.toLowerCase())
@@ -2108,9 +2188,9 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         </h2>
         <div className="grid gap-3">
           {meus.map(aluno => {
-            const ocorrenciasDoAluno = bancoDeDados.registros
-              .filter(r => r.estudante === aluno.nome)
-              .reverse();
+            const ocorrenciasDoAluno = ordenarOcorrenciasPorMaisRecentes(
+              bancoDeDados.registros.filter(r => r.estudante.trim().toLowerCase() === aluno.nome.trim().toLowerCase())
+            );
             const qtd = ocorrenciasDoAluno.length;
             const isExpandido = tutoradosExpandidos[aluno.nome];
 
@@ -2554,10 +2634,18 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     );
   };
 
-  const pendentes = bancoDeDados.registros.filter(r => r.status !== 'Resolvido').reverse();
-  const resolvidosEmSala = bancoDeDados.registros
-    .filter(r => r.status === 'Resolvido' && verificarResolvidoEmSala(r.auxilio))
-    .reverse();
+  // Listas de Ocorrências com ordenação estrita: MAIS RECENTES SEMPRE EM PRIMEIRO LUGAR
+  const pendentes = useMemo(
+    () => ordenarOcorrenciasPorMaisRecentes(bancoDeDados.registros.filter(r => r.status !== 'Resolvido')),
+    [bancoDeDados.registros]
+  );
+  const resolvidosEmSala = useMemo(
+    () =>
+      ordenarOcorrenciasPorMaisRecentes(
+        bancoDeDados.registros.filter(r => r.status === 'Resolvido' && verificarResolvidoEmSala(r.auxilio))
+      ),
+    [bancoDeDados.registros]
+  );
 
   return (
     <div className="space-y-6">
