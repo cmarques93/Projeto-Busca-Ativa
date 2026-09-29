@@ -312,9 +312,16 @@ export async function salvarOcorrenciaSeguro(payload: any, currentDb?: any): Pro
         const tratativas = [...(base.tratativasFamilia || []), payload];
         base = { ...base, tratativasFamilia: tratativas };
       } else {
-        // Nova ocorrência
+        // Nova ocorrência com carimbo de auditoria de preenchimento
+        const agora = new Date();
+        const diaFmt = String(agora.getDate()).padStart(2, '0') + '/' + String(agora.getMonth() + 1).padStart(2, '0') + '/' + agora.getFullYear();
+        const horaFmt = String(agora.getHours()).padStart(2, '0') + ':' + String(agora.getMinutes()).padStart(2, '0');
+        const horarioRegistroStr = payload.horarioRegistro || payload.dataPreenchimento || `${diaFmt} às ${horaFmt}`;
+        const criadoEmStr = payload.criadoEm || agora.toISOString();
+        const tsPreenchimento = payload.timestampPreenchimento || agora.getTime();
+
         const novaOcorr = {
-          id: '#OC-' + Math.floor(100000 + Math.random() * 900000),
+          id: payload.id || '#OC-' + Math.floor(100000 + Math.random() * 900000),
           data: payload.data,
           aula: payload.aula,
           turma: payload.turma,
@@ -328,6 +335,10 @@ export async function salvarOcorrenciaSeguro(payload: any, currentDb?: any): Pro
           status: 'Pendente',
           mediacao: '',
           mediador: '',
+          criadoEm: criadoEmStr,
+          horarioRegistro: horarioRegistroStr,
+          dataPreenchimento: horarioRegistroStr,
+          timestampPreenchimento: tsPreenchimento,
         };
         const registros = [novaOcorr, ...(base.registros || [])];
         base = { ...base, registros };

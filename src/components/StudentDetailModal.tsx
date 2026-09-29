@@ -24,7 +24,7 @@ import { Student, AttendanceRecord, ParentAlert, InterventionCase } from '../typ
 import { storageService } from '../data/storageService';
 import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
 import { carregarOcorrenciasSeguro } from '../lib/sheetsSyncService';
-import { ordenarOcorrenciasPorMaisRecentes, parseDataOcorrenciaToTimestamp } from './OcorrenciasManager';
+import { ordenarOcorrenciasPorMaisRecentes, parseDataOcorrenciaToTimestamp, obterInfoPreenchimento } from './OcorrenciasManager';
 
 interface OcorrenciaItem {
   id: string;
@@ -655,6 +655,29 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                               <strong>📋 Parecer / Ação da Gestão:</strong> {oc.mediacao}
                             </div>
                           )}
+
+                          {/* Auditoria de Preenchimento (Exclusivo Gestão/Admin) */}
+                          {isGestaoOrAdmin && (() => {
+                            const info = obterInfoPreenchimento(oc as any);
+                            return (
+                              <div className="p-2 bg-slate-100/90 rounded-lg border border-slate-200 text-[11px] flex items-center justify-between gap-1.5 flex-wrap">
+                                <span className="text-slate-700 font-medium">
+                                  🕒 <strong>Preenchido pelo Docente:</strong> {info.dataHoraFormatada}
+                                </span>
+                                <span className={`font-bold px-1.5 py-0.5 rounded text-[10px] ${
+                                  info.tempoDecorridoOuTipo === 'no_ato'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : info.tempoDecorridoOuTipo === 'posterior'
+                                    ? (info.diasDiferenca && info.diasDiferenca > 1)
+                                      ? 'bg-rose-100 text-rose-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                    : 'bg-slate-200 text-slate-800'
+                                }`}>
+                                  {info.tagBadge}
+                                </span>
+                              </div>
+                            );
+                          })()}
 
                           {/* Envio via WhatsApp (Apenas Gestão/Admin) */}
                           {isGestaoOrAdmin && primaryPhone && (

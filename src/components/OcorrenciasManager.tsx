@@ -62,6 +62,19 @@ export interface OcorrenciaRecord {
   mediacao?: string;
   mediador?: string;
   status: string;
+  // Campos de auditoria de preenchimento (exclusivo para monitoramento da gestão)
+  criadoEm?: string;
+  horarioRegistro?: string;
+  dataPreenchimento?: string;
+  timestampPreenchimento?: number;
+}
+
+export interface PreenchimentoInfo {
+  dataHoraFormatada: string;
+  tempoDecorridoOuTipo: 'no_ato' | 'mesmo_dia' | 'posterior' | 'estimado';
+  diasDiferenca?: number;
+  tagBadge: string;
+  isEstimado: boolean;
 }
 
 export interface TratativaFamilia {
@@ -113,6 +126,130 @@ export const parseDataOcorrenciaToTimestamp = (dStr: string): number => {
   }
   const parsed = new Date(str).getTime();
   return isNaN(parsed) ? 0 : parsed;
+};
+
+/**
+ * Helper que extrai o carimbo real/legado de quando o professor preencheu a ocorrência
+ * Usado exclusivamente pelo perfil de GESTÃO para monitorar pontualidade (preenchimento no ato vs posterior)
+ */
+export const obterInfoPreenchimento = (reg: OcorrenciaRecord): PreenchimentoInfo => {
+  let timeReg: number | null = null;
+  let textoExibicao: string = '';
+  let isEstimado = false;
+
+  if (reg.timestampPreenchimento && !isNaN(Number(reg.timestampPreenchimento))) {
+    timeReg = Number(reg.timestampPreenchimento);
+  } else if (reg.criadoEm) {
+    const parsed = new Date(reg.criadoEm).getTime();
+    if (!isNaN(parsed)) timeReg = parsed;
+  } else if (reg.dataPreenchimento) {
+    const parsed = new Date(reg.dataPreenchimento).getTime();
+    if (!isNaN(parsed)) timeReg = parsed;
+  }
+
+  if (!timeReg && reg.horarioRegistro) {
+    textoExibicao = reg.horarioRegistro;
+    const match = reg.horarioRegistro.match(/(\d{2})\/(\d{2})\/(\d{4})\s+às\s+(\d{2}):(\d{2})/);
+    if (match) {
+      const [_, d, m, y, h, min] = match;
+      const ts = new Date(`${y}-${m}-${d}T${h}:${min}:00`).getTime();
+      if (!isNaN(ts)) timeReg = ts;
+    }
+  }
+
+  // Se o ID contiver timestamp como REG-1727...
+  if (!timeReg && reg.id && reg.id.startsWith('REG-')) {
+    const match = reg.id.match(/^REG-(\d+)-/);
+    if (match && match[1]) {
+      const ts = Number(match[1]);
+      if (ts > 1600000000000) {
+        timeReg = ts;
+      }
+    }
+  }
+
+  if (!textoExibicao && timeReg) {
+    const d = new Date(timeReg);
+    const dia = String(d.getDate()).padStart(2, '0');
+    const mes = String(d.getMonth() + 1).padStart(2, '0');
+    const ano = d.getFullYear();
+    const hora = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    textoExibicao = `${dia}/${mes}/${ano} às ${hora}:${min}`;
+  }
+
+  // Para registros legados já existentes sem carimbo explícito:
+  if (!textoExibicao) {
+    isEstimado = true;
+    if (reg.mediacao) {
+      const matchMed = reg.mediacao.match(/\[(\d{2}\/\d{2}\/\d{4})\s+às\s+(\d{2}:\d{2})/);
+      if (matchMed) {
+        textoExibicao = `${matchMed[1]} às ${matchMed[2]}`;
+        const parts = matchMed[1].split('/');
+        const ts = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T${matchMed[2]}:00`).getTime();
+        if (!isNaN(ts)) timeReg = ts;
+      }
+    }
+    if (!textoExibicao && reg.data) {
+      const aulaNum = reg.aula?.match(/\d+/)?.[0];
+      const horariosAulas: Record<string, string> = {
+        '1': '07:45',
+        '2': '08:35',
+        '3': '09:25',
+        '4': '10:35',
+        '5': '11:25',
+        '6': '12:15',
+        '7': '13:30',
+        '8': '14:20',
+        '9': '15:10',
+      };
+      const horaEstimada = (aulaNum && horariosAulas[aulaNum]) ? horariosAulas[aulaNum] : '08:00';
+      const dFmt = reg.data.includes('-') ? reg.data.split('-').reverse().join('/') : reg.data;
+      textoExibicao = `${dFmt} às ~${horaEstimada}`;
+    }
+  }
+
+  if (!textoExibicao) {
+    textoExibicao = 'Data/Hora não registrada no legado';
+  }
+
+  // Análise de pontualidade / no ato vs atraso
+  const dataFatoTs = parseDataOcorrenciaToTimestamp(reg.data);
+  let tagBadge = 'Preenchido no ato';
+  let tipo: PreenchimentoInfo['tempoDecorridoOuTipo'] = 'no_ato';
+  let diasDiferenca = 0;
+
+  if (timeReg && dataFatoTs) {
+    const dFato = new Date(dataFatoTs);
+    dFato.setHours(0, 0, 0, 0);
+    const dReg = new Date(timeReg);
+    dReg.setHours(0, 0, 0, 0);
+
+    const diffDias = Math.round((dReg.getTime() - dFato.getTime()) / (1000 * 60 * 60 * 24));
+    diasDiferenca = diffDias;
+
+    if (diffDias <= 0) {
+      tipo = 'no_ato';
+      tagBadge = '🟢 Preenchido no ato (No mesmo dia)';
+    } else if (diffDias === 1) {
+      tipo = 'posterior';
+      tagBadge = '🟡 Preenchido 1 dia após o fato';
+    } else {
+      tipo = 'posterior';
+      tagBadge = `🔴 Preenchido ${diffDias} dias após o fato`;
+    }
+  } else if (isEstimado) {
+    tipo = 'estimado';
+    tagBadge = 'ℹ️ Registrado na data do fato';
+  }
+
+  return {
+    dataHoraFormatada: textoExibicao,
+    tempoDecorridoOuTipo: tipo,
+    diasDiferenca,
+    tagBadge,
+    isEstimado,
+  };
 };
 
 /**
@@ -630,6 +767,13 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     let sucessoCount = 0;
     let erroCount = 0;
 
+    const agora = new Date();
+    const diaFmt = String(agora.getDate()).padStart(2, '0') + '/' + String(agora.getMonth() + 1).padStart(2, '0') + '/' + agora.getFullYear();
+    const horaFmt = String(agora.getHours()).padStart(2, '0') + ':' + String(agora.getMinutes()).padStart(2, '0');
+    const horarioStr = `${diaFmt} às ${horaFmt}`;
+    const isoAgora = agora.toISOString();
+    const tsAgora = agora.getTime();
+
     const novosRegistrosParaCache: OcorrenciaRecord[] = [];
 
     for (const est of form.estudantes) {
@@ -637,6 +781,10 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         ...form,
         estudante: est.nome,
         tutor: est.tutor,
+        criadoEm: isoAgora,
+        horarioRegistro: horarioStr,
+        dataPreenchimento: horarioStr,
+        timestampPreenchimento: tsAgora,
       };
 
       const salvo = await salvarOcorrenciaSeguro(payload);
@@ -648,7 +796,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
       // Adiciona localmente para garantir persistência mesmo em offline
       novosRegistrosParaCache.push({
-        id: `REG-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        id: `REG-${tsAgora}-${Math.floor(Math.random() * 1000)}`,
         data: form.data,
         aula: form.aula,
         turma: form.turma,
@@ -660,6 +808,10 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         auxilio: form.auxilio,
         descricao: form.descricao,
         status: verificarResolvidoEmSala(form.auxilio) ? 'Resolvido' : 'Pendente',
+        criadoEm: isoAgora,
+        horarioRegistro: horarioStr,
+        dataPreenchimento: horarioStr,
+        timestampPreenchimento: tsAgora,
       });
     }
 
@@ -1295,6 +1447,39 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             </div>
           )
         )}
+
+        {/* Auditoria de Data e Horário de Preenchimento pelo Professor (VISÍVEL SOMENTE PARA A GESTÃO) */}
+        {isGestao && (() => {
+          const info = obterInfoPreenchimento(reg);
+          return (
+            <div className="mt-3 p-2.5 bg-slate-50 rounded-xl border border-slate-200/90 text-xs flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="flex items-center gap-1.5 font-semibold text-slate-700">
+                  <Clock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span className="text-slate-500 font-medium">Preenchido pelo professor em:</span>
+                  <strong className="text-slate-900 font-mono">{info.dataHoraFormatada}</strong>
+                </span>
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                    info.tempoDecorridoOuTipo === 'no_ato'
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      : info.tempoDecorridoOuTipo === 'posterior'
+                      ? (info.diasDiferenca && info.diasDiferenca > 1)
+                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                        : 'bg-amber-100 text-amber-800 border border-amber-200'
+                      : 'bg-slate-100 text-slate-700 border border-slate-200'
+                  }`}
+                >
+                  {info.tagBadge}
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                <Shield className="w-3 h-3 text-indigo-500" />
+                <span>Auditoria de Gestão</span>
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 shrink-0">
@@ -2056,6 +2241,29 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                                 <p className="text-indigo-950 whitespace-pre-line">{o.mediacao}</p>
                               </div>
                             )}
+
+                            {/* Auditoria de Preenchimento (SOMENTE PARA A GESTÃO) */}
+                            {isGestao && (() => {
+                              const info = obterInfoPreenchimento(o);
+                              return (
+                                <div className="mt-1.5 p-1.5 bg-white rounded-lg border border-slate-200 text-[10px] flex items-center justify-between gap-1 flex-wrap">
+                                  <span className="text-slate-600 font-medium">
+                                    🕒 Preenchido pelo prof: <strong className="text-slate-900 font-mono">{info.dataHoraFormatada}</strong>
+                                  </span>
+                                  <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${
+                                    info.tempoDecorridoOuTipo === 'no_ato'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : info.tempoDecorridoOuTipo === 'posterior'
+                                      ? (info.diasDiferenca && info.diasDiferenca > 1)
+                                        ? 'bg-rose-100 text-rose-800'
+                                        : 'bg-amber-100 text-amber-800'
+                                      : 'bg-slate-100 text-slate-700'
+                                  }`}>
+                                    {info.tagBadge}
+                                  </span>
+                                </div>
+                              );
+                            })()}
 
                             {(isGestao || isAdmin) && (
                               <div className="mt-2 pt-1.5 border-t border-slate-200 flex justify-end items-center gap-2 flex-wrap">
@@ -3344,6 +3552,19 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                                 <strong>Parecer Gestão:</strong> {o.mediacao}
                               </div>
                             )}
+                            {isGestao && (() => {
+                              const info = obterInfoPreenchimento(o);
+                              return (
+                                <div className="mt-1 p-1 bg-slate-100 rounded border border-slate-200 text-[10px] text-slate-700 flex items-center justify-between gap-1">
+                                  <span>
+                                    <strong>🕒 Preenchimento pelo Prof:</strong> {info.dataHoraFormatada}
+                                  </span>
+                                  <span className="font-semibold text-indigo-800 bg-white px-1.5 py-0.2 rounded border border-slate-200">
+                                    {info.tagBadge}
+                                  </span>
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td className="border border-slate-300 p-2 align-top text-center font-bold text-[11px]">
                             {o.status}

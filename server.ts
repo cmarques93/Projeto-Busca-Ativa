@@ -1605,6 +1605,13 @@ REGRA CRÍTICA E ABSOLUTA:
               registradoPor: body.registradoPor,
             });
           } else {
+            const agora = new Date();
+            const diaFmt = String(agora.getDate()).padStart(2, '0') + '/' + String(agora.getMonth() + 1).padStart(2, '0') + '/' + agora.getFullYear();
+            const horaFmt = String(agora.getHours()).padStart(2, '0') + ':' + String(agora.getMinutes()).padStart(2, '0');
+            const horarioRegistroStr = body.horarioRegistro || body.dataPreenchimento || `${diaFmt} às ${horaFmt}`;
+            const criadoEmStr = body.criadoEm || agora.toISOString();
+            const tsPreenchimento = body.timestampPreenchimento || agora.getTime();
+
             // Novo registro de ocorrência
             const novoReg = {
               id: body.id || `#OC-${Math.floor(100000 + Math.random() * 900000)}`,
@@ -1621,6 +1628,10 @@ REGRA CRÍTICA E ABSOLUTA:
               status: body.status || 'Pendente',
               mediacao: body.mediacao || '',
               mediador: body.mediador || '',
+              criadoEm: criadoEmStr,
+              horarioRegistro: horarioRegistroStr,
+              dataPreenchimento: horarioRegistroStr,
+              timestampPreenchimento: tsPreenchimento,
             };
 
             // Evita duplicatas ao salvar
