@@ -129,126 +129,81 @@ export const parseDataOcorrenciaToTimestamp = (dStr: string): number => {
 };
 
 /**
- * Helper que extrai o carimbo real/legado de quando o professor preencheu a ocorrência
+ * Helper que extrai o carimbo real de quando o professor preencheu a ocorrência
  * Usado exclusivamente pelo perfil de GESTÃO para monitorar pontualidade (preenchimento no ato vs posterior)
+ * Registros legados/anteriores sem horário são exibidos fielmente como "Horário não registrado no sistema anterior"
  */
 export const obterInfoPreenchimento = (reg: OcorrenciaRecord): PreenchimentoInfo => {
   let timeReg: number | null = null;
-  let textoExibicao: string = '';
-  let isEstimado = false;
+  let horarioRealTexto: string | null = null;
 
+  // 1. Verifica se há um timestamp real registrado no ato do envio pelo professor
   if (reg.timestampPreenchimento && !isNaN(Number(reg.timestampPreenchimento))) {
     timeReg = Number(reg.timestampPreenchimento);
-  } else if (reg.criadoEm) {
-    const parsed = new Date(reg.criadoEm).getTime();
-    if (!isNaN(parsed)) timeReg = parsed;
-  } else if (reg.dataPreenchimento) {
-    const parsed = new Date(reg.dataPreenchimento).getTime();
-    if (!isNaN(parsed)) timeReg = parsed;
-  }
-
-  if (!timeReg && reg.horarioRegistro) {
-    textoExibicao = reg.horarioRegistro;
-    const match = reg.horarioRegistro.match(/(\d{2})\/(\d{2})\/(\d{4})\s+às\s+(\d{2}):(\d{2})/);
-    if (match) {
-      const [_, d, m, y, h, min] = match;
-      const ts = new Date(`${y}-${m}-${d}T${h}:${min}:00`).getTime();
-      if (!isNaN(ts)) timeReg = ts;
-    }
-  }
-
-  // Se o ID contiver timestamp como REG-1727...
-  if (!timeReg && reg.id && reg.id.startsWith('REG-')) {
-    const match = reg.id.match(/^REG-(\d+)-/);
+  } else if (reg.id && reg.id.startsWith('REG-')) {
+    const match = reg.id.match(/^REG-(\d{12,})-/);
     if (match && match[1]) {
       const ts = Number(match[1]);
-      if (ts > 1600000000000) {
+      if (ts > 1600000000000 && ts < 2500000000000) {
         timeReg = ts;
       }
     }
   }
 
-  if (!textoExibicao && timeReg) {
+  // Se houver timestamp autêntico do momento da submissão:
+  if (timeReg) {
     const d = new Date(timeReg);
     const dia = String(d.getDate()).padStart(2, '0');
     const mes = String(d.getMonth() + 1).padStart(2, '0');
     const ano = d.getFullYear();
     const hora = String(d.getHours()).padStart(2, '0');
     const min = String(d.getMinutes()).padStart(2, '0');
-    textoExibicao = `${dia}/${mes}/${ano} às ${hora}:${min}`;
-  }
+    horarioRealTexto = `${dia}/${mes}/${ano} às ${hora}:${min}`;
 
-  // Para registros legados já existentes sem carimbo explícito:
-  if (!textoExibicao) {
-    isEstimado = true;
-    if (reg.mediacao) {
-      const matchMed = reg.mediacao.match(/\[(\d{2}\/\d{2}\/\d{4})\s+às\s+(\d{2}:\d{2})/);
-      if (matchMed) {
-        textoExibicao = `${matchMed[1]} às ${matchMed[2]}`;
-        const parts = matchMed[1].split('/');
-        const ts = new Date(`${parts[2]}-${parts[1]}-${parts[0]}T${matchMed[2]}:00`).getTime();
-        if (!isNaN(ts)) timeReg = ts;
+    const dataFatoTs = parseDataOcorrenciaToTimestamp(reg.data);
+    let tagBadge = '🟢 Preenchido no ato (Mesmo dia)';
+    let tipo: PreenchimentoInfo['tempoDecorridoOuTipo'] = 'no_ato';
+    let diasDiferenca = 0;
+
+    if (dataFatoTs) {
+      const dFato = new Date(dataFatoTs);
+      dFato.setHours(0, 0, 0, 0);
+      const dReg = new Date(timeReg);
+      dReg.setHours(0, 0, 0, 0);
+
+      const diffDias = Math.round((dReg.getTime() - dFato.getTime()) / (1000 * 60 * 60 * 24));
+      diasDiferenca = diffDias;
+
+      if (diffDias <= 0) {
+        tipo = 'no_ato';
+        tagBadge = '🟢 Preenchido no ato (Mesmo dia)';
+      } else if (diffDias === 1) {
+        tipo = 'posterior';
+        tagBadge = '🟡 Preenchido 1 dia após a aula';
+      } else {
+        tipo = 'posterior';
+        tagBadge = `🔴 Preenchido ${diffDias} dias após a aula`;
       }
     }
-    if (!textoExibicao && reg.data) {
-      const aulaNum = reg.aula?.match(/\d+/)?.[0];
-      const horariosAulas: Record<string, string> = {
-        '1': '07:45',
-        '2': '08:35',
-        '3': '09:25',
-        '4': '10:35',
-        '5': '11:25',
-        '6': '12:15',
-        '7': '13:30',
-        '8': '14:20',
-        '9': '15:10',
-      };
-      const horaEstimada = (aulaNum && horariosAulas[aulaNum]) ? horariosAulas[aulaNum] : '08:00';
-      const dFmt = reg.data.includes('-') ? reg.data.split('-').reverse().join('/') : reg.data;
-      textoExibicao = `${dFmt} às ~${horaEstimada}`;
-    }
+
+    return {
+      dataHoraFormatada: horarioRealTexto,
+      tempoDecorridoOuTipo: tipo,
+      diasDiferenca,
+      tagBadge,
+      isEstimado: false,
+    };
   }
 
-  if (!textoExibicao) {
-    textoExibicao = 'Data/Hora não registrada no legado';
-  }
-
-  // Análise de pontualidade / no ato vs atraso
-  const dataFatoTs = parseDataOcorrenciaToTimestamp(reg.data);
-  let tagBadge = 'Preenchido no ato';
-  let tipo: PreenchimentoInfo['tempoDecorridoOuTipo'] = 'no_ato';
-  let diasDiferenca = 0;
-
-  if (timeReg && dataFatoTs) {
-    const dFato = new Date(dataFatoTs);
-    dFato.setHours(0, 0, 0, 0);
-    const dReg = new Date(timeReg);
-    dReg.setHours(0, 0, 0, 0);
-
-    const diffDias = Math.round((dReg.getTime() - dFato.getTime()) / (1000 * 60 * 60 * 24));
-    diasDiferenca = diffDias;
-
-    if (diffDias <= 0) {
-      tipo = 'no_ato';
-      tagBadge = '🟢 Preenchido no ato (No mesmo dia)';
-    } else if (diffDias === 1) {
-      tipo = 'posterior';
-      tagBadge = '🟡 Preenchido 1 dia após o fato';
-    } else {
-      tipo = 'posterior';
-      tagBadge = `🔴 Preenchido ${diffDias} dias após o fato`;
-    }
-  } else if (isEstimado) {
-    tipo = 'estimado';
-    tagBadge = 'ℹ️ Registrado na data do fato';
-  }
-
+  // 2. Registro Legado (preenchido antes da criação deste recurso):
+  // NÃO inventa nem calcula horários aproximados.
+  const dataFmt = reg.data ? (reg.data.includes('-') ? reg.data.split('T')[0].split('-').reverse().join('/') : reg.data) : 'Data não informada';
   return {
-    dataHoraFormatada: textoExibicao,
-    tempoDecorridoOuTipo: tipo,
-    diasDiferenca,
-    tagBadge,
-    isEstimado,
+    dataHoraFormatada: `${dataFmt} (Horário não registrado no sistema anterior)`,
+    tempoDecorridoOuTipo: 'estimado',
+    diasDiferenca: 0,
+    tagBadge: '📄 Registro Anterior (Sem carimbo de hora)',
+    isEstimado: true,
   };
 };
 
