@@ -208,10 +208,10 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Teacher Restrictive Access Notice */}
-      <div className="bg-emerald-50/90 border border-emerald-300 rounded-xl p-4 shadow-xs">
+      <div className="bg-emerald-50/90 border border-emerald-300 rounded-2xl p-4 shadow-xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
@@ -223,11 +223,11 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
                   Acesso Restrito
                 </span>
               </div>
-              <h2 className="text-lg font-bold text-slate-900 mt-0.5">
+              <h2 className="text-base font-bold text-slate-900 mt-0.5">
                 Justificativas de Ausência Registradas pela Gestão
               </h2>
               <p className="text-xs text-slate-600">
-                Olá, <strong>{teacherName}</strong>. Conforme as diretrizes pedagógicas, você tem acesso às informações de <strong>justificativa de ausência</strong> e ao <strong>dia registrado pela Gestão</strong> para planejamento de aulas, reposições e suporte pedagógico.
+                Olá, <strong>{teacherName}</strong>. Consulte as faltas justificadas e atestados médicos protocolados pela Gestão para planejar reposições e suporte pedagógico.
               </p>
             </div>
           </div>

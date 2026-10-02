@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { migrateToFirebase } from './data/migration';
-import { Header, MainTabType } from './components/Header';
+import { Header, MainTabType, MainModuleType } from './components/Header';
 import { RealTimeAttendance } from './components/RealTimeAttendance';
 import { AlertsManager } from './components/AlertsManager';
 import { InterventionsManager } from './components/InterventionsManager';
@@ -22,7 +22,24 @@ import { LoginScreen } from './components/LoginScreen';
 import { OcorrenciasManager } from './components/OcorrenciasManager';
 import { TabletsManager } from './components/TabletsManager';
 import { FirebaseStatusModal } from './components/FirebaseStatusModal';
-import { RotateCcw, ShieldCheck, Trash2, AlertTriangle, CheckCircle2, Database, X, Info, Sparkles } from 'lucide-react';
+import {
+  RotateCcw,
+  ShieldCheck,
+  Trash2,
+  AlertTriangle,
+  CheckCircle2,
+  Database,
+  X,
+  Info,
+  Sparkles,
+  UserCheck,
+  DoorOpen,
+  FileText,
+  Users,
+  AlertOctagon,
+  Smartphone,
+  ShieldAlert
+} from 'lucide-react';
 import { storageService } from './data/storageService';
 import { firestoreService } from './lib/firestoreService';
 import { salvarCacheOcorrencias, salvarCacheTablets } from './lib/sheetsSyncService';
@@ -43,6 +60,11 @@ import {
 export default function App() {
   // Current logged in user session (Inicia nulo para exibir a tela de Login como página inicial)
   const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
+
+  // Módulos Consolidados de Navegação
+  const [activeModule, setActiveModule] = useState<MainModuleType>('diario');
+  const [subTabDiario, setSubTabDiario] = useState<'chamada' | 'portaria' | 'ausencias' | 'turmas'>('chamada');
+  const [subTabBuscaAtiva, setSubTabBuscaAtiva] = useState<'ocorrencias' | 'alertas' | 'casos'>('ocorrencias');
 
   const [activeTab, setActiveTab] = useState<MainTabType>('attendance');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -406,19 +428,23 @@ export default function App() {
     // Carrega dados diretamente do Firebase no exato momento que o usuário loga
     loadAllFromFirebaseDirectly(true);
 
-    // Automatically route to the appropriate tab based on profile
+    // Automatically route to the appropriate module & subTab based on profile
     if (session.role === 'admin') {
-      setActiveTab('access_management');
+      setActiveModule('diario');
+      setSubTabDiario('chamada');
+      setActiveTab('attendance');
     } else if (session.role === 'professor') {
+      setActiveModule('diario');
+      setSubTabDiario('ausencias');
       setActiveTab('teacher_absence');
     } else if (session.role === 'aoe') {
-      if (activeTab !== 'attendance' && activeTab !== 'gate') {
-        setActiveTab('attendance');
-      }
+      setActiveModule('diario');
+      setSubTabDiario('chamada');
+      setActiveTab('attendance');
     } else {
-      if (activeTab === 'teacher_absence' || activeTab === 'access_management') {
-        setActiveTab('attendance');
-      }
+      setActiveModule('diario');
+      setSubTabDiario('chamada');
+      setActiveTab('attendance');
     }
   };
 
@@ -877,7 +903,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
-      {/* Top Application Header with Role Switcher & Contingency Button */}
+      {/* Top Application Header with Role Switcher & Consolidated Modules */}
       <Header
         schoolName={schoolInfo.schoolName}
         totalStudents={schoolInfo.totalStudents || students.length}
@@ -887,6 +913,8 @@ export default function App() {
         averageAttendance={avgAttendanceOverall}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        activeModule={activeModule}
+        setActiveModule={setActiveModule}
         currentUser={currentUser}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
         onLogout={handleLogout}
@@ -955,8 +983,270 @@ export default function App() {
             <span>Conectando diretamente à base de dados centralizada do Firebase e sincronizando dados da escola...</span>
           </div>
         )}
-        {/* Administrador Master only: Gerenciador Central de Todos os Sistemas (Busca Ativa, Ocorrências, Tablets, Usuários) */}
-        {(activeTab === 'system_manager' || activeTab === 'access_management') && currentUser.role === 'admin' && (
+
+        {/* ========================================================================= */}
+        {/* MÓDULO 1: DIÁRIO & PORTARIA                                              */}
+        {/* ========================================================================= */}
+        {activeModule === 'diario' && (
+          <div className="space-y-5">
+            {/* Sub-barra contextual do Diário */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-1.5 shadow-2xs flex overflow-x-auto no-scrollbar gap-1">
+              {currentUser.role !== 'professor' && (
+                <button
+                  type="button"
+                  onClick={() => setSubTabDiario('chamada')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    subTabDiario === 'chamada'
+                      ? 'bg-indigo-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <UserCheck className="w-4 h-4" />
+                  <span>📝 Lançamento de Frequência</span>
+                </button>
+              )}
+
+              {currentUser.role !== 'professor' && (
+                <button
+                  type="button"
+                  onClick={() => setSubTabDiario('portaria')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    subTabDiario === 'portaria'
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <DoorOpen className="w-4 h-4 text-blue-500" />
+                  <span>🚪 Portaria (Entradas & Saídas)</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setSubTabDiario('ausencias')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                  subTabDiario === 'ausencias'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <FileText className="w-4 h-4 text-emerald-500" />
+                <span>📋 Consulta de Ausências & Atestados</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSubTabDiario('turmas')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                  subTabDiario === 'turmas'
+                    ? 'bg-indigo-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Users className="w-4 h-4 text-indigo-500" />
+                <span>🏫 Turmas & Estudantes</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  subTabDiario === 'turmas' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                }`}>
+                  {students.length}
+                </span>
+              </button>
+            </div>
+
+            {/* Conteúdo da Sub-Aba do Diário */}
+            {subTabDiario === 'chamada' && currentUser.role !== 'professor' && (
+              <RealTimeAttendance
+                classes={classes}
+                selectedClassId={selectedClassId}
+                onSelectClass={handleSelectClass}
+                students={students}
+                currentUser={currentUser}
+                onSaveAttendance={handleSaveAttendance}
+                onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
+                onManualAlert={handleOpenAlertForStudent}
+                onGoToAlerts={() => {
+                  setActiveModule('busca_ativa');
+                  setSubTabBuscaAtiva('alertas');
+                }}
+              />
+            )}
+
+            {subTabDiario === 'portaria' && currentUser.role !== 'professor' && (
+              <GatePassManager
+                students={students}
+                classes={classes}
+                operatorName={currentUser.name}
+              />
+            )}
+
+            {subTabDiario === 'ausencias' && (
+              <TeacherAbsenceView
+                classes={classes}
+                students={visibleStudents}
+                teacherName={currentUser.name}
+              />
+            )}
+
+            {subTabDiario === 'turmas' && (
+              <ClassesManager
+                classes={classes}
+                students={visibleStudents}
+                currentUser={currentUser}
+                onRefresh={fetchData}
+                onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
+                onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
+                onOpenResetAllModal={() => {
+                  setWipeConfirmText('');
+                  setIsWipeAllConfirmOpen(true);
+                }}
+              />
+            )}
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* MÓDULO 2: BUSCA ATIVA & OCORRÊNCIAS                                      */}
+        {/* ========================================================================= */}
+        {activeModule === 'busca_ativa' && (
+          <div className="space-y-5">
+            {/* Sub-barra contextual de Busca Ativa & Ocorrências */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-1.5 shadow-2xs flex overflow-x-auto no-scrollbar gap-1">
+              <button
+                type="button"
+                onClick={() => setSubTabBuscaAtiva('ocorrencias')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                  subTabBuscaAtiva === 'ocorrencias'
+                    ? 'bg-amber-600 text-white shadow-2xs'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <AlertOctagon className="w-4 h-4 text-amber-500" />
+                <span>🚨 Ocorrências & Mediação Disciplinar</span>
+              </button>
+
+              {(currentUser.role === 'admin' || currentUser.role === 'gestao_paac') && (
+                <button
+                  type="button"
+                  onClick={() => setSubTabBuscaAtiva('alertas')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    subTabBuscaAtiva === 'alertas'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <Smartphone className="w-4 h-4 text-emerald-500" />
+                  <span>📱 Ausências do Dia & WhatsApp</span>
+                  {alerts.length > 0 && (
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      subTabBuscaAtiva === 'alertas' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+                    }`}>
+                      {alerts.length}
+                    </span>
+                  )}
+                </button>
+              )}
+
+              {(currentUser.role === 'admin' || currentUser.role === 'gestao_paac') && (
+                <button
+                  type="button"
+                  onClick={() => setSubTabBuscaAtiva('casos')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    subTabBuscaAtiva === 'casos'
+                      ? 'bg-rose-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <ShieldAlert className="w-4 h-4 text-rose-500" />
+                  <span>🛡️ Casos de Busca Ativa & IA</span>
+                  {interventions.filter(i => i.stage !== 'reintegrado' && i.stage !== 'encerrado').length > 0 && (
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                      subTabBuscaAtiva === 'casos' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800'
+                    }`}>
+                      {interventions.filter(i => i.stage !== 'reintegrado' && i.stage !== 'encerrado').length}
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* Conteúdo da Sub-Aba de Busca Ativa */}
+            {subTabBuscaAtiva === 'ocorrencias' && (
+              <OcorrenciasManager
+                currentUser={currentUser}
+                classes={classes}
+                students={visibleStudents}
+              />
+            )}
+
+            {subTabBuscaAtiva === 'alertas' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin') && (
+              <AlertsManager
+                alerts={alerts}
+                onUpdateAlertStatus={handleUpdateAlertStatus}
+                onOpenNewAlertModal={() => {
+                  setPreSelectedStudentForAlert(null);
+                  setIsNewAlertModalOpen(true);
+                }}
+                onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
+                students={students}
+                classes={classes}
+                currentUser={currentUser}
+                onSendAlertDirect={async (alertData) => {
+                  await handleSendManualAlert(alertData);
+                }}
+                onRefresh={fetchData}
+              />
+            )}
+
+            {subTabBuscaAtiva === 'casos' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin') && (
+              <InterventionsManager
+                cases={interventions}
+                students={students}
+                currentUser={currentUser}
+                onAddAction={handleAddInterventionAction}
+                onCreateCase={handleCreateCase}
+                onAutoGenerateCasesFromRiskStudents={handleAutoGenerateCasesFromRiskStudents}
+                onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
+                onGenerateAIPlan={handleGenerateAIPlan}
+                isGeneratingAI={isGeneratingAI}
+                aiPlanResult={aiPlanResult}
+                aiQuotaStatus={aiQuotaStatus}
+                onRefresh={fetchData}
+                onDeleteAllOpenCases={handleDeleteAllOpenCases}
+              />
+            )}
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* MÓDULO 3: AGENDAMENTO DE TABLETS                                         */}
+        {/* ========================================================================= */}
+        {activeModule === 'tablets' && (
+          <TabletsManager
+            currentUser={currentUser}
+            classes={classes}
+          />
+        )}
+
+        {/* ========================================================================= */}
+        {/* MÓDULO 4: RELATÓRIOS & ESTRATÉGICO                                       */}
+        {/* ========================================================================= */}
+        {activeModule === 'relatorios' && (
+          <MonthlyReport
+            report={monthlyReport}
+            classes={classes}
+            students={students}
+            alerts={alerts}
+            interventions={interventions}
+            onSelectMonth={monthIndex => setSelectedMonthIndex(monthIndex)}
+            selectedMonthIndex={selectedMonthIndex}
+            onRefreshData={fetchData}
+          />
+        )}
+
+        {/* ========================================================================= */}
+        {/* MÓDULO 5: GERENCIADOR DO SISTEMA (ADMINISTRADOR MASTER)                  */}
+        {/* ========================================================================= */}
+        {activeModule === 'system_manager' && currentUser.role === 'admin' && (
           <SystemConfigManager
             currentUser={currentUser}
             classes={classes}
@@ -970,125 +1260,6 @@ export default function App() {
               setIsWipeAllConfirmOpen(true);
             }}
             onOpenFirebaseStatus={() => setIsFirebaseStatusModalOpen(true)}
-          />
-        )}
-
-        {/* Gestão de Turmas & Estudantes: Visível para todos os perfis, com funções e sugestões adaptadas */}
-        {activeTab === 'classes' && (
-          <ClassesManager
-            classes={classes}
-            students={visibleStudents}
-            currentUser={currentUser}
-            onRefresh={fetchData}
-            onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
-            onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
-            onOpenResetAllModal={() => {
-              setWipeConfirmText('');
-              setIsWipeAllConfirmOpen(true);
-            }}
-          />
-        )}
-
-        {/* Professor View: Restricted strictly to absence reasons and medical certificates */}
-        {activeTab === 'teacher_absence' && (
-          <TeacherAbsenceView
-            classes={classes}
-            students={visibleStudents}
-            teacherName={currentUser.name}
-          />
-        )}
-
-        {/* AOE, Gestão & Admin View: Daily Attendance with atestado medico & justificativa */}
-        {activeTab === 'attendance' && (
-          <RealTimeAttendance
-            classes={classes}
-            selectedClassId={selectedClassId}
-            onSelectClass={handleSelectClass}
-            students={students}
-            currentUser={currentUser}
-            onSaveAttendance={handleSaveAttendance}
-            onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
-            onManualAlert={handleOpenAlertForStudent}
-            onGoToAlerts={() => setActiveTab('alerts')}
-          />
-        )}
-
-        {/* AOE, Gestão & Admin View: Gate tracking (entradas e saídas fora do horário) */}
-        {activeTab === 'gate' && (
-          <GatePassManager
-            students={students}
-            classes={classes}
-            operatorName={currentUser.name}
-          />
-        )}
-
-        {/* Gestão/PAAC & Admin: Painel de Ausências do Dia & Alertas WhatsApp */}
-        {activeTab === 'alerts' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin') && (
-          <AlertsManager
-            alerts={alerts}
-            onUpdateAlertStatus={handleUpdateAlertStatus}
-            onOpenNewAlertModal={() => {
-              setPreSelectedStudentForAlert(null);
-              setIsNewAlertModalOpen(true);
-            }}
-            onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
-            students={students}
-            classes={classes}
-            currentUser={currentUser}
-            onSendAlertDirect={async (alertData) => {
-              await handleSendManualAlert(alertData);
-            }}
-            onRefresh={fetchData}
-          />
-        )}
-
-        {/* Gestão/PAAC & Admin: Active Search Cases & AI */}
-        {activeTab === 'interventions' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin') && (
-          <InterventionsManager
-            cases={interventions}
-            students={students}
-            currentUser={currentUser}
-            onAddAction={handleAddInterventionAction}
-            onCreateCase={handleCreateCase}
-            onAutoGenerateCasesFromRiskStudents={handleAutoGenerateCasesFromRiskStudents}
-            onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
-            onGenerateAIPlan={handleGenerateAIPlan}
-            isGeneratingAI={isGeneratingAI}
-            aiPlanResult={aiPlanResult}
-            aiQuotaStatus={aiQuotaStatus}
-            onRefresh={fetchData}
-            onDeleteAllOpenCases={handleDeleteAllOpenCases}
-          />
-        )}
-
-        {/* Gestão/PAAC, Admin & AOE: Monthly Reports */}
-        {activeTab === 'reports' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin' || currentUser.role === 'aoe') && (
-          <MonthlyReport
-            report={monthlyReport}
-            classes={classes}
-            students={students}
-            alerts={alerts}
-            interventions={interventions}
-            onSelectMonth={monthIndex => setSelectedMonthIndex(monthIndex)}
-            selectedMonthIndex={selectedMonthIndex}
-            onRefreshData={fetchData}
-          />
-        )}
-
-        {/* Registro de Ocorrências & Mediação Disciplinar */}
-        {activeTab === 'ocorrencias' && (
-          <OcorrenciasManager
-            currentUser={currentUser}
-            classes={classes}
-            students={visibleStudents}
-          />
-        )}
-
-        {/* Agendamento Semanal de Tablets */}
-        {activeTab === 'tablets' && (
-          <TabletsManager
-            currentUser={currentUser}
-            classes={classes}
           />
         )}
       </main>

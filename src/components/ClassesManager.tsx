@@ -294,51 +294,35 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
         </div>
       )}
 
-      {/* Role Context & Suggestion Banner */}
-      <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs">
+      {/* Role Context & Header Banner */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className={`p-2.5 rounded-lg ${isAdmin ? 'bg-purple-100 text-purple-700' : isGestao ? 'bg-indigo-100 text-indigo-700' : isProfessor ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
-              <GraduationCap className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-slate-900">Gestão de Turmas & Estudantes</h1>
-                <span className={`text-xs px-2.5 py-0.5 rounded-full font-semibold ${
-                  isAdmin ? 'bg-purple-100 text-purple-800 border border-purple-200' :
-                  isGestao ? 'bg-indigo-100 text-indigo-800 border border-indigo-200' :
-                  isProfessor ? 'bg-amber-100 text-amber-800 border border-amber-200' :
-                  'bg-blue-100 text-blue-800 border border-blue-200'
-                }`}>
-                  {currentUser.roleLabel || currentUser.role}
-                </span>
-              </div>
-
-              {/* Role-specific explanation & suggestion */}
-              <p className="text-xs sm:text-sm text-slate-600 mt-1">
-                {isAdmin && (
-                  <span className="text-purple-900 font-medium">
-                    Controle Pleno (Master): Cadastre, edite e remova turmas e estudantes com limpeza automática em cascata de faltas e alertas. Você também tem acesso ao Reset Total do sistema.
-                  </span>
-                )}
-                {isGestao && (
-                  <span className="text-indigo-900 font-medium">
-                    Gestão Escolar / PAAC: Cadastre novas turmas e novos estudantes, e atualize contatos e endereços. Exclusões permanentes são de prerrogativa do Master.
-                  </span>
-                )}
-                {isProfessor && (
-                  <span className="text-amber-900 font-medium">
-                    Modo Consulta Docente: Acompanhe a lista de alunos da sua turma, RA, porcentagem de presença acumulada e telefones de recados pedagógicos.
-                  </span>
-                )}
-                {isAOE && (
-                  <span className="text-blue-900 font-medium">
-                    Modo Secretaria & Portaria: Localize qualquer estudante rapidamente para autorização de entrada/saída e conferência cadastral.
-                  </span>
-                )}
-              </p>
-            </div>
+          <div className="flex items-center gap-3.5">
+          <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${
+            isAdmin ? 'bg-purple-600 text-white' : isGestao ? 'bg-indigo-600 text-white' : isProfessor ? 'bg-amber-600 text-white' : 'bg-blue-600 text-white'
+          }`}>
+            <GraduationCap className="w-6 h-6" />
           </div>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-lg font-black text-slate-900 tracking-tight">Gestão de Turmas & Estudantes</h1>
+              <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border ${
+                isAdmin ? 'bg-purple-100 text-purple-800 border-purple-200' :
+                isGestao ? 'bg-indigo-100 text-indigo-800 border-indigo-200' :
+                isProfessor ? 'bg-amber-100 text-amber-800 border-amber-200' :
+                'bg-blue-100 text-blue-800 border-blue-200'
+              }`}>
+                {currentUser.roleLabel || currentUser.role}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">
+              {isAdmin && 'Controle Pleno (Master): Cadastre e gerencie turmas, estudantes e parâmetros cadastrais.'}
+              {isGestao && 'Gestão Escolar / PAAC: Cadastre novas turmas e estudantes, atualizando contatos e responsáveis.'}
+              {isProfessor && 'Modo Consulta Docente: Acompanhe a lista de estudantes, RA e assiduidade acumulada.'}
+              {isAOE && 'Modo Secretaria & Portaria: Localize estudantes para controle de portaria e conferência cadastral.'}
+            </p>
+          </div>
+        </div>
 
           {/* Master Action Buttons: Add Student, Add Class, Wipe/Reset */}
           <div className="flex flex-wrap items-center gap-2">

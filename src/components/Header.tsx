@@ -7,8 +7,6 @@ import {
   ShieldAlert,
   Sparkles,
   Database,
-  UserPlus,
-  MessageCircle,
   DoorOpen,
   FileSpreadsheet,
   KeyRound,
@@ -20,7 +18,9 @@ import {
   Smartphone,
   AlertOctagon,
   Tablet,
-  Settings
+  Settings,
+  Calendar,
+  Layers
 } from 'lucide-react';
 import { UserRole, UserSession } from '../types';
 
@@ -37,6 +37,13 @@ export type MainTabType =
   | 'ocorrencias'
   | 'tablets';
 
+export type MainModuleType =
+  | 'diario'
+  | 'busca_ativa'
+  | 'tablets'
+  | 'relatorios'
+  | 'system_manager';
+
 interface HeaderProps {
   schoolName: string;
   totalStudents: number;
@@ -46,16 +53,18 @@ interface HeaderProps {
   averageAttendance: number;
   activeTab: MainTabType;
   setActiveTab: (tab: MainTabType) => void;
+  activeModule?: MainModuleType;
+  setActiveModule?: (mod: MainModuleType) => void;
   currentUser: UserSession;
   onOpenLoginModal: () => void;
   onLogout?: () => void;
-  onOpenSeducReport: () => void;
+  onOpenSeducReport?: () => void;
   onRefresh: () => void;
   isRefreshing: boolean;
   onResetData: () => void;
-  onOpenStudentRegistration: () => void;
-  onOpenWhatsAppIntegration: () => void;
-  onOpenGoogleSheets: () => void;
+  onOpenStudentRegistration?: () => void;
+  onOpenWhatsAppIntegration?: () => void;
+  onOpenGoogleSheets?: () => void;
   onSyncData: () => void;
   isSyncing: boolean;
   syncMessage?: string | null;
@@ -71,6 +80,8 @@ export const Header: React.FC<HeaderProps> = ({
   averageAttendance,
   activeTab,
   setActiveTab,
+  activeModule = 'diario',
+  setActiveModule,
   currentUser,
   onOpenLoginModal,
   onLogout,
@@ -78,9 +89,6 @@ export const Header: React.FC<HeaderProps> = ({
   onRefresh,
   isRefreshing,
   onResetData,
-  onOpenStudentRegistration,
-  onOpenWhatsAppIntegration,
-  onOpenGoogleSheets,
   onSyncData,
   isSyncing,
   syncMessage,
@@ -91,21 +99,35 @@ export const Header: React.FC<HeaderProps> = ({
   const isAOE = currentUser.role === 'aoe';
   const isProfessor = currentUser.role === 'professor';
 
+  // Helper para alternar módulo
+  const handleSelectModule = (mod: MainModuleType) => {
+    if (setActiveModule) {
+      setActiveModule(mod);
+    } else {
+      // Fallback
+      if (mod === 'diario') setActiveTab(isProfessor ? 'teacher_absence' : 'attendance');
+      else if (mod === 'busca_ativa') setActiveTab('ocorrencias');
+      else if (mod === 'tablets') setActiveTab('tablets');
+      else if (mod === 'relatorios') setActiveTab('reports');
+      else if (mod === 'system_manager') setActiveTab('system_manager');
+    }
+  };
+
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
-      {/* Top institutional strip */}
+      {/* 1. Faixa Institucional Superior */}
       <div className="bg-slate-900 text-slate-200 px-4 py-1.5 text-xs font-medium flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="font-semibold text-white">Governo do Estado de São Paulo • SEDUC</span>
-          <span className="text-slate-500">|</span>
-          <span className="text-slate-300">Sistema de Busca Ativa & Diário Eletrônico</span>
+          <span className="text-slate-500 hidden sm:inline">|</span>
+          <span className="text-slate-300 hidden sm:inline">Busca Ativa Escolar & Diário Oficial</span>
         </div>
 
-        {/* User Session & Role Switcher */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-slate-400 text-[11px] hidden sm:inline">Operador:</span>
+        {/* Informações do Usuário Ativo e Ações Rápidas */}
+        <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400 text-[11px] hidden md:inline">Operador:</span>
             <span className="text-[11px] font-bold text-white bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
               {currentUser.name}
             </span>
@@ -127,327 +149,190 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenLoginModal}
             className="flex items-center gap-1 text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-0.5 rounded font-semibold cursor-pointer transition-colors border border-slate-700"
-            title="Selecionar outro usuário e digitar senha de 4 dígitos"
+            title="Selecionar outro usuário e digitar senha PIN de 4 dígitos"
           >
             <KeyRound className="w-3 h-3 text-indigo-400" />
-            <span>Alternar Usuário</span>
+            <span className="hidden sm:inline">Alternar Usuário</span>
           </button>
 
           {onLogout && (
             <button
               onClick={onLogout}
-              className="flex items-center gap-1 text-[11px] bg-rose-950/60 hover:bg-rose-900 text-rose-200 px-2.5 py-0.5 rounded font-semibold cursor-pointer transition-colors border border-rose-800/80"
-              title="Sair do sistema e retornar à tela inicial de Login"
+              className="flex items-center gap-1 text-[11px] bg-rose-950/60 hover:bg-rose-900 text-rose-200 px-2 py-0.5 rounded font-semibold cursor-pointer transition-colors border border-rose-800/80"
+              title="Sair da sessão atual"
             >
               <LogOut className="w-3 h-3" />
               <span>Sair</span>
             </button>
           )}
-
-          <button
-            onClick={onResetData}
-            className="text-[11px] text-slate-400 hover:text-slate-200 transition-colors underline cursor-pointer hidden md:inline"
-            title="Restaurar dados de demonstração da escola"
-          >
-            Restaurar Base
-          </button>
         </div>
       </div>
 
-      {/* Main branding & actions bar */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
-            <School className="w-6 h-6" />
+      {/* 2. Barra Principal: Identificação da Escola + Indicadores Essenciais */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
+            <School className="w-5 h-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold text-slate-900 leading-tight">
+              <h1 className="text-base sm:text-lg font-black text-slate-900 leading-tight">
                 {schoolName || 'EE Professor Arlindo Silvestre'}
               </h1>
-              <span className="bg-indigo-50 text-indigo-700 text-[11px] font-semibold px-2 py-0.5 rounded-full border border-indigo-200/60">
-                Busca Ativa 2026
+              <span className="bg-indigo-50 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-md border border-indigo-200/60">
+                2026
               </span>
             </div>
-            <p className="text-xs text-slate-500">
-              EE Professor Arlindo Silvestre • Gestão de Frequência, Prevenção à Evasão e Contingência SEDUC
+            <p className="text-[11px] text-slate-500 font-medium">
+              Gestão de Frequência, Prevenção à Evasão e Mediação Escolar
             </p>
           </div>
         </div>
 
-        {/* Global Action Buttons and Badges */}
-        <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 text-xs">
-          {/* Google Sheets Database Button - Removido de AOE e Professor; Exclusivo Gestão e Administrador */}
-          {(isGestao || isAdmin) && (
-            <button
-              onClick={onOpenGoogleSheets}
-              className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
-              title="Conectar, criar e sincronizar a Planilha Oficial do Google Drive"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
-              <span>Planilha Google</span>
-            </button>
-          )}
-
-          {/* Contingency report button for management and admin */}
-          {(isGestao || isAdmin) && (
-            <button
-              onClick={onOpenSeducReport}
-              className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
-              title="Gerar e compartilhar relatório diário de ausências aos professores em caso de instabilidade no SEDUC"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>Relatório SEDUC p/ Professores</span>
-            </button>
-          )}
-
-          {/* Quick Actions (Management and Admin) */}
-          {(isGestao || isAdmin) && (
-            <>
-              <button
-                onClick={onOpenStudentRegistration}
-                className="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
-                title="Cadastrar estudantes individualmente ou importar planilha CSV"
-              >
-                <UserPlus className="w-4 h-4 text-indigo-600" />
-                <span className="hidden sm:inline">Cadastrar Estudantes</span>
-              </button>
-
-              <button
-                onClick={onOpenWhatsAppIntegration}
-                className="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
-                title="Integração de envio de mensagens via WhatsApp"
-              >
-                <MessageCircle className="w-4 h-4 text-emerald-600" />
-                <span className="hidden sm:inline">Integração WhatsApp</span>
-              </button>
-            </>
-          )}
-
-          {/* Metric Badges */}
-          <div className="hidden sm:flex bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 items-center gap-1.5">
-            <span className="text-slate-500">Frequência Geral:</span>
-            <span className={`font-bold ${averageAttendance >= 85 ? 'text-emerald-700' : 'text-amber-700'}`}>
+        {/* Indicadores Vitais Compactos & Status da Nuvem */}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {/* Frequência Geral */}
+          <div className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 flex items-center gap-1.5 shadow-2xs">
+            <span className="text-slate-500 font-medium text-[11px]">Assiduidade:</span>
+            <span className={`font-bold font-mono ${averageAttendance >= 85 ? 'text-emerald-700' : 'text-amber-700'}`}>
               {averageAttendance}%
             </span>
           </div>
 
-          <div className="bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+          {/* Alunos Críticos */}
+          <div className="bg-rose-50 border border-rose-200 rounded-lg px-2.5 py-1 flex items-center gap-1.5 shadow-2xs">
             <span className="w-2 h-2 rounded-full bg-rose-500" />
-            <span className="text-rose-700">Crítico:</span>
-            <span className="font-bold text-rose-800">{criticalStudentsCount}</span>
+            <span className="text-rose-700 font-medium text-[11px]">Críticos:</span>
+            <span className="font-bold font-mono text-rose-800">{criticalStudentsCount}</span>
           </div>
 
-          {(isGestao || isAdmin) && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
+          {/* Alertas Hoje (Gestão/Admin) */}
+          {(isGestao || isAdmin) && todayAlertsCount > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 flex items-center gap-1.5 shadow-2xs">
               <BellRing className="w-3.5 h-3.5 text-amber-600" />
-              <span className="text-amber-700">Alertas:</span>
-              <span className="font-bold text-amber-800">{todayAlertsCount}</span>
+              <span className="text-amber-700 font-medium text-[11px]">Alertas:</span>
+              <span className="font-bold font-mono text-amber-800">{todayAlertsCount}</span>
             </div>
           )}
 
-          {/* Firebase Direct Cloud Status Pill */}
+          {/* Relatório SEDUC Rápido para Professores (Gestão/Admin) */}
+          {(isGestao || isAdmin) && onOpenSeducReport && (
+            <button
+              onClick={onOpenSeducReport}
+              className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer shadow-2xs transition-colors"
+              title="Gerar relatório diário de ausências aos professores (Contingência SEDUC)"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Relatório SEDUC</span>
+            </button>
+          )}
+
+          {/* Nuvem Firebase Direct Pill */}
           <button
             onClick={onOpenFirebaseStatus}
-            className="px-2.5 py-1.5 rounded-lg border border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-colors cursor-pointer font-bold flex items-center gap-1.5 shadow-2xs"
-            title="Conexão direta com Google Cloud Firebase (Acesso Universal garantido)"
+            className="px-2 py-1 rounded-lg border border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-colors cursor-pointer font-bold text-[11px] flex items-center gap-1.5 shadow-2xs"
+            title="Status da Nuvem Firebase"
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             <Database className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="hidden sm:inline">Firebase</span>
-            <span className="text-[10px] bg-emerald-200/80 text-emerald-900 px-1 py-0.5 rounded font-extrabold">NUVEM</span>
+            <span className="hidden sm:inline">Nuvem</span>
           </button>
 
+          {/* Botão Sincronizar Nuvem */}
           <button
             onClick={onSyncData}
             disabled={isSyncing}
-            className="px-3 py-1.5 rounded-lg border border-indigo-300 text-indigo-800 bg-indigo-100 hover:bg-indigo-200 transition-colors cursor-pointer font-bold flex items-center gap-1.5 disabled:opacity-50"
-            title="Sincronizar com a Nuvem (Firebase)"
+            className="px-2.5 py-1 rounded-lg border border-indigo-300 text-indigo-800 bg-indigo-50 hover:bg-indigo-100 transition-colors cursor-pointer font-bold text-[11px] flex items-center gap-1 shadow-2xs disabled:opacity-50"
+            title="Sincronizar base com a nuvem"
           >
-            <Database className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+            <RefreshCw className={`w-3 h-3 ${isSyncing || isRefreshing ? 'animate-spin text-indigo-600' : ''}`} />
+            <span className="hidden sm:inline">{isSyncing ? 'Sincronizando...' : 'Sincronizar'}</span>
           </button>
           {syncMessage && (
-            <span className="text-xs text-indigo-700 font-medium ml-2">{syncMessage}</span>
+            <span className="text-[11px] text-indigo-700 font-medium">{syncMessage}</span>
           )}
-
-          <button
-            onClick={onRefresh}
-            disabled={isRefreshing}
-            className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors cursor-pointer"
-            title="Sincronizar com banco de dados"
-            aria-label="Atualizar dados"
-          >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-indigo-600' : ''}`} />
-          </button>
         </div>
       </div>
 
-      {/* Primary Navigation Tabs - Strictly Filtered by User Role */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-1 sm:space-x-2 border-t border-slate-100 overflow-x-auto">
-        {/* ADMINISTRADOR MASTER: Gerenciador Geral de Todos os Sistemas */}
-        {isAdmin && (
-          <button
-            onClick={() => setActiveTab('system_manager')}
-            className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'system_manager'
-                ? 'border-purple-600 text-purple-700 bg-purple-50/40'
-                : 'border-transparent text-purple-950/90 hover:text-purple-900 hover:border-purple-300'
-            }`}
-            title="Gerenciador geral de cadastros e configurações (Busca Ativa, Ocorrências, Tablets, Usuários e Nuvem)"
-          >
-            <Settings className="w-4 h-4 text-purple-600" />
-            <span>⚙️ Gerenciador do Sistema (Admin)</span>
-          </button>
-        )}
-
-        {/* TURMAS & ESTUDANTES: Gestão para Master e visualização adaptada para os demais perfis */}
+      {/* 3. Navegação Consolidada: 4 Módulos Essenciais + Gerenciador Admin */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-1 sm:space-x-2 border-t border-slate-100 overflow-x-auto no-scrollbar">
+        {/* MÓDULO 1: DIÁRIO & PORTARIA */}
         <button
-          onClick={() => setActiveTab('classes')}
-          className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-            activeTab === 'classes'
+          onClick={() => handleSelectModule('diario')}
+          className={`py-2.5 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeModule === 'diario'
               ? 'border-indigo-600 text-indigo-700 bg-indigo-50/40'
               : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
           }`}
-          title="Visualização e gestão de turmas e estudantes da escola"
+          title="Lançamento diário de frequência, controle de portaria e atestados"
         >
-          <Users className="w-4 h-4 text-indigo-600" />
-          <span>Turmas & Estudantes</span>
-          <span className="bg-slate-100 text-slate-600 text-[11px] font-semibold px-1.5 py-0.2 rounded-full">
-            {totalStudents}
-          </span>
+          <UserCheck className="w-4 h-4 text-indigo-600" />
+          <span>📋 Diário & Portaria</span>
         </button>
 
-        {/* PROFESSOR: Acesso restrito apenas ao motivo das ausências */}
-        {(isProfessor || isAdmin) && (
-          <button
-            onClick={() => setActiveTab('teacher_absence')}
-            className={`py-3 px-4 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'teacher_absence'
-                ? 'border-emerald-600 text-emerald-700'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
-            }`}
-          >
-            <FileText className="w-4 h-4 text-emerald-600" />
-            <span>Consulta de Ausências & Atestados</span>
-          </button>
-        )}
-
-        {/* AOE, GESTÃO e ADMIN: Lançamento de Frequência Diária */}
-        {(isGestao || isAOE || isAdmin) && (
-          <button
-            onClick={() => setActiveTab('attendance')}
-            className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'attendance'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
-            }`}
-          >
-            <UserCheck className="w-4 h-4" />
-            <span>Lançamento Diário de Frequência</span>
-          </button>
-        )}
-
-        {/* AOE, GESTÃO e ADMIN: Controle de Portaria */}
-        {(isGestao || isAOE || isAdmin) && (
-          <button
-            onClick={() => setActiveTab('gate')}
-            className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'gate'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
-            }`}
-          >
-            <DoorOpen className="w-4 h-4 text-blue-600" />
-            <span>Portaria (Entradas & Saídas)</span>
-          </button>
-        )}
-
-        {/* GESTÃO e ADMIN: Ausências do Dia & Alertas WhatsApp aos Pais */}
-        {(isGestao || isAdmin) && (
-          <button
-            onClick={() => setActiveTab('alerts')}
-            className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'alerts'
-                ? 'border-emerald-600 text-emerald-700 bg-emerald-50/40'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
-            }`}
-            title="Painel para Gestão e Administrador visualizar as ausências do dia e enviar alertas aos pais por WhatsApp"
-          >
-            <Smartphone className="w-4 h-4 text-emerald-600" />
-            <span>Ausências do Dia & WhatsApp</span>
-            {todayAlertsCount > 0 && (
-              <span className="bg-emerald-100 text-emerald-800 text-[11px] font-bold px-1.5 py-0.2 rounded-full">
-                {todayAlertsCount}
-              </span>
-            )}
-          </button>
-        )}
-
-        {/* GESTÃO e ADMIN: Casos de Busca Ativa */}
-        {(isGestao || isAdmin) && (
-          <button
-            onClick={() => setActiveTab('interventions')}
-            className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'interventions'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
-            }`}
-          >
-            <ShieldAlert className="w-4 h-4" />
-            <span>Casos de Busca Ativa & IA</span>
-            {activeInterventionsCount > 0 && (
-              <span className="bg-rose-100 text-rose-800 text-[11px] font-bold px-1.5 py-0.2 rounded-full">
-                {activeInterventionsCount}
-              </span>
-            )}
-          </button>
-        )}
-
-        {/* GESTÃO, AOE e ADMIN: Relatórios Mensais */}
-        {(isGestao || isAdmin || isAOE) && (
-          <button
-            onClick={() => setActiveTab('reports')}
-            className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-semibold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'reports'
-                ? 'border-indigo-600 text-indigo-600'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>Relatórios Pedagógicos Mensais</span>
-          </button>
-        )}
-
-        {/* TODOS OS PERFIS: Registro de Ocorrências & Mediação Escolar */}
+        {/* MÓDULO 2: BUSCA ATIVA & OCORRÊNCIAS */}
         <button
-          onClick={() => setActiveTab('ocorrencias')}
-          className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-            activeTab === 'ocorrencias'
-              ? 'border-indigo-600 text-indigo-700 bg-indigo-50/40'
+          onClick={() => handleSelectModule('busca_ativa')}
+          className={`py-2.5 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeModule === 'busca_ativa'
+              ? 'border-amber-600 text-amber-700 bg-amber-50/40'
               : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
           }`}
-          title="Registro disciplinar, acompanhamento de tutorados, pareceres e mediação com a família"
+          title="Gestão de ocorrências disciplinares, alertas WhatsApp aos pais e casos de busca ativa"
         >
-          <AlertOctagon className="w-4 h-4 text-indigo-600" />
-          <span>Ocorrências & Mediação</span>
+          <AlertOctagon className="w-4 h-4 text-amber-600" />
+          <span>🚨 Busca Ativa & Ocorrências</span>
+          {(activeInterventionsCount > 0 || todayAlertsCount > 0) && (
+            <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.2 rounded-full font-mono">
+              {activeInterventionsCount + todayAlertsCount}
+            </span>
+          )}
         </button>
 
-        {/* TODOS OS PERFIS: Agendamento Semanal de Tablets */}
+        {/* MÓDULO 3: AGENDAMENTO DE TABLETS */}
         <button
-          onClick={() => setActiveTab('tablets')}
-          className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-            activeTab === 'tablets'
+          onClick={() => handleSelectModule('tablets')}
+          className={`py-2.5 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeModule === 'tablets'
               ? 'border-sky-600 text-sky-700 bg-sky-50/40'
               : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
           }`}
-          title="Grade semanal de reserva e controle de tablets escolares"
+          title="Grade semanal de reservas de tablets e recursos tecnológicos"
         >
           <Tablet className="w-4 h-4 text-sky-600" />
-          <span>Agendamento de Tablets</span>
+          <span>📱 Agendamento de Tablets</span>
         </button>
+
+        {/* MÓDULO 4: RELATÓRIOS & ESTRATÉGICO */}
+        <button
+          onClick={() => handleSelectModule('relatorios')}
+          className={`py-2.5 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+            activeModule === 'relatorios'
+              ? 'border-emerald-600 text-emerald-700 bg-emerald-50/40'
+              : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+          }`}
+          title="Relatórios pedagógicos mensais da SEDUC e acompanhamento estatístico"
+        >
+          <Sparkles className="w-4 h-4 text-emerald-600" />
+          <span>📊 Relatórios & Estratégico</span>
+        </button>
+
+        {/* MÓDULO 5: GERENCIADOR DO SISTEMA (ADMINISTRADOR MASTER) */}
+        {isAdmin && (
+          <button
+            onClick={() => handleSelectModule('system_manager')}
+            className={`py-2.5 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ml-auto ${
+              activeModule === 'system_manager'
+                ? 'border-purple-600 text-purple-700 bg-purple-50/40'
+                : 'border-transparent text-purple-950/80 hover:text-purple-900 hover:border-purple-300'
+            }`}
+            title="Painel Master de configurações e cadastros (Turmas, Estudantes, Grade de Horários, Ocorrências, Tablets, Usuários e Nuvem)"
+          >
+            <Settings className="w-4 h-4 text-purple-600" />
+            <span>⚙️ Gerenciador (Admin)</span>
+          </button>
+        )}
       </div>
     </header>
   );
 };
-
