@@ -668,21 +668,28 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                           {isGestaoOrAdmin && (() => {
                             const info = obterInfoPreenchimento(oc as any);
                             return (
-                              <div className="p-2 bg-slate-100/90 rounded-lg border border-slate-200 text-[11px] flex items-center justify-between gap-1.5 flex-wrap">
-                                <span className="text-slate-700 font-medium">
-                                  🕒 <strong>Preenchido pelo Docente:</strong> {info.dataHoraFormatada}
-                                </span>
-                                <span className={`font-bold px-1.5 py-0.5 rounded text-[10px] ${
-                                  info.tempoDecorridoOuTipo === 'no_ato'
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : info.tempoDecorridoOuTipo === 'posterior'
-                                    ? (info.diasDiferenca && info.diasDiferenca > 1)
-                                      ? 'bg-rose-100 text-rose-800'
-                                      : 'bg-amber-100 text-amber-800'
-                                    : 'bg-slate-200 text-slate-800'
-                                }`}>
-                                  {info.tagBadge}
-                                </span>
+                              <div className="p-2 bg-slate-100/90 rounded-lg border border-slate-200 text-[11px] space-y-1">
+                                <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                                  <span className="text-slate-700 font-medium">
+                                    🕒 <strong>Preenchido pelo Docente:</strong> {info.dataHoraFormatada}
+                                  </span>
+                                  <span className={`font-bold px-1.5 py-0.5 rounded text-[10px] ${
+                                    info.tempoDecorridoOuTipo === 'no_ato'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : info.tempoDecorridoOuTipo === 'posterior'
+                                      ? (info.diasDiferenca && info.diasDiferenca > 1)
+                                        ? 'bg-rose-100 text-rose-800'
+                                        : 'bg-amber-100 text-amber-800'
+                                      : 'bg-slate-200 text-slate-800'
+                                  }`}>
+                                    {info.tagBadge}
+                                  </span>
+                                </div>
+                                {info.detalheAuditoria && (
+                                  <p className="text-[10px] text-slate-500 font-mono">
+                                    {info.detalheAuditoria}
+                                  </p>
+                                )}
                               </div>
                             );
                           })()}

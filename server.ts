@@ -1581,6 +1581,7 @@ REGRA CRÍTICA E ABSOLUTA:
             if (Array.isArray(body.ocorrencias)) currentClean.ocorrencias = body.ocorrencias;
             if (Array.isArray(body.medidas)) currentClean.medidas = body.medidas;
             if (Array.isArray(body.aulas)) currentClean.aulas = body.aulas;
+            if (Array.isArray(body.gradeHorarios)) currentClean.gradeHorarios = body.gradeHorarios;
           } else if (body.action === 'excluir' || body.action === 'excluir_ocorrencia' || body.acao === 'excluir') {
             currentClean.registros = (currentClean.registros || []).filter((r: any) => r.id !== body.id);
           } else if (body.action === 'salvar_mediacao' || body.action === 'mediacao' || body.acao === 'mediar') {

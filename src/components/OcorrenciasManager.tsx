@@ -47,6 +47,28 @@ import { firestoreService } from '../lib/firestoreService';
 import { formatarRelatoComGemini, limparTextoFormatado, testarChaveGemini, getStoredGeminiKey, saveStoredGeminiKey } from '../lib/geminiClient';
 import ocorrenciasBaseline from '../data/ocorrenciasBaseline.json';
 
+export interface HorarioAula {
+  id: string;
+  nome: string; // Ex: '1ª Aula', '2ª Aula', 'Intervalo / Recreio', '7ª Aula', etc.
+  inicio: string; // '07:00'
+  fim: string; // '07:45'
+  tipo: 'aula' | 'intervalo';
+}
+
+export const GRADE_HORARIOS_PADRAO: HorarioAula[] = [
+  { id: '1', nome: '1ª Aula', inicio: '07:00', fim: '07:45', tipo: 'aula' },
+  { id: '2', nome: '2ª Aula', inicio: '07:45', fim: '08:30', tipo: 'aula' },
+  { id: '3', nome: '3ª Aula', inicio: '08:30', fim: '09:15', tipo: 'aula' },
+  { id: '4', nome: 'Intervalo / Recreio Manhã', inicio: '09:15', fim: '09:35', tipo: 'intervalo' },
+  { id: '5', nome: '4ª Aula', inicio: '09:35', fim: '10:20', tipo: 'aula' },
+  { id: '6', nome: '5ª Aula', inicio: '10:20', fim: '11:05', tipo: 'aula' },
+  { id: '7', nome: '6ª Aula', inicio: '11:05', fim: '11:50', tipo: 'aula' },
+  { id: '8', nome: 'Almoço / Intervalo Intermediário', inicio: '11:50', fim: '12:40', tipo: 'intervalo' },
+  { id: '9', nome: '7ª Aula', inicio: '12:40', fim: '13:25', tipo: 'aula' },
+  { id: '10', nome: '8ª Aula', inicio: '13:25', fim: '14:10', tipo: 'aula' },
+  { id: '11', nome: '9ª Aula', inicio: '14:10', fim: '14:55', tipo: 'aula' },
+];
+
 export interface OcorrenciaRecord {
   id: string;
   data: string;
@@ -73,6 +95,8 @@ export interface PreenchimentoInfo {
   dataHoraFormatada: string;
   tempoDecorridoOuTipo: 'no_ato' | 'mesmo_dia' | 'posterior' | 'estimado';
   diasDiferenca?: number;
+  horarioAulaStr?: string;
+  detalheAuditoria?: string;
   tagBadge: string;
   isEstimado: boolean;
 }
@@ -92,6 +116,7 @@ export interface OcorrenciasDatabase {
   ocorrencias: string[];
   medidas: string[];
   aulas: string[];
+  gradeHorarios?: HorarioAula[];
   auxilio: string[];
   registros: OcorrenciaRecord[];
   tratativasFamilia: TratativaFamilia[];
@@ -130,10 +155,13 @@ export const parseDataOcorrenciaToTimestamp = (dStr: string): number => {
 
 /**
  * Helper que extrai o carimbo real de quando o professor preencheu a ocorrência
- * Usado exclusivamente pelo perfil de GESTÃO para monitorar pontualidade (preenchimento no ato vs posterior)
- * Registros legados/anteriores sem horário são exibidos fielmente como "Horário não registrado no sistema anterior"
+ * Usado exclusivamente pelos perfis de ADMIN e GESTÃO/PAAC para monitorar pontualidade (preenchimento no ato vs posterior)
+ * Cruza o momento do preenchimento com a grade de horários das aulas cadastradas no sistema.
  */
-export const obterInfoPreenchimento = (reg: OcorrenciaRecord): PreenchimentoInfo => {
+export const obterInfoPreenchimento = (
+  reg: OcorrenciaRecord,
+  gradeHorarios: HorarioAula[] = GRADE_HORARIOS_PADRAO
+): PreenchimentoInfo => {
   let timeReg: number | null = null;
   let horarioRealTexto: string | null = null;
 
@@ -164,6 +192,8 @@ export const obterInfoPreenchimento = (reg: OcorrenciaRecord): PreenchimentoInfo
     let tagBadge = '🟢 Preenchido no ato (Mesmo dia)';
     let tipo: PreenchimentoInfo['tempoDecorridoOuTipo'] = 'no_ato';
     let diasDiferenca = 0;
+    let detalheAuditoria = '';
+    let horarioAulaStr = '';
 
     if (dataFatoTs) {
       const dFato = new Date(dataFatoTs);
@@ -174,15 +204,60 @@ export const obterInfoPreenchimento = (reg: OcorrenciaRecord): PreenchimentoInfo
       const diffDias = Math.round((dReg.getTime() - dFato.getTime()) / (1000 * 60 * 60 * 24));
       diasDiferenca = diffDias;
 
-      if (diffDias <= 0) {
-        tipo = 'no_ato';
-        tagBadge = '🟢 Preenchido no ato (Mesmo dia)';
+      if (diffDias > 1) {
+        tipo = 'posterior';
+        tagBadge = `🔴 Preenchido ${diffDias} dias após a aula`;
+        detalheAuditoria = `Lançado ${diffDias} dias após a data da aula (${reg.data}).`;
       } else if (diffDias === 1) {
         tipo = 'posterior';
         tagBadge = '🟡 Preenchido 1 dia após a aula';
+        detalheAuditoria = `Lançado no dia seguinte à data da aula.`;
       } else {
-        tipo = 'posterior';
-        tagBadge = `🔴 Preenchido ${diffDias} dias após a aula`;
+        // diffDias <= 0 (Mesmo dia da ocorrência!)
+        // Cruza com a grade de horários configurada para a aula indicada
+        const listaGrade = gradeHorarios && gradeHorarios.length > 0 ? gradeHorarios : GRADE_HORARIOS_PADRAO;
+        const aulaNorm = (reg.aula || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const horarioAula = listaGrade.find(h => {
+          const hNorm = h.nome.toLowerCase().replace(/[^a-z0-9]/g, '');
+          return aulaNorm.includes(hNorm) || hNorm.includes(aulaNorm);
+        });
+
+        const regMinTotal = Number(hora) * 60 + Number(min);
+
+        if (horarioAula && horarioAula.inicio && horarioAula.fim) {
+          horarioAulaStr = `${horarioAula.nome} (${horarioAula.inicio} às ${horarioAula.fim})`;
+          const [hIni, mIni] = horarioAula.inicio.split(':').map(Number);
+          const [hFim, mFim] = horarioAula.fim.split(':').map(Number);
+          const inicioMin = hIni * 60 + mIni;
+          const fimMin = hFim * 60 + mFim;
+
+          // Se preencheu durante a aula ou até 15 minutos após o término:
+          if (regMinTotal >= inicioMin - 5 && regMinTotal <= fimMin + 15) {
+            tipo = 'no_ato';
+            tagBadge = `🟢 Preenchido no ato (Durante a ${horarioAula.nome})`;
+            detalheAuditoria = `Docente registrou no ato da aula (${horarioAula.inicio} - ${horarioAula.fim}).`;
+          } else if (regMinTotal > fimMin + 15) {
+            const minAtraso = regMinTotal - fimMin;
+            tipo = 'mesmo_dia';
+            if (minAtraso < 60) {
+              tagBadge = `🟡 Preenchido no mesmo dia (${minAtraso} min após a aula)`;
+              detalheAuditoria = `Enviado no mesmo dia, ${minAtraso} minutos após o término da aula (${horarioAula.fim}).`;
+            } else {
+              const horas = Math.floor(minAtraso / 60);
+              const restoMin = minAtraso % 60;
+              tagBadge = `🟡 Preenchido no mesmo dia (${horas}h${restoMin > 0 ? ` e ${restoMin}min` : ''} após a aula)`;
+              detalheAuditoria = `Enviado no mesmo dia, cerca de ${horas}h após o horário da aula (${horarioAula.inicio} às ${horarioAula.fim}).`;
+            }
+          } else {
+            tipo = 'no_ato';
+            tagBadge = `🟢 Preenchido no ato (${horarioAula.nome})`;
+            detalheAuditoria = `Registrado no mesmo dia (${horarioAula.inicio} às ${horarioAula.fim}).`;
+          }
+        } else {
+          tipo = 'no_ato';
+          tagBadge = '🟢 Preenchido no ato (Mesmo dia)';
+          detalheAuditoria = `Registrado no mesmo dia da data da ocorrência.`;
+        }
       }
     }
 
@@ -190,19 +265,21 @@ export const obterInfoPreenchimento = (reg: OcorrenciaRecord): PreenchimentoInfo
       dataHoraFormatada: horarioRealTexto,
       tempoDecorridoOuTipo: tipo,
       diasDiferenca,
+      horarioAulaStr,
+      detalheAuditoria,
       tagBadge,
       isEstimado: false,
     };
   }
 
   // 2. Registro Legado (preenchido antes da criação deste recurso):
-  // NÃO inventa nem calcula horários aproximados.
   const dataFmt = reg.data ? (reg.data.includes('-') ? reg.data.split('T')[0].split('-').reverse().join('/') : reg.data) : 'Data não informada';
   return {
     dataHoraFormatada: `${dataFmt} (Horário não registrado no sistema anterior)`,
     tempoDecorridoOuTipo: 'estimado',
     diasDiferenca: 0,
     tagBadge: '📄 Registro Anterior (Sem carimbo de hora)',
+    detalheAuditoria: 'Ocorrência lançada antes da implantação do monitoramento de pontualidade.',
     isEstimado: true,
   };
 };
@@ -448,8 +525,8 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     'registrar'
   );
 
-  // Estados do Painel de Administração (Edição de Ocorrências Principais, Medidas Tomadas e IA Gemini)
-  const [abaAdminConfig, setAbaAdminConfig] = useState<'ocorrencias' | 'medidas' | 'ia_gemini'>('ocorrencias');
+  // Estados do Painel de Administração (Edição de Ocorrências Principais, Medidas Tomadas, Grade de Horários e IA Gemini)
+  const [abaAdminConfig, setAbaAdminConfig] = useState<'ocorrencias' | 'medidas' | 'horarios' | 'ia_gemini'>('ocorrencias');
   const [novoItemConfig, setNovoItemConfig] = useState('');
   const [itemEditando, setItemEditando] = useState<{
     tipo: 'ocorrencia' | 'medida';
@@ -463,6 +540,19 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     valor: string;
   } | null>(null);
   const [salvandoConfig, setSalvandoConfig] = useState(false);
+
+  // Estados de Configuração da Grade de Horários das Aulas e Intervalos
+  const [gradeHorarios, setGradeHorarios] = useState<HorarioAula[]>(() => {
+    if (bancoDeDados.gradeHorarios && bancoDeDados.gradeHorarios.length > 0) {
+      return bancoDeDados.gradeHorarios;
+    }
+    return GRADE_HORARIOS_PADRAO;
+  });
+  const [novoHorarioNome, setNovoHorarioNome] = useState('');
+  const [novoHorarioInicio, setNovoHorarioInicio] = useState('07:00');
+  const [novoHorarioFim, setNovoHorarioFim] = useState('07:45');
+  const [novoHorarioTipo, setNovoHorarioTipo] = useState<'aula' | 'intervalo'>('aula');
+  const [salvandoHorarios, setSalvandoHorarios] = useState(false);
 
   // Estados de Configuração da Chave do Gemini
   const [chaveGeminiInput, setChaveGeminiInput] = useState(() => getStoredGeminiKey());
@@ -639,12 +729,22 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
           medidas:
             data.medidas && data.medidas.length > 0 ? data.medidas : bancoDeDados.medidas,
           aulas: data.aulas && data.aulas.length > 0 ? data.aulas : bancoDeDados.aulas,
+          gradeHorarios:
+            data.gradeHorarios && data.gradeHorarios.length > 0
+              ? data.gradeHorarios
+              : bancoDeDados.gradeHorarios && bancoDeDados.gradeHorarios.length > 0
+              ? bancoDeDados.gradeHorarios
+              : GRADE_HORARIOS_PADRAO,
           auxilio:
             data.auxilio && data.auxilio.length > 0 ? data.auxilio : bancoDeDados.auxilio,
           registros: ordenarOcorrenciasPorMaisRecentes(registrosLimpos),
           tratativasFamilia: data.tratativasFamilia || [],
           geminiApiKey: data.geminiApiKey || bancoDeDados.geminiApiKey || getStoredGeminiKey(),
         };
+
+        if (data.gradeHorarios && data.gradeHorarios.length > 0) {
+          setGradeHorarios(data.gradeHorarios);
+        }
 
         if (data.geminiApiKey && typeof data.geminiApiKey === 'string') {
           saveStoredGeminiKey(data.geminiApiKey);
@@ -1398,6 +1498,79 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     }
   };
 
+  // --- GESTÃO DA GRADE DE HORÁRIOS DAS AULAS & INTERVALOS (ADMIN / GESTÃO) ---
+  const handleSalvarGradeHorarios = async (novaGrade: HorarioAula[]) => {
+    setSalvandoHorarios(true);
+    try {
+      const aulasNomes = novaGrade.filter(g => g.tipo === 'aula').map(g => g.nome);
+      const novoDb: OcorrenciasDatabase = {
+        ...bancoDeDados,
+        gradeHorarios: novaGrade,
+        aulas: aulasNomes.length > 0 ? aulasNomes : bancoDeDados.aulas,
+      };
+
+      setBancoDeDados(novoDb);
+      setGradeHorarios(novaGrade);
+      localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(novoDb));
+
+      await salvarConfigOcorrenciasSeguro({
+        gradeHorarios: novaGrade,
+        aulas: aulasNomes.length > 0 ? aulasNomes : bancoDeDados.aulas,
+        ocorrencias: bancoDeDados.ocorrencias,
+        medidas: bancoDeDados.medidas,
+      }, novoDb);
+
+      setMensagem({
+        texto: '⏰ Grade de horários salva com sucesso! O sistema de auditoria de preenchimento agora avalia a pontualidade com base nesses horários exatos.',
+        tipo: 'sucesso',
+      });
+      setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
+    } catch (err: any) {
+      setMensagem({ texto: 'Erro ao salvar grade de horários: ' + err.message, tipo: 'erro' });
+    } finally {
+      setSalvandoHorarios(false);
+    }
+  };
+
+  const handleAdicionarHorario = () => {
+    const nome = novoHorarioNome.trim();
+    if (!nome) {
+      setMensagem({ texto: '⚠️ Digite o nome da aula ou intervalo para cadastrar.', tipo: 'erro' });
+      return;
+    }
+    const novoItem: HorarioAula = {
+      id: `H-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      nome,
+      inicio: novoHorarioInicio,
+      fim: novoHorarioFim,
+      tipo: novoHorarioTipo,
+    };
+    const novaGrade = [...gradeHorarios, novoItem];
+    setNovoHorarioNome('');
+    handleSalvarGradeHorarios(novaGrade);
+  };
+
+  const handleRemoverHorario = (id: string) => {
+    const novaGrade = gradeHorarios.filter(h => h.id !== id);
+    handleSalvarGradeHorarios(novaGrade);
+  };
+
+  const handleAtualizarHorarioItem = (id: string, campo: 'nome' | 'inicio' | 'fim' | 'tipo', valor: string) => {
+    const novaGrade = gradeHorarios.map(h => {
+      if (h.id === id) {
+        return { ...h, [campo]: valor };
+      }
+      return h;
+    });
+    setGradeHorarios(novaGrade);
+  };
+
+  const handleRestaurarGradePadrao = () => {
+    if (window.confirm('Deseja restaurar a grade de horários para a tabela oficial padrão da SEDUC / PEI?')) {
+      handleSalvarGradeHorarios(GRADE_HORARIOS_PADRAO);
+    }
+  };
+
   // Card de Ocorrência Reutilizável
   const OcorrenciaCard: React.FC<{
     reg: OcorrenciaRecord;
@@ -1483,35 +1656,44 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             )
           )}
 
-          {/* Auditoria de Data e Horário de Preenchimento pelo Professor (VISÍVEL SOMENTE PARA A GESTÃO) */}
+          {/* Auditoria de Data e Horário de Preenchimento pelo Professor (VISÍVEL SOMENTE PARA ADMINISTRADOR E GESTÃO/PAAC) */}
           {isGestao && (() => {
-            const info = obterInfoPreenchimento(reg);
+            const info = obterInfoPreenchimento(reg, gradeHorarios);
             return (
-              <div className="mt-3 p-2.5 bg-slate-50 rounded-xl border border-slate-200/90 text-xs flex flex-wrap items-center justify-between gap-2 shadow-2xs">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="flex items-center gap-1.5 font-semibold text-slate-700">
-                    <Clock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                    <span className="text-slate-500 font-medium">Preenchido pelo professor em:</span>
-                    <strong className="text-slate-900 font-mono">{info.dataHoraFormatada}</strong>
-                  </span>
-                  <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                      info.tempoDecorridoOuTipo === 'no_ato'
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                        : info.tempoDecorridoOuTipo === 'posterior'
-                        ? (info.diasDiferenca && info.diasDiferenca > 1)
-                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                          : 'bg-amber-100 text-amber-800 border border-amber-200'
-                        : 'bg-slate-100 text-slate-700 border border-slate-200'
-                    }`}
-                  >
-                    {info.tagBadge}
+              <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-200/90 text-xs flex flex-col gap-1.5 shadow-2xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="flex items-center gap-1.5 font-semibold text-slate-700">
+                      <Clock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                      <span className="text-slate-500 font-medium">Preenchido pelo professor em:</span>
+                      <strong className="text-slate-900 font-mono">{info.dataHoraFormatada}</strong>
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                        info.tempoDecorridoOuTipo === 'no_ato'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          : info.tempoDecorridoOuTipo === 'mesmo_dia'
+                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                          : info.tempoDecorridoOuTipo === 'posterior'
+                          ? (info.diasDiferenca && info.diasDiferenca > 1)
+                            ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                            : 'bg-amber-100 text-amber-800 border border-amber-200'
+                          : 'bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      {info.tagBadge}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-semibold flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                    <Shield className="w-3 h-3 text-indigo-500" />
+                    <span>Auditoria de Gestão/PAAC</span>
                   </span>
                 </div>
-                <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
-                  <Shield className="w-3 h-3 text-indigo-500" />
-                  <span>Auditoria de Gestão</span>
-                </span>
+                {info.detalheAuditoria && (
+                  <p className="text-[11px] text-slate-600 font-medium pl-5">
+                    ℹ️ {info.detalheAuditoria}
+                  </p>
+                )}
               </div>
             );
           })()}
@@ -2290,25 +2472,32 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                               </div>
                             )}
 
-                            {/* Auditoria de Preenchimento (SOMENTE PARA A GESTÃO) */}
+                            {/* Auditoria de Preenchimento (VISÍVEL SOMENTE PARA ADMINISTRADOR E GESTÃO/PAAC) */}
                             {isGestao && (() => {
-                              const info = obterInfoPreenchimento(o);
+                              const info = obterInfoPreenchimento(o, gradeHorarios);
                               return (
-                                <div className="mt-1.5 p-1.5 bg-white rounded-lg border border-slate-200 text-[10px] flex items-center justify-between gap-1 flex-wrap">
-                                  <span className="text-slate-600 font-medium">
-                                    🕒 Preenchido pelo prof: <strong className="text-slate-900 font-mono">{info.dataHoraFormatada}</strong>
-                                  </span>
-                                  <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${
-                                    info.tempoDecorridoOuTipo === 'no_ato'
-                                      ? 'bg-emerald-100 text-emerald-800'
-                                      : info.tempoDecorridoOuTipo === 'posterior'
-                                      ? (info.diasDiferenca && info.diasDiferenca > 1)
-                                        ? 'bg-rose-100 text-rose-800'
-                                        : 'bg-amber-100 text-amber-800'
-                                      : 'bg-slate-100 text-slate-700'
-                                  }`}>
-                                    {info.tagBadge}
-                                  </span>
+                                <div className="mt-1.5 p-2 bg-slate-100/90 rounded-lg border border-slate-200 text-[10px] space-y-1">
+                                  <div className="flex items-center justify-between gap-1 flex-wrap">
+                                    <span className="text-slate-600 font-medium">
+                                      🕒 Preenchido pelo prof: <strong className="text-slate-900 font-mono">{info.dataHoraFormatada}</strong>
+                                    </span>
+                                    <span className={`font-bold px-1.5 py-0.5 rounded text-[9px] ${
+                                      info.tempoDecorridoOuTipo === 'no_ato'
+                                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                        : info.tempoDecorridoOuTipo === 'posterior'
+                                        ? (info.diasDiferenca && info.diasDiferenca > 1)
+                                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                          : 'bg-amber-100 text-amber-800 border border-amber-200'
+                                        : 'bg-slate-200 text-slate-700'
+                                    }`}>
+                                      {info.tagBadge}
+                                    </span>
+                                  </div>
+                                  {info.detalheAuditoria && (
+                                    <p className="text-[10px] text-slate-500 font-mono">
+                                      {info.detalheAuditoria}
+                                    </p>
+                                  )}
                                 </div>
                               );
                             })()}
@@ -2513,15 +2702,15 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
               <div className="flex items-center gap-2">
                 <Settings className="w-5 h-5 text-indigo-600" />
                 <h2 className="text-base font-black text-slate-900">
-                  Painel de Configurações & Cadastros (Exclusivo Administrador)
+                  Painel de Configurações & Grade de Horários (Admin & Gestão/PAAC)
                 </h2>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Cadastre, edite ou exclua motivos de ocorrência principal e medidas pedagógicas disponíveis no formulário de registro.
+                Cadastre e edite a grade de horários das aulas/intervalos para auditoria de pontualidade, além de motivos de ocorrência e medidas pedagógicas.
               </p>
             </div>
             <span className="self-start sm:self-auto bg-indigo-50 border border-indigo-200 text-indigo-800 text-[11px] font-bold px-2.5 py-1 rounded-lg">
-              🛡️ Modo Administrador Ativo
+              🛡️ {isAdmin ? 'Modo Administrador' : 'Modo Gestão / PAAC'}
             </span>
           </div>
 
@@ -2572,6 +2761,22 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
               <span>⚖️ Medidas Pedagógicas Tomadas</span>
               <span className="bg-black/20 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono">
                 {listaMedidas.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setAbaAdminConfig('horarios'); }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                abaAdminConfig === 'horarios'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>⏰ Grade de Horários (Aulas & Intervalos)</span>
+              <span className="bg-black/20 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                {gradeHorarios.length}
               </span>
             </button>
 
@@ -2719,8 +2924,222 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             </div>
           )}
 
+          {/* Painel de Configuração da Grade de Horários (Aulas e Intervalos) */}
+          {abaAdminConfig === 'horarios' && (
+            <div className="space-y-6">
+              {/* Banner Explicativo */}
+              <div className="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-5 flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <Clock className="w-5 h-5 text-indigo-100" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-sm font-bold text-indigo-950 flex items-center gap-2">
+                    <span>Grade de Horários das Aulas & Intervalos Escolares</span>
+                    <span className="bg-indigo-100 text-indigo-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full">
+                      Auditoria Ativa
+                    </span>
+                  </h3>
+                  <p className="text-xs text-indigo-900/80 leading-relaxed">
+                    Cadastre o horário exato de início e término de cada aula ou intervalo. O sistema utiliza esses horários para comparar o instante em que o professor submete a ocorrência e indicar para a gestão se o relato foi realizado <strong>no ato da aula</strong>, <strong>minutos/horas após no mesmo dia</strong> ou <strong>dias depois</strong>.
+                  </p>
+                </div>
+              </div>
+
+              {/* Form para Cadastrar Novo Horário */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                  <Plus className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Cadastrar Novo Período / Aula / Intervalo</span>
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                      Identificação / Nome
+                    </label>
+                    <input
+                      type="text"
+                      value={novoHorarioNome}
+                      onChange={e => setNovoHorarioNome(e.target.value)}
+                      placeholder="Ex: 10ª Aula, Intervalo da Tarde..."
+                      className="w-full p-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-medium bg-white text-slate-800"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                      Horário Início
+                    </label>
+                    <input
+                      type="time"
+                      value={novoHorarioInicio}
+                      onChange={e => setNovoHorarioInicio(e.target.value)}
+                      className="w-full p-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-mono font-bold bg-white text-slate-800"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                      Horário Término
+                    </label>
+                    <input
+                      type="time"
+                      value={novoHorarioFim}
+                      onChange={e => setNovoHorarioFim(e.target.value)}
+                      className="w-full p-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-mono font-bold bg-white text-slate-800"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
+                  <div className="flex items-center gap-4">
+                    <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 font-semibold cursor-pointer">
+                      <input
+                        type="radio"
+                        name="novoHorarioTipo"
+                        checked={novoHorarioTipo === 'aula'}
+                        onChange={() => setNovoHorarioTipo('aula')}
+                        className="text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>Aula Regular</span>
+                    </label>
+                    <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 font-semibold cursor-pointer">
+                      <input
+                        type="radio"
+                        name="novoHorarioTipo"
+                        checked={novoHorarioTipo === 'intervalo'}
+                        onChange={() => setNovoHorarioTipo('intervalo')}
+                        className="text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>Intervalo / Recreio / Almoço</span>
+                    </label>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={salvandoHorarios || !novoHorarioNome.trim()}
+                    onClick={handleAdicionarHorario}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Adicionar à Grade</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Tabela de Horários Cadastrados */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Grade Atual de Horários ({gradeHorarios.length} períodos)
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={salvandoHorarios}
+                      onClick={handleRestaurarGradePadrao}
+                      className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all cursor-pointer"
+                      title="Restaura os horários oficiais para a grade padrão SEDUC/PEI"
+                    >
+                      🔄 Restaurar Padrão SEDUC
+                    </button>
+                    <button
+                      type="button"
+                      disabled={salvandoHorarios}
+                      onClick={() => handleSalvarGradeHorarios(gradeHorarios)}
+                      className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>{salvandoHorarios ? 'Salvando...' : 'Salvar Grade'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-2xs">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 uppercase text-[11px]">
+                      <tr>
+                        <th className="p-3 w-12 text-center">#</th>
+                        <th className="p-3">Nome / Período</th>
+                        <th className="p-3 w-32">Tipo</th>
+                        <th className="p-3 w-32 text-center">Início</th>
+                        <th className="p-3 w-32 text-center">Término</th>
+                        <th className="p-3 w-20 text-center">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {gradeHorarios.map((item, idx) => (
+                        <tr key={item.id || idx} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="p-3 text-center font-mono font-bold text-slate-400">
+                            {idx + 1}
+                          </td>
+                          <td className="p-3">
+                            <input
+                              type="text"
+                              value={item.nome}
+                              onChange={e => handleAtualizarHorarioItem(item.id, 'nome', e.target.value)}
+                              className="w-full p-1.5 text-xs border border-slate-200 rounded-lg font-bold text-slate-800 bg-white"
+                            />
+                          </td>
+                          <td className="p-3">
+                            <span
+                              className={`px-2 py-0.5 rounded-md font-bold text-[10px] uppercase ${
+                                item.tipo === 'aula'
+                                  ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                  : 'bg-amber-100 text-amber-800 border border-amber-200'
+                              }`}
+                            >
+                              {item.tipo === 'aula' ? 'Aula Regular' : 'Intervalo'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <input
+                              type="time"
+                              value={item.inicio}
+                              onChange={e => handleAtualizarHorarioItem(item.id, 'inicio', e.target.value)}
+                              className="p-1.5 text-xs border border-slate-200 rounded-lg font-mono font-bold text-slate-800 bg-white text-center w-24"
+                            />
+                          </td>
+                          <td className="p-3 text-center">
+                            <input
+                              type="time"
+                              value={item.fim}
+                              onChange={e => handleAtualizarHorarioItem(item.id, 'fim', e.target.value)}
+                              className="p-1.5 text-xs border border-slate-200 rounded-lg font-mono font-bold text-slate-800 bg-white text-center w-24"
+                            />
+                          </td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoverHorario(item.id)}
+                              className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                              title="Excluir período da grade"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                  <button
+                    type="button"
+                    disabled={salvandoHorarios}
+                    onClick={() => handleSalvarGradeHorarios(gradeHorarios)}
+                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-2"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>Salvar Grade de Horários para Todos</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Form para Adicionar Novo Item (Ocorrências e Medidas) */}
-          {abaAdminConfig !== 'ia_gemini' && (
+          {(abaAdminConfig === 'ocorrencias' || abaAdminConfig === 'medidas') && (
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6">
               <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <Plus className="w-3.5 h-3.5 text-indigo-600" />
@@ -2776,7 +3195,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
           )}
 
           {/* Lista de Itens com Ações de Edição e Exclusão */}
-          {abaAdminConfig !== 'ia_gemini' && (
+          {(abaAdminConfig === 'ocorrencias' || abaAdminConfig === 'medidas') && (
             <div className="space-y-2">
               <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
                 Opções Ativas no Formulário de Registro (
@@ -3187,7 +3606,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             >
               👨‍🎓 Meus Tutorados
             </button>
-            {isAdmin && (
+            {(isAdmin || isGestao) && (
               <button
                 type="button"
                 onClick={() => setAbaGestao('config_admin')}
@@ -3198,7 +3617,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 }`}
               >
                 <Settings className="w-3.5 h-3.5" />
-                <span>⚙️ Configurações (Admin)</span>
+                <span>⚙️ Grade de Horários & Configurações</span>
               </button>
             )}
           </>
