@@ -19,7 +19,8 @@ import {
   LogOut,
   Smartphone,
   AlertOctagon,
-  Tablet
+  Tablet,
+  Settings
 } from 'lucide-react';
 import { UserRole, UserSession } from '../types';
 
@@ -32,6 +33,7 @@ export type MainTabType =
   | 'reports'
   | 'teacher_absence'
   | 'access_management'
+  | 'system_manager'
   | 'ocorrencias'
   | 'tablets';
 
@@ -283,18 +285,19 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Primary Navigation Tabs - Strictly Filtered by User Role */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-1 sm:space-x-2 border-t border-slate-100 overflow-x-auto">
-        {/* ADMINISTRADOR MASTER: Gestão de Acessos & Perfis */}
+        {/* ADMINISTRADOR MASTER: Gerenciador Geral de Todos os Sistemas */}
         {isAdmin && (
           <button
-            onClick={() => setActiveTab('access_management')}
+            onClick={() => setActiveTab('system_manager')}
             className={`py-3 px-3.5 sm:px-4 text-xs sm:text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
-              activeTab === 'access_management'
+              activeTab === 'system_manager'
                 ? 'border-purple-600 text-purple-700 bg-purple-50/40'
-                : 'border-transparent text-purple-950/80 hover:text-purple-900 hover:border-purple-300'
+                : 'border-transparent text-purple-950/90 hover:text-purple-900 hover:border-purple-300'
             }`}
+            title="Gerenciador geral de cadastros e configurações (Busca Ativa, Ocorrências, Tablets, Usuários e Nuvem)"
           >
-            <ShieldCheck className="w-4 h-4 text-purple-600" />
-            <span>Gestão de Acessos & Perfis (Master)</span>
+            <Settings className="w-4 h-4 text-purple-600" />
+            <span>⚙️ Gerenciador do Sistema (Admin)</span>
           </button>
         )}
 

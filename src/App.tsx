@@ -16,6 +16,7 @@ import { TeacherAbsenceView } from './components/TeacherAbsenceView';
 import { SeducContingencyReportModal } from './components/SeducContingencyReportModal';
 import { GoogleSheetsModal } from './components/GoogleSheetsModal';
 import { AccessManagement } from './components/AccessManagement';
+import { SystemConfigManager } from './components/SystemConfigManager';
 import { ClassesManager } from './components/ClassesManager';
 import { LoginScreen } from './components/LoginScreen';
 import { OcorrenciasManager } from './components/OcorrenciasManager';
@@ -954,11 +955,21 @@ export default function App() {
             <span>Conectando diretamente à base de dados centralizada do Firebase e sincronizando dados da escola...</span>
           </div>
         )}
-        {/* Administrador Master only: Gerenciamento do Banco de Dados de Acessos & Determinação de Perfis */}
-        {activeTab === 'access_management' && currentUser.role === 'admin' && (
-          <AccessManagement
+        {/* Administrador Master only: Gerenciador Central de Todos os Sistemas (Busca Ativa, Ocorrências, Tablets, Usuários) */}
+        {(activeTab === 'system_manager' || activeTab === 'access_management') && currentUser.role === 'admin' && (
+          <SystemConfigManager
+            currentUser={currentUser}
+            classes={classes}
+            students={students}
             onRefresh={fetchData}
+            onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
+            onOpenWhatsAppIntegration={() => setIsWhatsAppModalOpen(true)}
             onOpenGoogleSheets={() => setIsGoogleSheetsModalOpen(true)}
+            onOpenResetAllModal={() => {
+              setWipeConfirmText('');
+              setIsWipeAllConfirmOpen(true);
+            }}
+            onOpenFirebaseStatus={() => setIsFirebaseStatusModalOpen(true)}
           />
         )}
 

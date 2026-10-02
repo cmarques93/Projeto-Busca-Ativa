@@ -3606,20 +3606,6 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             >
               👨‍🎓 Meus Tutorados
             </button>
-            {(isAdmin || isGestao) && (
-              <button
-                type="button"
-                onClick={() => setAbaGestao('config_admin')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                  abaGestao === 'config_admin'
-                    ? 'bg-indigo-900 text-white shadow-2xs'
-                    : 'text-indigo-800 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200'
-                }`}
-              >
-                <Settings className="w-3.5 h-3.5" />
-                <span>⚙️ Grade de Horários & Configurações</span>
-              </button>
-            )}
           </>
         ) : (
           <>

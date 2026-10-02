@@ -173,12 +173,15 @@ export interface SchoolClass {
   id: string;
   name: string;
   grade: string;
-  shift: 'Manhã' | 'Tarde' | 'Integral' | 'Noite';
+  shift: 'Manhã' | 'Tarde' | 'Integral' | 'Noite' | 'manha' | 'tarde' | 'integral' | 'noite';
   totalStudents: number;
-  presentToday: number;
-  absentToday: number;
-  attendanceRateToday: number;
-  studentsAtRiskCount: number;
+  presentToday?: number;
+  absentToday?: number;
+  attendanceRateToday?: number;
+  studentsAtRiskCount?: number;
+  attendanceRate?: number;
+  room?: string;
+  description?: string;
 }
 
 export interface MonthlyPedagogicalReport {
