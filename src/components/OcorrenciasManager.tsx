@@ -247,6 +247,57 @@ export const ordenarOcorrenciasPorMaisRecentes = (registros: OcorrenciaRecord[])
   });
 };
 
+/**
+ * Verifica se a ocorrência foi indicada como resolvida em sala de aula
+ */
+export const verificarResolvidoEmSala = (auxilioStr: string): boolean => {
+  const aux = String(auxilioStr || '').toLowerCase();
+  return (
+    aux.includes('nenhum auxílio') ||
+    aux.includes('sem necessidade') ||
+    aux.includes('nenhum') ||
+    aux.includes('resolvido em sala')
+  );
+};
+
+/**
+ * Identifica se a ocorrência está Concluída (Finalizada pela gestão ou resolvida em sala)
+ */
+export const isOcorrenciaConcluida = (r: OcorrenciaRecord): boolean => {
+  const statusNorm = String(r.status || '').trim().toLowerCase();
+  if (statusNorm === 'resolvido' || statusNorm === 'concluído' || statusNorm === 'concluido') {
+    return true;
+  }
+  // Se foi resolvida em sala pelo professor e a gestão não abriu acompanhamento ativo
+  if (verificarResolvidoEmSala(r.auxilio) && statusNorm !== 'em andamento' && statusNorm !== 'em acompanhamento') {
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Identifica se a ocorrência está Em Andamento (Possui atendimento/registro da gestão, mas ainda sem conclusão)
+ */
+export const isOcorrenciaEmAndamento = (r: OcorrenciaRecord): boolean => {
+  if (isOcorrenciaConcluida(r)) return false;
+  const statusNorm = String(r.status || '').trim().toLowerCase();
+  if (statusNorm === 'em andamento' || statusNorm === 'em acompanhamento') {
+    return true;
+  }
+  // Se já possui mediação/parecer registrado pela gestão e ainda não foi marcado como concluído
+  if (r.mediacao && r.mediacao.trim().length > 0) {
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Identifica se a ocorrência está Pendente (Nova ocorrência solicitando suporte aguardando primeiro registro da gestão)
+ */
+export const isOcorrenciaPendente = (r: OcorrenciaRecord): boolean => {
+  return !isOcorrenciaConcluida(r) && !isOcorrenciaEmAndamento(r);
+};
+
 interface OcorrenciasManagerProps {
   currentUser?: { id: string; name: string; role: string; pin?: string } | null;
   classes: SchoolClass[];
@@ -387,8 +438,11 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
   // Abas de Navegação
   const [abaGestao, setAbaGestao] = useState<
-    'pendentes' | 'sala' | 'consulta' | 'estatisticas' | 'registrar' | 'devolutivas' | 'tutorados' | 'config_admin'
+    'pendentes' | 'em_andamento' | 'concluidos' | 'sala' | 'consulta' | 'estatisticas' | 'registrar' | 'devolutivas' | 'tutorados' | 'config_admin'
   >(isGestao ? 'pendentes' : 'registrar');
+
+  // Filtro interno para a aba de Concluídos: Todos | Gestão | Resolvidos em Sala
+  const [filtroConcluidos, setFiltroConcluidos] = useState<'todos' | 'gestao' | 'sala'>('todos');
 
   const [abaProfessor, setAbaProfessor] = useState<'registrar' | 'devolutivas' | 'tutorados'>(
     'registrar'
@@ -808,8 +862,14 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
   // Abrir Modal de Mediação
   const abrirMediacao = (r: OcorrenciaRecord) => {
     setModalMediacao(r);
+    const statusInicial = isOcorrenciaConcluida(r)
+      ? 'Concluído'
+      : isOcorrenciaEmAndamento(r)
+      ? 'Em Andamento'
+      : 'Concluído';
+
     setFormMediacao({
-      status: r.status || 'Resolvido',
+      status: statusInicial,
       mediacao: r.mediacao || '',
       mediador: r.mediador || userName,
     });
@@ -823,11 +883,13 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     setEnviando(true);
 
     const mediadorFinal = (formMediacao.mediador || userName).trim();
+    const statusFinal = formMediacao.status; // 'Concluído' | 'Em Andamento' | 'Pendente'
+
     const payload = {
       action: 'mediacao',
       acao: 'mediar',
       id: modalMediacao.id,
-      status: formMediacao.status,
+      status: statusFinal,
       mediacao: formMediacao.mediacao,
       mediador: mediadorFinal,
     };
@@ -840,7 +902,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         r.id === modalMediacao.id
           ? {
               ...r,
-              status: formMediacao.status,
+              status: statusFinal,
               mediacao: formMediacao.mediacao,
               mediador: mediadorFinal,
             }
@@ -852,9 +914,16 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     });
 
     setEnviando(false);
-    setMensagem({ texto: '✅ Parecer de mediação registrado com sucesso!', tipo: 'sucesso' });
+    const msgSucesso =
+      statusFinal === 'Em Andamento'
+        ? '⏳ Ocorrência registrada e alocada na aba "Em Andamento"!'
+        : statusFinal === 'Concluído'
+        ? '✅ Ocorrência concluída com sucesso e movida para a aba "Concluídos"!'
+        : '✅ Parecer de mediação registrado com sucesso!';
+
+    setMensagem({ texto: msgSucesso, tipo: 'sucesso' });
     setModalMediacao(null);
-    setFormMediacao({ status: 'Resolvido', mediacao: '', mediador: userName });
+    setFormMediacao({ status: 'Concluído', mediacao: '', mediador: userName });
     setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
     carregarDados();
   };
@@ -1332,150 +1401,174 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
   // Card de Ocorrência Reutilizável
   const OcorrenciaCard: React.FC<{
     reg: OcorrenciaRecord;
-    resolvidoEmSala: boolean;
+    resolvidoEmSala?: boolean;
+    tipoStatus?: 'pendente' | 'em_andamento' | 'concluido';
     onMediar?: (r: OcorrenciaRecord) => void;
   }> = ({
     reg,
     resolvidoEmSala,
+    tipoStatus,
     onMediar,
-  }) => (
-    <div
-      className={`bg-white p-5 rounded-2xl shadow-xs border-l-4 transition-all duration-150 ${
-        resolvidoEmSala ? 'border-emerald-500' : 'border-amber-500'
-      } flex flex-col sm:flex-row justify-between gap-4 border-slate-200 border`}
-    >
-      <div className="flex-1">
-        <div className="flex items-center gap-2 mb-2 flex-wrap text-xs text-slate-500">
-          <span className="bg-slate-100 px-2 py-0.5 rounded-md font-mono font-bold text-slate-700">
-            {reg.id}
-          </span>
-          <span>📅 {formatarDataBR(reg.data)}</span>
-          <span className="hidden sm:inline">•</span>
-          <span>🕒 {reg.aula}</span>
-          <span className="hidden sm:inline">•</span>
-          <span
-            className={`font-bold ${resolvidoEmSala ? 'text-emerald-700' : 'text-rose-600'}`}
-          >
-            🤝 {reg.auxilio}
-          </span>
-          {reg.status && (
+  }) => {
+    const concluido = tipoStatus === 'concluido' || isOcorrenciaConcluida(reg);
+    const emAndamento = !concluido && (tipoStatus === 'em_andamento' || isOcorrenciaEmAndamento(reg));
+    const ehResolvidoEmSala = resolvidoEmSala ?? verificarResolvidoEmSala(reg.auxilio);
+
+    return (
+      <div
+        className={`bg-white p-5 rounded-2xl shadow-xs border-l-4 transition-all duration-150 ${
+          concluido
+            ? 'border-emerald-500'
+            : emAndamento
+            ? 'border-blue-500'
+            : 'border-amber-500'
+        } flex flex-col sm:flex-row justify-between gap-4 border-slate-200 border`}
+      >
+        <div className="flex-1">
+          <div className="flex items-center gap-2 mb-2 flex-wrap text-xs text-slate-500">
+            <span className="bg-slate-100 px-2 py-0.5 rounded-md font-mono font-bold text-slate-700">
+              {reg.id}
+            </span>
+            <span>📅 {formatarDataBR(reg.data)}</span>
+            <span className="hidden sm:inline">•</span>
+            <span>🕒 {reg.aula}</span>
+            <span className="hidden sm:inline">•</span>
             <span
-              className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                reg.status === 'Resolvido'
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : 'bg-amber-100 text-amber-800'
+              className={`font-bold ${ehResolvidoEmSala ? 'text-emerald-700' : 'text-rose-600'}`}
+            >
+              🤝 {reg.auxilio}
+            </span>
+            <span
+              className={`ml-2 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                concluido
+                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                  : emAndamento
+                  ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                  : 'bg-amber-100 text-amber-800 border border-amber-200'
               }`}
             >
-              {reg.status}
+              {concluido ? '✅ Concluído' : emAndamento ? '⏳ Em Andamento' : '🚨 Pendente'}
             </span>
-          )}
-        </div>
-        <h3 className="text-base font-extrabold text-slate-900">
-          {reg.estudante}{' '}
-          <span className="text-indigo-600 text-xs bg-indigo-50 px-2 py-0.5 rounded-md font-semibold">
-            {reg.turma}
-          </span>
-        </h3>
-        <p className="text-slate-800 mt-1 font-semibold text-sm">{reg.ocorrencia}</p>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Lançado por: <strong>{reg.professor}</strong> (Medida: {reg.medida})
-        </p>
-        {reg.descricao && (
-          <p className="text-xs text-slate-700 mt-2 bg-slate-50 p-2.5 rounded-lg italic border border-slate-200">
-            "{reg.descricao}"
-          </p>
-        )}
-
-        {reg.mediacao ? (
-          <div className="mt-3 bg-indigo-50/70 p-3 rounded-xl border border-indigo-100 text-xs">
-            <p className="font-bold text-indigo-900 mb-0.5 flex items-center gap-1.5">
-              <Shield className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Parecer da Gestão / Mediação{reg.mediador ? ` (${reg.mediador})` : ''}:</span>
-            </p>
-            <p className="text-indigo-950 whitespace-pre-line">{reg.mediacao}</p>
           </div>
-        ) : (
-          !resolvidoEmSala && (
-            <div className="mt-2.5 text-xs text-amber-700 italic flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5" />
-              <span>Aguardando apontamento da equipe gestora...</span>
-            </div>
-          )
-        )}
+          <h3 className="text-base font-extrabold text-slate-900">
+            {reg.estudante}{' '}
+            <span className="text-indigo-600 text-xs bg-indigo-50 px-2 py-0.5 rounded-md font-semibold">
+              {reg.turma}
+            </span>
+          </h3>
+          <p className="text-slate-800 mt-1 font-semibold text-sm">{reg.ocorrencia}</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Lançado por: <strong>{reg.professor}</strong> (Medida: {reg.medida})
+          </p>
+          {reg.descricao && (
+            <p className="text-xs text-slate-700 mt-2 bg-slate-50 p-2.5 rounded-lg italic border border-slate-200">
+              "{reg.descricao}"
+            </p>
+          )}
 
-        {/* Auditoria de Data e Horário de Preenchimento pelo Professor (VISÍVEL SOMENTE PARA A GESTÃO) */}
-        {isGestao && (() => {
-          const info = obterInfoPreenchimento(reg);
-          return (
-            <div className="mt-3 p-2.5 bg-slate-50 rounded-xl border border-slate-200/90 text-xs flex flex-wrap items-center justify-between gap-2 shadow-2xs">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="flex items-center gap-1.5 font-semibold text-slate-700">
-                  <Clock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                  <span className="text-slate-500 font-medium">Preenchido pelo professor em:</span>
-                  <strong className="text-slate-900 font-mono">{info.dataHoraFormatada}</strong>
-                </span>
-                <span
-                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                    info.tempoDecorridoOuTipo === 'no_ato'
-                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                      : info.tempoDecorridoOuTipo === 'posterior'
-                      ? (info.diasDiferenca && info.diasDiferenca > 1)
-                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                        : 'bg-amber-100 text-amber-800 border border-amber-200'
-                      : 'bg-slate-100 text-slate-700 border border-slate-200'
-                  }`}
-                >
-                  {info.tagBadge}
+          {reg.mediacao ? (
+            <div className="mt-3 bg-indigo-50/70 p-3 rounded-xl border border-indigo-100 text-xs">
+              <p className="font-bold text-indigo-900 mb-0.5 flex items-center gap-1.5">
+                <Shield className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Parecer da Gestão / Mediação{reg.mediador ? ` (${reg.mediador})` : ''}:</span>
+              </p>
+              <p className="text-indigo-950 whitespace-pre-line">{reg.mediacao}</p>
+            </div>
+          ) : (
+            !ehResolvidoEmSala && (
+              <div className="mt-2.5 text-xs text-amber-700 italic flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5" />
+                <span>Aguardando apontamento da equipe gestora...</span>
+              </div>
+            )
+          )}
+
+          {/* Auditoria de Data e Horário de Preenchimento pelo Professor (VISÍVEL SOMENTE PARA A GESTÃO) */}
+          {isGestao && (() => {
+            const info = obterInfoPreenchimento(reg);
+            return (
+              <div className="mt-3 p-2.5 bg-slate-50 rounded-xl border border-slate-200/90 text-xs flex flex-wrap items-center justify-between gap-2 shadow-2xs">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="flex items-center gap-1.5 font-semibold text-slate-700">
+                    <Clock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                    <span className="text-slate-500 font-medium">Preenchido pelo professor em:</span>
+                    <strong className="text-slate-900 font-mono">{info.dataHoraFormatada}</strong>
+                  </span>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                      info.tempoDecorridoOuTipo === 'no_ato'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        : info.tempoDecorridoOuTipo === 'posterior'
+                        ? (info.diasDiferenca && info.diasDiferenca > 1)
+                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                          : 'bg-amber-100 text-amber-800 border border-amber-200'
+                        : 'bg-slate-100 text-slate-700 border border-slate-200'
+                    }`}
+                  >
+                    {info.tagBadge}
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                  <Shield className="w-3 h-3 text-indigo-500" />
+                  <span>Auditoria de Gestão</span>
                 </span>
               </div>
-              <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
-                <Shield className="w-3 h-3 text-indigo-500" />
-                <span>Auditoria de Gestão</span>
+            );
+          })()}
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 shrink-0">
+          {/* Envio via WhatsApp aos Responsáveis - Restrito para Perfil de Gestão */}
+          {isGestao && (
+            <button
+              type="button"
+              onClick={() => abrirWhatsAppOcorrencia(reg)}
+              className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3.5 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+              title="Enviar comunicado da ocorrência via WhatsApp aos responsáveis"
+            >
+              <Phone className="w-3.5 h-3.5" />
+              <span>Enviar aos Pais</span>
+            </button>
+          )}
+
+          {onMediar && (
+            <button
+              type="button"
+              onClick={() => onMediar(reg)}
+              className={`w-full sm:w-auto text-white font-bold py-2 px-4 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                concluido
+                  ? 'bg-slate-800 hover:bg-slate-900'
+                  : emAndamento
+                  ? 'bg-blue-600 hover:bg-blue-700'
+                  : 'bg-amber-500 hover:bg-amber-600'
+              }`}
+            >
+              <span>
+                {concluido
+                  ? 'Ver / Atualizar Parecer'
+                  : emAndamento
+                  ? 'Atualizar Andamento / Concluir'
+                  : 'Registrar Mediação'}
               </span>
-            </div>
-          );
-        })()}
+            </button>
+          )}
+
+          {/* Excluir Ocorrência - Exclusivo Administrador */}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => setOcorrenciaParaExcluir(reg)}
+              className="w-full sm:w-auto bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-2 px-3 rounded-xl text-xs border border-rose-200 shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+              title="Excluir ocorrência do banco de dados (Exclusivo Administrador)"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Excluir</span>
+            </button>
+          )}
+        </div>
       </div>
-
-      <div className="flex flex-col sm:flex-row items-center sm:items-start gap-2 shrink-0">
-        {/* Envio via WhatsApp aos Responsáveis - Restrito para Perfil de Gestão */}
-        {isGestao && (
-          <button
-            type="button"
-            onClick={() => abrirWhatsAppOcorrencia(reg)}
-            className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-3.5 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-            title="Enviar comunicado da ocorrência via WhatsApp aos responsáveis"
-          >
-            <Phone className="w-3.5 h-3.5" />
-            <span>Enviar aos Pais</span>
-          </button>
-        )}
-
-        {onMediar && (
-          <button
-            type="button"
-            onClick={() => onMediar(reg)}
-            className="w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-4 rounded-xl text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-          >
-            <span>{reg.mediacao ? 'Atualizar Mediação' : 'Mediar Ocorrência'}</span>
-          </button>
-        )}
-
-        {/* Excluir Ocorrência - Exclusivo Administrador */}
-        {isAdmin && (
-          <button
-            type="button"
-            onClick={() => setOcorrenciaParaExcluir(reg)}
-            className="w-full sm:w-auto bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold py-2 px-3 rounded-xl text-xs border border-rose-200 shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-            title="Excluir ocorrência do banco de dados (Exclusivo Administrador)"
-          >
-            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-            <span>Excluir</span>
-          </button>
-        )}
-      </div>
-    </div>
-  );
+    );
+  };
 
   // Renderização do Formulário de Registro
   const renderFormularioRegistro = () => (
@@ -2797,18 +2890,111 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     );
   };
 
+  // Estados de busca individual por aba
+  const [buscaPendentes, setBuscaPendentes] = useState('');
+  const [buscaEmAndamento, setBuscaEmAndamento] = useState('');
+  const [buscaConcluidos, setBuscaConcluidos] = useState('');
+  const [buscaSala, setBuscaSala] = useState('');
+
   // Listas de Ocorrências com ordenação estrita: MAIS RECENTES SEMPRE EM PRIMEIRO LUGAR
+  // 1. Pendentes: Novas ocorrências com solicitação de suporte aguardando primeiro registro da gestão
   const pendentes = useMemo(
-    () => ordenarOcorrenciasPorMaisRecentes(bancoDeDados.registros.filter(r => r.status !== 'Resolvido')),
+    () => ordenarOcorrenciasPorMaisRecentes(bancoDeDados.registros.filter(isOcorrenciaPendente)),
     [bancoDeDados.registros]
   );
+
+  // 2. Em Andamento: Ocorrências onde a gestão fez registro e marcou como "Em Andamento" (sem conclusão definitiva)
+  const emAndamento = useMemo(
+    () => ordenarOcorrenciasPorMaisRecentes(bancoDeDados.registros.filter(isOcorrenciaEmAndamento)),
+    [bancoDeDados.registros]
+  );
+
+  // 3. Concluídos: Todas as ocorrências concluídas (finalizadas pela gestão ou resolvidas)
+  const concluidos = useMemo(
+    () => ordenarOcorrenciasPorMaisRecentes(bancoDeDados.registros.filter(isOcorrenciaConcluida)),
+    [bancoDeDados.registros]
+  );
+
+  // Sub-filtros para Concluídos
+  const concluidosGestao = useMemo(
+    () =>
+      concluidos.filter(
+        r => !verificarResolvidoEmSala(r.auxilio) || (r.mediacao && r.mediacao.trim().length > 0)
+      ),
+    [concluidos]
+  );
+
   const resolvidosEmSala = useMemo(
     () =>
       ordenarOcorrenciasPorMaisRecentes(
-        bancoDeDados.registros.filter(r => r.status === 'Resolvido' && verificarResolvidoEmSala(r.auxilio))
+        bancoDeDados.registros.filter(
+          r => verificarResolvidoEmSala(r.auxilio) && (!r.mediacao || r.mediacao.trim().length === 0) && String(r.status || '').toLowerCase() !== 'em andamento'
+        )
       ),
     [bancoDeDados.registros]
   );
+
+  // Listas filtradas pela barra de busca rápida
+  const pendentesFiltrados = useMemo(() => {
+    if (!buscaPendentes.trim()) return pendentes;
+    const q = buscaPendentes.toLowerCase().trim();
+    return pendentes.filter(
+      r =>
+        r.estudante.toLowerCase().includes(q) ||
+        r.turma.toLowerCase().includes(q) ||
+        r.professor.toLowerCase().includes(q) ||
+        r.ocorrencia.toLowerCase().includes(q) ||
+        (r.id && r.id.toLowerCase().includes(q))
+    );
+  }, [pendentes, buscaPendentes]);
+
+  const emAndamentoFiltrados = useMemo(() => {
+    if (!buscaEmAndamento.trim()) return emAndamento;
+    const q = buscaEmAndamento.toLowerCase().trim();
+    return emAndamento.filter(
+      r =>
+        r.estudante.toLowerCase().includes(q) ||
+        r.turma.toLowerCase().includes(q) ||
+        r.professor.toLowerCase().includes(q) ||
+        (r.mediador && r.mediador.toLowerCase().includes(q)) ||
+        r.ocorrencia.toLowerCase().includes(q) ||
+        (r.mediacao && r.mediacao.toLowerCase().includes(q)) ||
+        (r.id && r.id.toLowerCase().includes(q))
+    );
+  }, [emAndamento, buscaEmAndamento]);
+
+  const concluidosFiltrados = useMemo(() => {
+    let base = concluidos;
+    if (filtroConcluidos === 'gestao') {
+      base = concluidosGestao;
+    } else if (filtroConcluidos === 'sala') {
+      base = resolvidosEmSala;
+    }
+    if (!buscaConcluidos.trim()) return base;
+    const q = buscaConcluidos.toLowerCase().trim();
+    return base.filter(
+      r =>
+        r.estudante.toLowerCase().includes(q) ||
+        r.turma.toLowerCase().includes(q) ||
+        r.professor.toLowerCase().includes(q) ||
+        (r.mediador && r.mediador.toLowerCase().includes(q)) ||
+        r.ocorrencia.toLowerCase().includes(q) ||
+        (r.id && r.id.toLowerCase().includes(q))
+    );
+  }, [concluidos, concluidosGestao, resolvidosEmSala, filtroConcluidos, buscaConcluidos]);
+
+  const salaFiltrados = useMemo(() => {
+    if (!buscaSala.trim()) return resolvidosEmSala;
+    const q = buscaSala.toLowerCase().trim();
+    return resolvidosEmSala.filter(
+      r =>
+        r.estudante.toLowerCase().includes(q) ||
+        r.turma.toLowerCase().includes(q) ||
+        r.professor.toLowerCase().includes(q) ||
+        r.ocorrencia.toLowerCase().includes(q) ||
+        (r.id && r.id.toLowerCase().includes(q))
+    );
+  }, [resolvidosEmSala, buscaSala]);
 
   return (
     <div className="space-y-6">
@@ -2866,32 +3052,90 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       <div className="bg-white rounded-2xl border border-slate-200 p-1.5 shadow-2xs flex overflow-x-auto no-scrollbar gap-1">
         {isGestao ? (
           <>
+            {/* Aba 1: Pendentes */}
             <button
               type="button"
               onClick={() => setAbaGestao('pendentes')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
                 abaGestao === 'pendentes'
                   ? 'bg-indigo-600 text-white shadow-2xs'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              🚨 Pendentes ({pendentes.length})
+              <span>🚨 Pendentes</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  abaGestao === 'pendentes' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                {pendentes.length}
+              </span>
             </button>
+
+            {/* Aba 2: Em Andamento */}
+            <button
+              type="button"
+              onClick={() => setAbaGestao('em_andamento')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                abaGestao === 'em_andamento'
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <span>⏳ Em Andamento</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  abaGestao === 'em_andamento' ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-800'
+                }`}
+              >
+                {emAndamento.length}
+              </span>
+            </button>
+
+            {/* Aba 3: Concluídos */}
+            <button
+              type="button"
+              onClick={() => setAbaGestao('concluidos')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                abaGestao === 'concluidos'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <span>✅ Concluídos</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  abaGestao === 'concluidos' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+                }`}
+              >
+                {concluidos.length}
+              </span>
+            </button>
+
+            {/* Aba 4: Resolvidos em Sala */}
             <button
               type="button"
               onClick={() => setAbaGestao('sala')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
                 abaGestao === 'sala'
                   ? 'bg-indigo-600 text-white shadow-2xs'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              📂 Resolvidos em Sala
+              <span>📂 Resolvidos em Sala</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  abaGestao === 'sala' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                }`}
+              >
+                {resolvidosEmSala.length}
+              </span>
             </button>
+
             <button
               type="button"
               onClick={() => setAbaGestao('consulta')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 abaGestao === 'consulta'
                   ? 'bg-indigo-600 text-white shadow-2xs'
                   : 'text-slate-600 hover:bg-slate-100'
@@ -2902,7 +3146,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             <button
               type="button"
               onClick={() => setAbaGestao('estatisticas')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 abaGestao === 'estatisticas'
                   ? 'bg-indigo-600 text-white shadow-2xs'
                   : 'text-slate-600 hover:bg-slate-100'
@@ -2913,7 +3157,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             <button
               type="button"
               onClick={() => setAbaGestao('registrar')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 abaGestao === 'registrar'
                   ? 'bg-indigo-600 text-white shadow-2xs'
                   : 'text-slate-600 hover:bg-slate-100'
@@ -2924,7 +3168,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             <button
               type="button"
               onClick={() => setAbaGestao('devolutivas')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 abaGestao === 'devolutivas'
                   ? 'bg-indigo-600 text-white shadow-2xs'
                   : 'text-slate-600 hover:bg-slate-100'
@@ -2935,7 +3179,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             <button
               type="button"
               onClick={() => setAbaGestao('tutorados')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                 abaGestao === 'tutorados'
                   ? 'bg-indigo-600 text-white shadow-2xs'
                   : 'text-slate-600 hover:bg-slate-100'
@@ -2947,7 +3191,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
               <button
                 type="button"
                 onClick={() => setAbaGestao('config_admin')}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
                   abaGestao === 'config_admin'
                     ? 'bg-indigo-900 text-white shadow-2xs'
                     : 'text-indigo-800 bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200'
@@ -3001,27 +3245,54 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       <div>
         {isGestao ? (
           <>
+            {/* ABA 1: PENDENTES (Novas ocorrências com solicitação de suporte) */}
             {abaGestao === 'pendentes' && (
               <div className="space-y-4">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-base font-bold text-slate-900">
-                    Aguardando Mediação da Gestão ({pendentes.length})
-                  </h2>
+                <div className="bg-white p-5 rounded-2xl shadow-xs border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                      <span>🚨 Ocorrências com Solicitação de Suporte</span>
+                      <span className="bg-amber-100 text-amber-900 text-xs px-2.5 py-0.5 rounded-full font-mono font-bold">
+                        {pendentes.length} pendente(s)
+                      </span>
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Novas ocorrências abertas pelos docentes solicitando intervenção ou convocação da família.
+                    </p>
+                  </div>
+
+                  <div className="w-full sm:w-72">
+                    <input
+                      type="text"
+                      value={buscaPendentes}
+                      onChange={e => setBuscaPendentes(e.target.value)}
+                      placeholder="Filtrar por estudante, turma ou professor..."
+                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-slate-50"
+                    />
+                  </div>
                 </div>
-                {pendentes.length === 0 ? (
+
+                {pendentesFiltrados.length === 0 ? (
                   <div className="bg-white p-12 text-center rounded-2xl shadow-xs border border-slate-200 text-slate-500">
                     <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-2" />
                     <p className="font-bold text-sm text-slate-800">
-                      Nenhuma ocorrência pendente no momento!
+                      {buscaPendentes
+                        ? 'Nenhuma ocorrência pendente corresponde à busca.'
+                        : 'Nenhuma ocorrência pendente de suporte no momento!'}
                     </p>
-                    <p className="text-xs text-slate-400 mt-1">Todos os casos foram mediados.</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {buscaPendentes
+                        ? 'Tente buscar por outro termo ou limpe o campo.'
+                        : 'Todos os pedidos de auxílio foram atendidos ou alocados.'}
+                    </p>
                   </div>
                 ) : (
                   <div className="grid gap-3">
-                    {pendentes.map(reg => (
+                    {pendentesFiltrados.map(reg => (
                       <OcorrenciaCard
                         key={reg.id}
                         reg={reg}
+                        tipoStatus="pendente"
                         resolvidoEmSala={false}
                         onMediar={abrirMediacao}
                       />
@@ -3031,21 +3302,192 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
               </div>
             )}
 
+            {/* ABA 2: EM ANDAMENTO (Registros iniciados pela gestão sem conclusão) */}
+            {abaGestao === 'em_andamento' && (
+              <div className="space-y-4">
+                <div className="bg-white p-5 rounded-2xl shadow-xs border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                      <span>⏳ Ocorrências em Acompanhamento / Em Andamento</span>
+                      <span className="bg-blue-100 text-blue-900 text-xs px-2.5 py-0.5 rounded-full font-mono font-bold">
+                        {emAndamento.length} caso(s)
+                      </span>
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Casos com atendimento iniciado pela gestão escolar aguardando conclusão definitiva ou novas tratativas.
+                    </p>
+                  </div>
+
+                  <div className="w-full sm:w-72">
+                    <input
+                      type="text"
+                      value={buscaEmAndamento}
+                      onChange={e => setBuscaEmAndamento(e.target.value)}
+                      placeholder="Filtrar por estudante, turma ou mediador..."
+                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden bg-slate-50"
+                    />
+                  </div>
+                </div>
+
+                {emAndamentoFiltrados.length === 0 ? (
+                  <div className="bg-white p-12 text-center rounded-2xl shadow-xs border border-slate-200 text-slate-500">
+                    <Clock className="w-10 h-10 mx-auto text-blue-500 mb-2" />
+                    <p className="font-bold text-sm text-slate-800">
+                      {buscaEmAndamento
+                        ? 'Nenhum caso em andamento corresponde à busca.'
+                        : 'Nenhuma ocorrência em andamento no momento.'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      {buscaEmAndamento
+                        ? 'Tente buscar por outro termo.'
+                        : 'Quando a gestão mediar e marcar "Em Andamento", o caso será exibido aqui.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {emAndamentoFiltrados.map(reg => (
+                      <OcorrenciaCard
+                        key={reg.id}
+                        reg={reg}
+                        tipoStatus="em_andamento"
+                        resolvidoEmSala={false}
+                        onMediar={abrirMediacao}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ABA 3: CONCLUÍDOS (Casos finalizados pela gestão ou resolvidos) */}
+            {abaGestao === 'concluidos' && (
+              <div className="space-y-4">
+                <div className="bg-white p-5 rounded-2xl shadow-xs border border-slate-200 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                        <span>✅ Ocorrências Concluídas & Finalizadas</span>
+                        <span className="bg-emerald-100 text-emerald-900 text-xs px-2.5 py-0.5 rounded-full font-mono font-bold">
+                          {concluidos.length} concluído(s)
+                        </span>
+                      </h2>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Histórico completo de ocorrências solucionadas pela equipe gestora ou resolvidas em sala de aula.
+                      </p>
+                    </div>
+
+                    <div className="w-full sm:w-72">
+                      <input
+                        type="text"
+                        value={buscaConcluidos}
+                        onChange={e => setBuscaConcluidos(e.target.value)}
+                        placeholder="Filtrar concluídos..."
+                        className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:outline-hidden bg-slate-50"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Sub-filtros para Concluídos */}
+                  <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setFiltroConcluidos('todos')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        filtroConcluidos === 'todos'
+                          ? 'bg-emerald-700 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      Todos os Concluídos ({concluidos.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroConcluidos('gestao')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        filtroConcluidos === 'gestao'
+                          ? 'bg-emerald-700 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      Concluídos pela Gestão ({concluidosGestao.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFiltroConcluidos('sala')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        filtroConcluidos === 'sala'
+                          ? 'bg-emerald-700 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      Resolvidos em Sala ({resolvidosEmSala.length})
+                    </button>
+                  </div>
+                </div>
+
+                {concluidosFiltrados.length === 0 ? (
+                  <div className="bg-white p-12 text-center rounded-2xl shadow-xs border border-slate-200 text-slate-500">
+                    <CheckCircle2 className="w-10 h-10 mx-auto text-emerald-500 mb-2" />
+                    <p className="font-bold text-sm text-slate-800">
+                      {buscaConcluidos
+                        ? 'Nenhum registro concluído corresponde à busca.'
+                        : 'Nenhuma ocorrência concluída nesta categoria.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid gap-3">
+                    {concluidosFiltrados.map(reg => (
+                      <OcorrenciaCard
+                        key={reg.id}
+                        reg={reg}
+                        tipoStatus="concluido"
+                        resolvidoEmSala={verificarResolvidoEmSala(reg.auxilio)}
+                        onMediar={abrirMediacao}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ABA 4: RESOLVIDOS EM SALA */}
             {abaGestao === 'sala' && (
               <div className="space-y-4">
-                <h2 className="text-base font-bold text-slate-900">
-                  Resolvidos em Sala de Aula ({resolvidosEmSala.length})
-                </h2>
-                {resolvidosEmSala.length === 0 ? (
+                <div className="bg-white p-5 rounded-2xl shadow-xs border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                      <span>📂 Resolvidos em Sala de Aula</span>
+                      <span className="bg-slate-100 text-slate-800 text-xs px-2.5 py-0.5 rounded-full font-mono font-bold">
+                        {resolvidosEmSala.length} registro(s)
+                      </span>
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Ocorrências administradas autonomamente pelos professores em sala sem solicitação de intervenção da gestão.
+                    </p>
+                  </div>
+
+                  <div className="w-full sm:w-72">
+                    <input
+                      type="text"
+                      value={buscaSala}
+                      onChange={e => setBuscaSala(e.target.value)}
+                      placeholder="Filtrar resolvidos em sala..."
+                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden bg-slate-50"
+                    />
+                  </div>
+                </div>
+
+                {salaFiltrados.length === 0 ? (
                   <div className="bg-white p-8 text-center rounded-2xl shadow-xs border border-slate-200 text-slate-500 text-xs">
                     Nenhum registro resolvido em sala localizado.
                   </div>
                 ) : (
                   <div className="grid gap-3">
-                    {resolvidosEmSala.map(reg => (
+                    {salaFiltrados.map(reg => (
                       <OcorrenciaCard
                         key={reg.id}
                         reg={reg}
+                        tipoStatus="concluido"
                         resolvidoEmSala={true}
                         onMediar={abrirMediacao}
                       />
@@ -3219,11 +3661,19 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                     required
                     value={formMediacao.status}
                     onChange={e => setFormMediacao({ ...formMediacao, status: e.target.value })}
-                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800"
+                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
                   >
-                    <option value="Resolvido">Resolvido (Encerrar Caso)</option>
-                    <option value="Pendente">Em acompanhamento (Manter Pendente)</option>
+                    <option value="Concluído">✅ Concluído (Encerrar caso e mover para Concluídos)</option>
+                    <option value="Em Andamento">⏳ Em Andamento (Em acompanhamento / Mover para Em Andamento)</option>
+                    <option value="Pendente">🚨 Pendente (Reabrir como Novo / Sem conclusão)</option>
                   </select>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    {formMediacao.status === 'Em Andamento'
+                      ? '📌 A ocorrência ficará alocada na aba "⏳ Em Andamento" até a resolução definitiva.'
+                      : formMediacao.status === 'Concluído'
+                      ? '📌 O caso será finalizado e arquivado na aba "✅ Concluídos".'
+                      : '📌 A ocorrência continuará aguardando atendimento na aba de pendências.'}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
