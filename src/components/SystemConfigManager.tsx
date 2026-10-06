@@ -39,7 +39,8 @@ import {
   Info,
   Phone,
   UserCheck,
-  AlertCircle
+  AlertCircle,
+  X
 } from 'lucide-react';
 import { SchoolClass, Student, UserAccount, UserRole, UserSession } from '../types';
 import { storageService, getRoleLabel } from '../data/storageService';
@@ -206,10 +207,19 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
         'Intervalo - 14h55 as 15h10',
         '9ª Aula - (15h10 as 16h)',
       ],
+      turmas: [],
       feriados: [],
       maxTablets: 23,
     };
   });
+
+  const [abaTabletsSub, setAbaTabletsSub] = useState<'turmas' | 'horarios' | 'feriados' | 'capacidade'>('turmas');
+  const [novaTurmaTablet, setNovaTurmaTablet] = useState('');
+  const [turmaEditandoIndex, setTurmaEditandoIndex] = useState<number | null>(null);
+  const [turmaEditandoNome, setTurmaEditandoNome] = useState('');
+  const [turmaParaExcluir, setTurmaParaExcluir] = useState<string | null>(null);
+  const [buscaTurmaTablet, setBuscaTurmaTablet] = useState('');
+  const [capacidadeTabletsInput, setCapacidadeTabletsInput] = useState<number>(23);
 
   const [novoHorarioTablet, setNovoHorarioTablet] = useState('');
   const [novoFeriadoData, setNovoFeriadoData] = useState('');
@@ -616,8 +626,134 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
   };
 
   // ==========================================
-  // HANDLERS: TABLETS
+  // HANDLERS: TABLETS & TURMAS
   // ==========================================
+  const turmasTabletsFiltradas = useMemo(() => {
+    const list = tabletsDb.turmas || [];
+    if (!buscaTurmaTablet.trim()) return list;
+    return list.filter(t => t.toLowerCase().includes(buscaTurmaTablet.toLowerCase().trim()));
+  }, [tabletsDb.turmas, buscaTurmaTablet]);
+
+  const handleAdicionarTurmaTablet = async () => {
+    const nomeLimpo = novaTurmaTablet.trim();
+    if (!nomeLimpo) {
+      showToast('⚠️ Digite o nome da turma para agendamento de tablets.', 'erro');
+      return;
+    }
+    const turmasAtuais = tabletsDb.turmas || [];
+    if (turmasAtuais.some(t => t.toLowerCase() === nomeLimpo.toLowerCase())) {
+      showToast('⚠️ Esta turma já está cadastrada na lista de tablets.', 'erro');
+      return;
+    }
+    setSalvandoTablets(true);
+    try {
+      const novasTurmas = [...turmasAtuais, nomeLimpo];
+      const novoDb = { ...tabletsDb, turmas: novasTurmas };
+      setTabletsDb(novoDb);
+      localStorage.setItem('CACHE_TABLET_APP', JSON.stringify(novoDb));
+      await salvarReservaTabletsSeguro({ action: 'salvar_config_tablets', turmas: novasTurmas }, novoDb);
+      setNovaTurmaTablet('');
+      showToast(`✅ Turma "${nomeLimpo}" cadastrada para agendamento de tablets!`);
+    } catch (err: any) {
+      showToast('Erro ao cadastrar turma de tablets: ' + err.message, 'erro');
+    } finally {
+      setSalvandoTablets(false);
+    }
+  };
+
+  const handleSalvarEdicaoTurmaTablet = async (index: number) => {
+    const nomeLimpo = turmaEditandoNome.trim();
+    if (!nomeLimpo) {
+      showToast('⚠️ O nome da turma não pode ficar em branco.', 'erro');
+      return;
+    }
+    setSalvandoTablets(true);
+    try {
+      const novasTurmas = [...(tabletsDb.turmas || [])];
+      const nomeAntigo = novasTurmas[index];
+      novasTurmas[index] = nomeLimpo;
+
+      // Opcionalmente atualiza agendamentos existentes com o nome antigo para o novo
+      const novosAgendamentos = (tabletsDb.agendamentos || []).map(ag => {
+        if (ag.turma === nomeAntigo) {
+          return { ...ag, turma: nomeLimpo };
+        }
+        return ag;
+      });
+
+      const novoDb = { ...tabletsDb, turmas: novasTurmas, agendamentos: novosAgendamentos };
+      setTabletsDb(novoDb);
+      localStorage.setItem('CACHE_TABLET_APP', JSON.stringify(novoDb));
+      await salvarReservaTabletsSeguro({ action: 'salvar_config_tablets', turmas: novasTurmas }, novoDb);
+      setTurmaEditandoIndex(null);
+      setTurmaEditandoNome('');
+      showToast(`✅ Turma atualizada para "${nomeLimpo}" com sucesso!`);
+    } catch (err: any) {
+      showToast('Erro ao editar turma de tablets: ' + err.message, 'erro');
+    } finally {
+      setSalvandoTablets(false);
+    }
+  };
+
+  const handleRemoverTurmaTablet = async (turmaNome: string) => {
+    setSalvandoTablets(true);
+    try {
+      const novasTurmas = (tabletsDb.turmas || []).filter(t => t !== turmaNome);
+      const novoDb = { ...tabletsDb, turmas: novasTurmas };
+      setTabletsDb(novoDb);
+      localStorage.setItem('CACHE_TABLET_APP', JSON.stringify(novoDb));
+      await salvarReservaTabletsSeguro({ action: 'salvar_config_tablets', turmas: novasTurmas }, novoDb);
+      setTurmaParaExcluir(null);
+      showToast(`Turma "${turmaNome}" removida dos tablets.`);
+    } catch (err: any) {
+      showToast('Erro ao remover turma: ' + err.message, 'erro');
+    } finally {
+      setSalvandoTablets(false);
+    }
+  };
+
+  const handleImportarTurmasDoSistema = async () => {
+    const turmasEscola = classes.map(c => c.name.trim()).filter(Boolean);
+    if (turmasEscola.length === 0) {
+      showToast('⚠️ Nenhuma turma cadastrada no sistema escolar.', 'erro');
+      return;
+    }
+    setSalvandoTablets(true);
+    try {
+      const turmasAtuais = tabletsDb.turmas || [];
+      const setUnico = new Set([...turmasAtuais, ...turmasEscola]);
+      const novasTurmas = Array.from(setUnico);
+      const novoDb = { ...tabletsDb, turmas: novasTurmas };
+      setTabletsDb(novoDb);
+      localStorage.setItem('CACHE_TABLET_APP', JSON.stringify(novoDb));
+      await salvarReservaTabletsSeguro({ action: 'salvar_config_tablets', turmas: novasTurmas }, novoDb);
+      showToast(`✅ ${novasTurmas.length} turmas sincronizadas com o agendamento de tablets!`);
+    } catch (err: any) {
+      showToast('Erro ao sincronizar turmas: ' + err.message, 'erro');
+    } finally {
+      setSalvandoTablets(false);
+    }
+  };
+
+  const handleSalvarCapacidadeTablets = async (novaCap: number) => {
+    if (novaCap < 1 || novaCap > 100) {
+      showToast('⚠️ Capacidade deve ser entre 1 e 100 tablets.', 'erro');
+      return;
+    }
+    setSalvandoTablets(true);
+    try {
+      const novoDb = { ...tabletsDb, maxTablets: novaCap };
+      setTabletsDb(novoDb);
+      setCapacidadeTabletsInput(novaCap);
+      localStorage.setItem('CACHE_TABLET_APP', JSON.stringify(novoDb));
+      await salvarReservaTabletsSeguro({ action: 'salvar_config_tablets', maxTablets: novaCap }, novoDb);
+      showToast(`✅ Capacidade de tablets atualizada para ${novaCap} unidades!`);
+    } catch (err: any) {
+      showToast('Erro ao salvar capacidade: ' + err.message, 'erro');
+    } finally {
+      setSalvandoTablets(false);
+    }
+  };
   const handleAdicionarHorarioTablet = async () => {
     if (!novoHorarioTablet.trim()) return;
     setSalvandoTablets(true);
@@ -1659,117 +1795,451 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
               <div className="flex items-center gap-2">
                 <Tablet className="w-5 h-5 text-sky-600" />
                 <h2 className="text-base font-black text-slate-900">
-                  Parâmetros de Reserva & Controle de Tablets
+                  Gerenciador de Tablets, Turmas & Grade Semanal
                 </h2>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Configure os horários de aulas disponíveis na grade semanal e cadastre feriados/bloqueios.
+                Cadastre e edite turmas autorizadas, configure horários de aula e bloqueios de feriados.
               </p>
             </div>
-            <span className="bg-sky-50 text-sky-800 text-xs font-bold px-3 py-1 rounded-lg border border-sky-200">
-              Estoque Total: 23 Tablets / Carrinho
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="bg-sky-50 text-sky-800 text-xs font-bold px-3 py-1 rounded-xl border border-sky-200">
+                Capacidade: {tabletsDb.maxTablets || 23} Tablets / Aula
+              </span>
+            </div>
           </div>
 
-          {/* Horários de Agendamento */}
-          <div className="space-y-4">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-              Horários / Aulas Disponíveis na Grade Semanal ({tabletsDb.horarios.length})
-            </h3>
+          {/* Sub-Navegação Interna de Tablets */}
+          <div className="bg-slate-100/80 p-1 rounded-xl flex flex-wrap gap-1">
+            <button
+              type="button"
+              onClick={() => setAbaTabletsSub('turmas')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                abaTabletsSub === 'turmas'
+                  ? 'bg-white text-sky-700 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5 text-sky-600" />
+              <span>🏫 Turmas Habilitadas</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                abaTabletsSub === 'turmas' ? 'bg-sky-100 text-sky-800' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {(tabletsDb.turmas || []).length}
+              </span>
+            </button>
 
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={novoHorarioTablet}
-                onChange={e => setNovoHorarioTablet(e.target.value)}
-                placeholder="Ex: 10ª Aula - (16h às 16h50)..."
-                className="flex-1 p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-hidden font-medium"
-              />
-              <button
-                type="button"
-                disabled={salvandoTablets || !novoHorarioTablet.trim()}
-                onClick={handleAdicionarHorarioTablet}
-                className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Adicionar Horário</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setAbaTabletsSub('horarios')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                abaTabletsSub === 'horarios'
+                  ? 'bg-white text-sky-700 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5 text-sky-600" />
+              <span>⏰ Horários & Aulas</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                abaTabletsSub === 'horarios' ? 'bg-sky-100 text-sky-800' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {tabletsDb.horarios.length}
+              </span>
+            </button>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {tabletsDb.horarios.map((h, idx) => (
-                <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold flex items-center justify-between">
-                  <span>{h}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoverHorarioTablet(h)}
-                    className="p-1 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
-                    title="Remover horário"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+            <button
+              type="button"
+              onClick={() => setAbaTabletsSub('feriados')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                abaTabletsSub === 'feriados'
+                  ? 'bg-white text-sky-700 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5 text-sky-600" />
+              <span>📅 Feriados & Bloqueios</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                abaTabletsSub === 'feriados' ? 'bg-sky-100 text-sky-800' : 'bg-slate-200 text-slate-700'
+              }`}>
+                {(tabletsDb.feriados || []).length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAbaTabletsSub('capacidade')}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                abaTabletsSub === 'capacidade'
+                  ? 'bg-white text-sky-700 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+              }`}
+            >
+              <Tablet className="w-3.5 h-3.5 text-sky-600" />
+              <span>⚙️ Estoque & Capacidade</span>
+            </button>
+          </div>
+
+          {/* SUB-ABA 1: TURMAS HABILITADAS PARA AGENDAMENTO DE TABLETS */}
+          {abaTabletsSub === 'turmas' && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-sky-50/50 border border-sky-100 p-4 rounded-xl">
+                <div>
+                  <h3 className="text-xs font-bold text-sky-950 uppercase tracking-wider flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-sky-700" />
+                    <span>Cadastrar e Gerenciar Turmas para Tablets</span>
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    Estas são as turmas que aparecem disponíveis para os professores selecionarem ao reservar os tablets.
+                  </p>
                 </div>
-              ))}
-            </div>
-          </div>
 
-          {/* Feriados e Bloqueios */}
-          <div className="pt-4 border-t border-slate-100 space-y-4">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-              Feriados, Recessos & Bloqueios de Calendário ({(tabletsDb.feriados || []).length})
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <div>
-                <input
-                  type="date"
-                  value={novoFeriadoData}
-                  onChange={e => setNovoFeriadoData(e.target.value)}
-                  className="w-full p-2.5 text-xs border border-slate-300 rounded-xl font-bold bg-white text-slate-800"
-                />
+                <button
+                  type="button"
+                  disabled={salvandoTablets}
+                  onClick={handleImportarTurmasDoSistema}
+                  className="px-3.5 py-2 bg-white hover:bg-sky-50 text-sky-800 border border-sky-200 font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer disabled:opacity-50 self-start sm:self-auto"
+                  title="Importa e sincroniza automaticamente todas as turmas cadastradas na escola"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-sky-600 ${salvandoTablets ? 'animate-spin' : ''}`} />
+                  <span>Sincronizar com Turmas da Escola</span>
+                </button>
               </div>
-              <div className="sm:col-span-2 flex gap-2">
+
+              {/* Form Cadastrar Nova Turma */}
+              <div className="flex flex-col sm:flex-row gap-2">
                 <input
                   type="text"
-                  value={novoFeriadoMotivo}
-                  onChange={e => setNovoFeriadoMotivo(e.target.value)}
-                  placeholder="Motivo (ex: Recesso Escolar / Conselho de Classe)..."
-                  className="flex-1 p-2.5 text-xs border border-slate-300 rounded-xl font-medium bg-white text-slate-800"
+                  value={novaTurmaTablet}
+                  onChange={e => setNovaTurmaTablet(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAdicionarTurmaTablet();
+                    }
+                  }}
+                  placeholder="Nome da nova turma (ex: 6º Ano A, 1º EM B, Sala Maker)..."
+                  className="flex-1 p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-hidden font-medium bg-white text-slate-900"
                 />
                 <button
                   type="button"
-                  disabled={salvandoTablets || !novoFeriadoData || !novoFeriadoMotivo.trim()}
-                  onClick={handleAdicionarFeriadoTablet}
+                  disabled={salvandoTablets || !novaTurmaTablet.trim()}
+                  onClick={handleAdicionarTurmaTablet}
+                  className="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Cadastrar Turma</span>
+                </button>
+              </div>
+
+              {/* Busca e Filtro de Turmas */}
+              <div className="flex items-center justify-between gap-3 pt-2">
+                <div className="relative flex-1 max-w-sm">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={buscaTurmaTablet}
+                    onChange={e => setBuscaTurmaTablet(e.target.value)}
+                    placeholder="Filtrar turmas cadastradas..."
+                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-sky-500 focus:outline-hidden bg-slate-50 text-slate-800"
+                  />
+                  {buscaTurmaTablet && (
+                    <button
+                      type="button"
+                      onClick={() => setBuscaTurmaTablet('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <span className="text-[11px] text-slate-500 font-medium">
+                  {turmasTabletsFiltradas.length} de {(tabletsDb.turmas || []).length} turmas
+                </span>
+              </div>
+
+              {/* Grid de Turmas com Edição e Exclusão */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {turmasTabletsFiltradas.length === 0 ? (
+                  <div className="col-span-full py-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    <p className="text-xs text-slate-500 font-medium">
+                      {buscaTurmaTablet ? 'Nenhuma turma encontrada para a busca.' : 'Nenhuma turma cadastrada para tablets ainda.'}
+                    </p>
+                    {!buscaTurmaTablet && (
+                      <button
+                        type="button"
+                        onClick={handleImportarTurmasDoSistema}
+                        className="mt-2 text-xs text-sky-700 hover:text-sky-900 font-bold underline cursor-pointer"
+                      >
+                        Clique aqui para importar as turmas da escola
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  turmasTabletsFiltradas.map((t, idx) => {
+                    const originalIndex = (tabletsDb.turmas || []).indexOf(t);
+                    const isEditing = turmaEditandoIndex === originalIndex;
+
+                    return (
+                      <div
+                        key={idx}
+                        className={`p-3 rounded-xl border transition-all flex items-center justify-between gap-2 ${
+                          isEditing
+                            ? 'bg-sky-50 border-sky-400 shadow-2xs ring-2 ring-sky-200'
+                            : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        {isEditing ? (
+                          <div className="flex items-center gap-1.5 flex-1">
+                            <input
+                              type="text"
+                              value={turmaEditandoNome}
+                              onChange={e => setTurmaEditandoNome(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') handleSalvarEdicaoTurmaTablet(originalIndex);
+                                if (e.key === 'Escape') setTurmaEditandoIndex(null);
+                              }}
+                              autoFocus
+                              className="flex-1 p-1.5 text-xs font-bold border border-sky-300 rounded-lg bg-white text-slate-900 focus:outline-hidden"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSalvarEdicaoTurmaTablet(originalIndex)}
+                              className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-2xs cursor-pointer transition-colors"
+                              title="Salvar alteração do nome da turma"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setTurmaEditandoIndex(null)}
+                              className="p-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg cursor-pointer transition-colors"
+                              title="Cancelar edição"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="w-2 h-2 rounded-full bg-sky-500 shrink-0" />
+                              <span className="text-xs font-bold text-slate-800 truncate" title={t}>
+                                {t}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setTurmaEditandoIndex(originalIndex);
+                                  setTurmaEditandoNome(t);
+                                }}
+                                className="p-1.5 text-slate-500 hover:text-sky-700 hover:bg-sky-100 rounded-lg cursor-pointer transition-colors"
+                                title="Editar nome da turma"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setTurmaParaExcluir(t)}
+                                className="p-1.5 text-slate-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                                title="Remover turma dos tablets"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Modal de Confirmação para Excluir Turma de Tablet */}
+              {turmaParaExcluir && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-2xs animate-in fade-in">
+                  <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-rose-200 space-y-4">
+                    <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+                      <Trash2 className="w-5 h-5" />
+                    </div>
+                    <div className="text-center">
+                      <h3 className="text-sm font-bold text-slate-900">Remover Turma dos Tablets?</h3>
+                      <p className="text-xs text-slate-600 mt-1">
+                        Deseja remover a turma <strong className="text-slate-900">"{turmaParaExcluir}"</strong> das opções de agendamento de tablets?
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-center gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setTurmaParaExcluir(null)}
+                        className="px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={salvandoTablets}
+                        onClick={() => handleRemoverTurmaTablet(turmaParaExcluir)}
+                        className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-xs cursor-pointer"
+                      >
+                        Confirmar Remoção
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SUB-ABA 2: HORÁRIOS & AULAS */}
+          {abaTabletsSub === 'horarios' && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Horários / Aulas Disponíveis na Grade Semanal ({tabletsDb.horarios.length})
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Adicione períodos de aula ou intervalos para compor a tabela semanal de reservas.
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={novoHorarioTablet}
+                  onChange={e => setNovoHorarioTablet(e.target.value)}
+                  placeholder="Ex: 10ª Aula - (16h às 16h50)..."
+                  className="flex-1 p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 focus:outline-hidden font-medium bg-white text-slate-900"
+                />
+                <button
+                  type="button"
+                  disabled={salvandoTablets || !novoHorarioTablet.trim()}
+                  onClick={handleAdicionarHorarioTablet}
                   className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Bloquear Data</span>
+                  <span>Adicionar Horário</span>
                 </button>
               </div>
-            </div>
 
-            <div className="space-y-2">
-              {(tabletsDb.feriados || []).length === 0 ? (
-                <p className="text-xs text-slate-400 italic">Nenhum feriado ou recesso bloqueado no momento.</p>
-              ) : (
-                (tabletsDb.feriados || []).map((f, idx) => (
-                  <div key={idx} className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl text-xs flex items-center justify-between">
-                    <div>
-                      <strong className="text-rose-950">{f.data}</strong> — <span className="text-rose-900">{f.motivo}</span>
-                    </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {tabletsDb.horarios.map((h, idx) => (
+                  <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold flex items-center justify-between">
+                    <span>{h}</span>
                     <button
                       type="button"
-                      onClick={() => handleRemoverFeriadoTablet(f.data)}
-                      className="p-1 text-rose-700 hover:bg-rose-100 rounded-lg cursor-pointer"
-                      title="Desbloquear data"
+                      onClick={() => handleRemoverHorarioTablet(h)}
+                      className="p-1 text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
+                      title="Remover horário"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                ))
-              )}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* SUB-ABA 3: FERIADOS & BLOQUEIOS */}
+          {abaTabletsSub === 'feriados' && (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                  Feriados, Recessos & Bloqueios de Calendário ({(tabletsDb.feriados || []).length})
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Datas bloqueadas não permitirão agendamentos de tablets por parte dos professores.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div>
+                  <input
+                    type="date"
+                    value={novoFeriadoData}
+                    onChange={e => setNovoFeriadoData(e.target.value)}
+                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl font-bold bg-white text-slate-800"
+                  />
+                </div>
+                <div className="sm:col-span-2 flex gap-2">
+                  <input
+                    type="text"
+                    value={novoFeriadoMotivo}
+                    onChange={e => setNovoFeriadoMotivo(e.target.value)}
+                    placeholder="Motivo (ex: Recesso Escolar / Conselho de Classe)..."
+                    className="flex-1 p-2.5 text-xs border border-slate-300 rounded-xl font-medium bg-white text-slate-800"
+                  />
+                  <button
+                    type="button"
+                    disabled={salvandoTablets || !novoFeriadoData || !novoFeriadoMotivo.trim()}
+                    onClick={handleAdicionarFeriadoTablet}
+                    className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Bloquear Data</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {(tabletsDb.feriados || []).length === 0 ? (
+                  <p className="text-xs text-slate-400 italic">Nenhum feriado ou recesso bloqueado no momento.</p>
+                ) : (
+                  (tabletsDb.feriados || []).map((f, idx) => (
+                    <div key={idx} className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl text-xs flex items-center justify-between">
+                      <div>
+                        <strong className="text-rose-950">{f.data}</strong> — <span className="text-rose-900">{f.motivo}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoverFeriadoTablet(f.data)}
+                        className="p-1 text-rose-700 hover:bg-rose-100 rounded-lg cursor-pointer"
+                        title="Desbloquear data"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* SUB-ABA 4: CAPACIDADE & ESTOQUE */}
+          {abaTabletsSub === 'capacidade' && (
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4 max-w-lg">
+              <div>
+                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                  <Tablet className="w-4 h-4 text-sky-600" />
+                  <span>Capacidade Máxima por Horário</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Define o número total de tablets disponíveis para reserva simultânea em cada aula.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={capacidadeTabletsInput}
+                  onChange={e => setCapacidadeTabletsInput(Number(e.target.value) || 23)}
+                  className="w-28 p-2.5 text-sm font-bold border border-slate-300 rounded-xl bg-white text-slate-900 text-center"
+                />
+                <button
+                  type="button"
+                  disabled={salvandoTablets}
+                  onClick={() => handleSalvarCapacidadeTablets(capacidadeTabletsInput)}
+                  className="px-4 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>Salvar Capacidade</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -308,6 +308,36 @@ export async function salvarOcorrenciaSeguro(payload: any, currentDb?: any): Pro
           r.id === payload.id ? { ...r, status: payload.status, mediacao: payload.mediacao, mediador: payload.mediador } : r
         );
         base = { ...base, registros };
+      } else if (payload.action === 'editar' || payload.acao === 'editar' || payload.action === 'atualizar') {
+        const agora = new Date();
+        const diaFmt = String(agora.getDate()).padStart(2, '0') + '/' + String(agora.getMonth() + 1).padStart(2, '0') + '/' + agora.getFullYear();
+        const horaFmt = String(agora.getHours()).padStart(2, '0') + ':' + String(agora.getMinutes()).padStart(2, '0');
+        const editadoEmStr = payload.editadoEm || `${diaFmt} às ${horaFmt}`;
+
+        const registros = (base.registros || []).map((r: any) => {
+          if (r.id === payload.id) {
+            return {
+              ...r,
+              ...(payload.data !== undefined ? { data: payload.data } : {}),
+              ...(payload.aula !== undefined ? { aula: payload.aula } : {}),
+              ...(payload.turma !== undefined ? { turma: payload.turma } : {}),
+              ...(payload.estudante !== undefined ? { estudante: payload.estudante } : {}),
+              ...(payload.tutor !== undefined ? { tutor: payload.tutor } : {}),
+              ...(payload.professor !== undefined ? { professor: payload.professor } : {}),
+              ...(payload.ocorrencia !== undefined ? { ocorrencia: payload.ocorrencia } : {}),
+              ...(payload.medida !== undefined ? { medida: payload.medida } : {}),
+              ...(payload.auxilio !== undefined ? { auxilio: payload.auxilio } : {}),
+              ...(payload.descricao !== undefined ? { descricao: payload.descricao } : {}),
+              ...(payload.status !== undefined ? { status: payload.status } : {}),
+              ...(payload.mediacao !== undefined ? { mediacao: payload.mediacao } : {}),
+              ...(payload.mediador !== undefined ? { mediador: payload.mediador } : {}),
+              editadoEm: editadoEmStr,
+              editadoPor: payload.editadoPor || r.editadoPor,
+            };
+          }
+          return r;
+        });
+        base = { ...base, registros };
       } else if (payload.action === 'tratativa_familia') {
         const tratativas = [...(base.tratativasFamilia || []), payload];
         base = { ...base, tratativasFamilia: tratativas };
@@ -416,7 +446,16 @@ export async function salvarReservaTabletsSeguro(payload: any, currentDb?: any):
       base = (await firestoreService.getTablets()) || lerCacheTablets() || tabletsBaseline;
     }
     if (base) {
-      if (payload.action === 'cancelar') {
+      if (payload.action === 'salvar_config_tablets') {
+        base = {
+          ...base,
+          ...(payload.turmas ? { turmas: payload.turmas } : {}),
+          ...(payload.horarios ? { horarios: payload.horarios } : {}),
+          ...(payload.feriados ? { feriados: payload.feriados } : {}),
+          ...(payload.maxTablets ? { maxTablets: payload.maxTablets } : {}),
+          ...(currentDb || {}),
+        };
+      } else if (payload.action === 'cancelar') {
         const agendamentos = (base.agendamentos || []).filter(
           (ag: any) =>
             !(

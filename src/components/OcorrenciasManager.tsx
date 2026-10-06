@@ -628,6 +628,42 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     mensagemPadrao: string;
   } | null>(null);
 
+  // Modal de Edição de Ocorrência Registrada
+  const [modalEdicaoOcorrencia, setModalEdicaoOcorrencia] = useState<OcorrenciaRecord | null>(null);
+  const [formEdicaoOcorrencia, setFormEdicaoOcorrencia] = useState<{
+    id: string;
+    data: string;
+    aula: string;
+    turma: string;
+    estudante: string;
+    tutor: string;
+    professor: string;
+    ocorrencia: string;
+    medida: string;
+    auxilio: string;
+    descricao: string;
+    status: string;
+    mediacao?: string;
+    mediador?: string;
+  }>({
+    id: '',
+    data: '',
+    aula: '',
+    turma: '',
+    estudante: '',
+    tutor: '',
+    professor: '',
+    ocorrencia: '',
+    medida: '',
+    auxilio: '',
+    descricao: '',
+    status: 'Pendente',
+    mediacao: '',
+    mediador: '',
+  });
+  const [salvandoEdicaoOcorrencia, setSalvandoEdicaoOcorrencia] = useState(false);
+  const [formatandoEdicaoIA, setFormatandoEdicaoIA] = useState(false);
+
   // Alerta de Reincidência no mesmo dia
   const [alertaOcorrencia, setAlertaOcorrencia] = useState<{
     dataFmt: string;
@@ -845,6 +881,41 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   }, [form.turma, classes, students]);
 
+  const alunosDaTurmaEdicao = useMemo(() => {
+    if (!formEdicaoOcorrencia.turma) return [];
+    const turmaNormalizada = formEdicaoOcorrencia.turma.trim().toLowerCase();
+    const turmaObj = (classes || []).find(
+      c => c.name.trim().toLowerCase() === turmaNormalizada || c.id === formEdicaoOcorrencia.turma
+    );
+
+    let listaAlunos = (students || []).filter(s => {
+      if (turmaObj && s.classId === turmaObj.id) return true;
+      if (s.className && s.className.trim().toLowerCase() === turmaNormalizada) return true;
+      const sCls = (classes || []).find(c => c.id === s.classId);
+      return sCls && sCls.name.trim().toLowerCase() === turmaNormalizada;
+    });
+
+    if (listaAlunos.length === 0 && storageService) {
+      try {
+        const stStudents = storageService.getStudents();
+        listaAlunos = (stStudents || []).filter(s => {
+          if (turmaObj && s.classId === turmaObj.id) return true;
+          if (s.className && s.className.trim().toLowerCase() === turmaNormalizada) return true;
+          const sCls = (classes || []).find(c => c.id === s.classId);
+          return sCls && sCls.name.trim().toLowerCase() === turmaNormalizada;
+        });
+      } catch {}
+    }
+
+    return listaAlunos
+      .map(s => ({
+        nome: s.name.trim(),
+        turma: formEdicaoOcorrencia.turma,
+        tutor: s.tutor || (s as any).responsibleTutor || 'Equipe Pedagógica',
+      }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }, [formEdicaoOcorrencia.turma, classes, students]);
+
   // Handle Form Change
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -1053,6 +1124,162 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       setMensagem({ texto: 'Erro ao excluir ocorrência: ' + err.message, tipo: 'erro' });
     } finally {
       setExcluindoOcorrencia(false);
+    }
+  };
+
+  // Abrir Modal de Edição de Ocorrência Registrada
+  const abrirEdicaoOcorrencia = (r: OcorrenciaRecord) => {
+    let dataIso = r.data;
+    if (r.data && r.data.includes('/')) {
+      const parts = r.data.split('/');
+      if (parts.length === 3) {
+        const [d, m, y] = parts;
+        const ano = y.length === 2 ? `20${y}` : y;
+        dataIso = `${ano}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
+    }
+
+    setFormEdicaoOcorrencia({
+      id: r.id,
+      data: dataIso || todayIso,
+      aula: r.aula || '',
+      turma: r.turma || '',
+      estudante: r.estudante || '',
+      tutor: r.tutor || '',
+      professor: r.professor || userName,
+      ocorrencia: r.ocorrencia || '',
+      medida: r.medida || '',
+      auxilio: r.auxilio || 'Nenhum auxílio solicitado (Resolvido em sala)',
+      descricao: r.descricao || '',
+      status: r.status || 'Pendente',
+      mediacao: r.mediacao || '',
+      mediador: r.mediador || '',
+    });
+    setModalEdicaoOcorrencia(r);
+  };
+
+  // Salvar Edição da Ocorrência Registrada
+  const handleSalvarEdicaoOcorrencia = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!modalEdicaoOcorrencia) return;
+
+    if (!formEdicaoOcorrencia.estudante.trim()) {
+      setMensagem({ texto: '⚠️ O nome do estudante é obrigatório.', tipo: 'erro' });
+      return;
+    }
+
+    if (!formEdicaoOcorrencia.descricao.trim()) {
+      setMensagem({ texto: '⚠️ O relato descritivo da ocorrência é obrigatório.', tipo: 'erro' });
+      return;
+    }
+
+    setSalvandoEdicaoOcorrencia(true);
+
+    const agora = new Date();
+    const diaFmt = String(agora.getDate()).padStart(2, '0') + '/' + String(agora.getMonth() + 1).padStart(2, '0') + '/' + agora.getFullYear();
+    const horaFmt = String(agora.getHours()).padStart(2, '0') + ':' + String(agora.getMinutes()).padStart(2, '0');
+    const editadoEmStr = `${diaFmt} às ${horaFmt}`;
+
+    // Determina status final
+    let statusFinal = formEdicaoOcorrencia.status;
+    if (!isGestao && !isAdmin) {
+      if (verificarResolvidoEmSala(formEdicaoOcorrencia.auxilio) && !modalEdicaoOcorrencia.mediacao) {
+        statusFinal = 'Resolvido';
+      } else if (!verificarResolvidoEmSala(formEdicaoOcorrencia.auxilio) && statusFinal === 'Resolvido') {
+        statusFinal = 'Pendente';
+      }
+    }
+
+    const payload = {
+      action: 'editar',
+      acao: 'editar',
+      id: modalEdicaoOcorrencia.id,
+      data: formEdicaoOcorrencia.data,
+      aula: formEdicaoOcorrencia.aula,
+      turma: formEdicaoOcorrencia.turma,
+      estudante: formEdicaoOcorrencia.estudante.trim(),
+      tutor: formEdicaoOcorrencia.tutor.trim(),
+      professor: formEdicaoOcorrencia.professor.trim(),
+      ocorrencia: formEdicaoOcorrencia.ocorrencia,
+      medida: formEdicaoOcorrencia.medida,
+      auxilio: formEdicaoOcorrencia.auxilio,
+      descricao: formEdicaoOcorrencia.descricao.trim(),
+      status: statusFinal,
+      mediacao: formEdicaoOcorrencia.mediacao?.trim() || '',
+      mediador: formEdicaoOcorrencia.mediador?.trim() || '',
+      editadoEm: editadoEmStr,
+      editadoPor: userName,
+    };
+
+    try {
+      await salvarOcorrenciaSeguro(payload, bancoDeDados);
+
+      // Atualiza base local mantendo a ordenação por mais recentes
+      setBancoDeDados(prev => {
+        const registrosAtualizados = prev.registros.map(r => {
+          if (r.id === modalEdicaoOcorrencia.id) {
+            return {
+              ...r,
+              ...payload,
+            };
+          }
+          return r;
+        });
+        const novoDb = { ...prev, registros: ordenarOcorrenciasPorMaisRecentes(registrosAtualizados) };
+        localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(novoDb));
+        return novoDb;
+      });
+
+      setMensagem({
+        texto: `✅ Ocorrência #${modalEdicaoOcorrencia.id} (${formEdicaoOcorrencia.estudante}) atualizada com sucesso!`,
+        tipo: 'sucesso',
+      });
+      setModalEdicaoOcorrencia(null);
+      setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
+      carregarDados();
+    } catch (err: any) {
+      setMensagem({ texto: 'Erro ao salvar edição: ' + err.message, tipo: 'erro' });
+    } finally {
+      setSalvandoEdicaoOcorrencia(false);
+    }
+  };
+
+  // Formatar com IA no Modal de Edição
+  const handleFormatarEdicaoDescricaoIA = async () => {
+    const textoRelato = (formEdicaoOcorrencia.descricao || '').trim();
+    if (!textoRelato) {
+      setMensagem({
+        texto: '⚠️ Digite o texto do relato para que a IA possa reformular e corrigir a gramática.',
+        tipo: 'erro',
+      });
+      return;
+    }
+    setFormatandoEdicaoIA(true);
+    try {
+      const chaveAtiva = bancoDeDados.geminiApiKey || getStoredGeminiKey();
+      const textoFormatado = await formatarRelatoComGemini(textoRelato, chaveAtiva);
+      if (textoFormatado) {
+        setFormEdicaoOcorrencia(prev => ({ ...prev, descricao: textoFormatado }));
+        setMensagem({
+          texto: '✨ Relato revisado com sucesso pelo Gemini com gramática correta e tom pedagógico!',
+          tipo: 'sucesso',
+        });
+        setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
+      } else {
+        throw new Error('Retorno vazio');
+      }
+    } catch (err: any) {
+      console.warn('Erro ao formatar edição com IA:', err);
+      let raw = textoRelato.charAt(0).toUpperCase() + textoRelato.slice(1);
+      if (!/[.!?]$/.test(raw)) raw += '.';
+      setFormEdicaoOcorrencia(prev => ({ ...prev, descricao: limparTextoFormatado(raw) }));
+      setMensagem({
+        texto: '⚠️ ' + (err?.message || 'Formatação padrão aplicada.'),
+        tipo: 'erro',
+      });
+      setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
+    } finally {
+      setFormatandoEdicaoIA(false);
     }
   };
 
@@ -1710,6 +1937,19 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             >
               <Phone className="w-3.5 h-3.5" />
               <span>Enviar aos Pais</span>
+            </button>
+          )}
+
+          {/* Editar Ocorrência */}
+          {(isAdmin || isGestao || (reg.professor && reg.professor.toLowerCase() === userName.toLowerCase())) && (
+            <button
+              type="button"
+              onClick={() => abrirEdicaoOcorrencia(reg)}
+              className="w-full sm:w-auto bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3.5 rounded-xl text-xs border border-indigo-200 shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+              title="Editar dados desta ocorrência registrada"
+            >
+              <Edit2 className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Editar</span>
             </button>
           )}
 
@@ -2502,29 +2742,40 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                               );
                             })()}
 
-                            {(isGestao || isAdmin) && (
+                            {(isGestao || isAdmin || (o.professor && o.professor.toLowerCase() === userName.toLowerCase())) && (
                               <div className="mt-2 pt-1.5 border-t border-slate-200 flex justify-end items-center gap-2 flex-wrap">
                                 {isGestao && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => abrirWhatsAppOcorrencia(o)}
-                                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1 cursor-pointer transition-colors"
-                                      title="Enviar este registro via WhatsApp aos responsáveis"
-                                    >
-                                      <Phone className="w-3 h-3 text-emerald-600" />
-                                      <span>WhatsApp Responsáveis</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => abrirMediacao(o)}
-                                      className="text-[11px] font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 flex items-center gap-1 cursor-pointer transition-colors"
-                                      title="Mediar ou atualizar parecer desta ocorrência"
-                                    >
-                                      <Shield className="w-3 h-3 text-amber-600" />
-                                      <span>{o.mediacao ? 'Editar Mediação' : 'Mediar'}</span>
-                                    </button>
-                                  </>
+                                  <button
+                                    type="button"
+                                    onClick={() => abrirWhatsAppOcorrencia(o)}
+                                    className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                    title="Enviar este registro via WhatsApp aos responsáveis"
+                                  >
+                                    <Phone className="w-3 h-3 text-emerald-600" />
+                                    <span>WhatsApp Responsáveis</span>
+                                  </button>
+                                )}
+                                {(isAdmin || isGestao || (o.professor && o.professor.toLowerCase() === userName.toLowerCase())) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => abrirEdicaoOcorrencia(o)}
+                                    className="text-[11px] font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                    title="Editar dados desta ocorrência"
+                                  >
+                                    <Edit2 className="w-3 h-3 text-indigo-600" />
+                                    <span>Editar</span>
+                                  </button>
+                                )}
+                                {isGestao && (
+                                  <button
+                                    type="button"
+                                    onClick={() => abrirMediacao(o)}
+                                    className="text-[11px] font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                    title="Mediar ou atualizar parecer desta ocorrência"
+                                  >
+                                    <Shield className="w-3 h-3 text-amber-600" />
+                                    <span>{o.mediacao ? 'Editar Mediação' : 'Mediar'}</span>
+                                  </button>
                                 )}
                                 {isAdmin && (
                                   <button
@@ -4111,6 +4362,346 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 </div>
               </form>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2.5: EDITAR OCORRÊNCIA REGISTRADA */}
+      {modalEdicaoOcorrencia && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden border border-slate-200 animate-in zoom-in-95 flex flex-col">
+            <div className="bg-gradient-to-r from-indigo-700 to-indigo-600 px-6 py-4 flex justify-between items-center text-white shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center">
+                  <Edit2 className="w-4 h-4 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm">Editar Ocorrência Registrada</h3>
+                  <p className="text-[11px] text-indigo-100 font-mono">
+                    Protocolo: {modalEdicaoOcorrencia.id}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalEdicaoOcorrencia(null)}
+                disabled={salvandoEdicaoOcorrencia}
+                className="font-bold text-lg cursor-pointer hover:text-indigo-200 p-1 disabled:opacity-50"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSalvarEdicaoOcorrencia} className="p-6 overflow-y-auto flex-1 space-y-4 text-xs">
+              {/* Data e Horário */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Data da Ocorrência *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={formEdicaoOcorrencia.data}
+                    onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, data: e.target.value })}
+                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Horário / Aula *
+                  </label>
+                  <select
+                    required
+                    value={formEdicaoOcorrencia.aula}
+                    onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, aula: e.target.value })}
+                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+                  >
+                    <option value="">Selecione o horário/aula...</option>
+                    {bancoDeDados.aulas.map(a => (
+                      <option key={a} value={a}>
+                        {a}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Turma e Estudante */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Turma *
+                  </label>
+                  <select
+                    required
+                    value={formEdicaoOcorrencia.turma}
+                    onChange={e => {
+                      const novaTurma = e.target.value;
+                      setFormEdicaoOcorrencia({
+                        ...formEdicaoOcorrencia,
+                        turma: novaTurma,
+                      });
+                    }}
+                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+                  >
+                    <option value="">Selecione a turma...</option>
+                    {turmasUnicas.map(t => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Estudante Envolvido *
+                  </label>
+                  {alunosDaTurmaEdicao.length > 0 ? (
+                    <select
+                      required
+                      value={formEdicaoOcorrencia.estudante}
+                      onChange={e => {
+                        const alunoNome = e.target.value;
+                        const alunoObj = alunosDaTurmaEdicao.find(a => a.nome === alunoNome);
+                        setFormEdicaoOcorrencia({
+                          ...formEdicaoOcorrencia,
+                          estudante: alunoNome,
+                          tutor: alunoObj?.tutor || formEdicaoOcorrencia.tutor,
+                        });
+                      }}
+                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+                    >
+                      <option value="">Selecione o estudante...</option>
+                      {formEdicaoOcorrencia.estudante && !alunosDaTurmaEdicao.some(a => a.nome === formEdicaoOcorrencia.estudante) && (
+                        <option value={formEdicaoOcorrencia.estudante}>{formEdicaoOcorrencia.estudante} (Atual)</option>
+                      )}
+                      {alunosDaTurmaEdicao.map(a => (
+                        <option key={a.nome} value={a.nome}>
+                          {a.nome}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      required
+                      value={formEdicaoOcorrencia.estudante}
+                      onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, estudante: e.target.value })}
+                      placeholder="Nome do estudante..."
+                      className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Professor e Auxílio */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Professor Relator *
+                  </label>
+                  <select
+                    required
+                    value={formEdicaoOcorrencia.professor}
+                    onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, professor: e.target.value })}
+                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+                  >
+                    <option value="">Selecione o professor...</option>
+                    {formEdicaoOcorrencia.professor && !listaProfessoresDisponiveis.includes(formEdicaoOcorrencia.professor) && (
+                      <option value={formEdicaoOcorrencia.professor}>{formEdicaoOcorrencia.professor} (Atual)</option>
+                    )}
+                    {listaProfessoresDisponiveis.map(p => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Necessita Auxílio da Gestão?
+                  </label>
+                  <select
+                    required
+                    value={formEdicaoOcorrencia.auxilio}
+                    onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, auxilio: e.target.value })}
+                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+                  >
+                    {bancoDeDados.auxilio.map(a => (
+                      <option key={a} value={a}>
+                        {a}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Ocorrência Principal e Medida */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Ocorrência Principal *
+                  </label>
+                  <select
+                    required
+                    value={formEdicaoOcorrencia.ocorrencia}
+                    onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, ocorrencia: e.target.value })}
+                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+                  >
+                    <option value="">Selecione a infração...</option>
+                    {formEdicaoOcorrencia.ocorrencia && !bancoDeDados.ocorrencias.includes(formEdicaoOcorrencia.ocorrencia) && (
+                      <option value={formEdicaoOcorrencia.ocorrencia}>{formEdicaoOcorrencia.ocorrencia}</option>
+                    )}
+                    {bancoDeDados.ocorrencias.map(o => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    Medida Tomada no Momento *
+                  </label>
+                  <select
+                    required
+                    value={formEdicaoOcorrencia.medida}
+                    onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, medida: e.target.value })}
+                    className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+                  >
+                    <option value="">Selecione a ação pedagógica...</option>
+                    {formEdicaoOcorrencia.medida && !bancoDeDados.medidas.includes(formEdicaoOcorrencia.medida) && (
+                      <option value={formEdicaoOcorrencia.medida}>{formEdicaoOcorrencia.medida}</option>
+                    )}
+                    {bancoDeDados.medidas.map(m => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Descrição e IA */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700 uppercase">
+                    Descrição / Relato Detalhado *
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleFormatarEdicaoDescricaoIA}
+                    disabled={formatandoEdicaoIA}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-lg text-xs font-bold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                    title="Ajusta o texto com IA do Gemini para uma linguagem formal, correta e respeitosa"
+                  >
+                    {formatandoEdicaoIA ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Formatando com IA...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                        <span>✨ Formatar com IA (Gemini)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <textarea
+                  required
+                  rows={3}
+                  value={formEdicaoOcorrencia.descricao}
+                  onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, descricao: e.target.value })}
+                  placeholder="Relato detalhado dos acontecimentos..."
+                  className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-medium text-slate-800 bg-white"
+                />
+              </div>
+
+              {/* Status e Mediação (quando aplicável ou para gestão/admin) */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Status da Ocorrência
+                    </label>
+                    <select
+                      value={formEdicaoOcorrencia.status}
+                      onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, status: e.target.value })}
+                      className="w-full p-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+                    >
+                      <option value="Pendente">🚨 Pendente (Aguardando gestão)</option>
+                      <option value="Em Andamento">⏳ Em Andamento (Em acompanhamento)</option>
+                      <option value="Concluído">✅ Concluído (Finalizado pela gestão)</option>
+                      <option value="Resolvido">🤝 Resolvido em Sala (Sem intervenção da gestão)</option>
+                    </select>
+                  </div>
+
+                  {(isGestao || isAdmin) && (
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                        Mediador(a) / Responsável Gestão
+                      </label>
+                      <select
+                        value={formEdicaoOcorrencia.mediador || ''}
+                        onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, mediador: e.target.value })}
+                        className="w-full p-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
+                      >
+                        <option value="">Selecione quem conduziu...</option>
+                        {formEdicaoOcorrencia.mediador && !listaMembrosGestaoDisponiveis.includes(formEdicaoOcorrencia.mediador) && (
+                          <option value={formEdicaoOcorrencia.mediador}>{formEdicaoOcorrencia.mediador}</option>
+                        )}
+                        {listaMembrosGestaoDisponiveis.map(m => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {(isGestao || isAdmin || formEdicaoOcorrencia.mediacao) && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      Parecer da Gestão / Mediação
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={formEdicaoOcorrencia.mediacao || ''}
+                      onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, mediacao: e.target.value })}
+                      placeholder="Parecer ou providências tomadas pela equipe gestora..."
+                      className="w-full p-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-slate-800 font-medium bg-white"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Botões de Ação */}
+              <div className="flex gap-3 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setModalEdicaoOcorrencia(null)}
+                  disabled={salvandoEdicaoOcorrencia}
+                  className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50 cursor-pointer disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoEdicaoOcorrencia}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-indigo-600 text-white font-bold text-xs hover:bg-indigo-700 cursor-pointer flex items-center justify-center gap-1.5 shadow-xs transition-colors disabled:opacity-50"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>{salvandoEdicaoOcorrencia ? 'Salvando Alterações...' : 'Salvar Alterações'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
