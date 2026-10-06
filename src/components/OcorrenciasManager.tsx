@@ -1198,15 +1198,10 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     const horaFmt = String(agora.getHours()).padStart(2, '0') + ':' + String(agora.getMinutes()).padStart(2, '0');
     const editadoEmStr = `${diaFmt} às ${horaFmt}`;
 
-    // Determina status final
-    let statusFinal = formEdicaoOcorrencia.status;
-    if (!isGestao && !isAdmin) {
-      if (verificarResolvidoEmSala(formEdicaoOcorrencia.auxilio) && !modalEdicaoOcorrencia.mediacao) {
-        statusFinal = 'Resolvido';
-      } else if (!verificarResolvidoEmSala(formEdicaoOcorrencia.auxilio) && statusFinal === 'Resolvido') {
-        statusFinal = 'Pendente';
-      }
-    }
+    // Preserva o status original do registro (Status é de alçada exclusiva da Gestão Escolar)
+    const statusPreservado =
+      modalEdicaoOcorrencia.status ||
+      (verificarResolvidoEmSala(formEdicaoOcorrencia.auxilio) ? 'Resolvido' : 'Pendente');
 
     const payload = {
       action: 'editar',
@@ -1222,9 +1217,9 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       medida: formEdicaoOcorrencia.medida,
       auxilio: formEdicaoOcorrencia.auxilio,
       descricao: formEdicaoOcorrencia.descricao.trim(),
-      status: statusFinal,
-      mediacao: formEdicaoOcorrencia.mediacao?.trim() || '',
-      mediador: formEdicaoOcorrencia.mediador?.trim() || '',
+      status: statusPreservado,
+      mediacao: modalEdicaoOcorrencia.mediacao || '',
+      mediador: modalEdicaoOcorrencia.mediador || '',
       editadoEm: editadoEmStr,
       editadoPor: userName,
     };
@@ -4783,63 +4778,25 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                 />
               </div>
 
-              {/* Status e Mediação (quando aplicável ou para gestão/admin) */}
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Status da Ocorrência
-                    </label>
-                    <select
-                      value={formEdicaoOcorrencia.status}
-                      onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, status: e.target.value })}
-                      className="w-full p-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
-                    >
-                      <option value="Pendente">🚨 Pendente (Aguardando gestão)</option>
-                      <option value="Em Andamento">⏳ Em Andamento (Em acompanhamento)</option>
-                      <option value="Concluído">✅ Concluído (Finalizado pela gestão)</option>
-                      <option value="Resolvido">🤝 Resolvido em Sala (Sem intervenção da gestão)</option>
-                    </select>
-                  </div>
-
-                  {(isGestao || isAdmin) && (
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                        Mediador(a) / Responsável Gestão
-                      </label>
-                      <select
-                        value={formEdicaoOcorrencia.mediador || ''}
-                        onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, mediador: e.target.value })}
-                        className="w-full p-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
-                      >
-                        <option value="">Selecione quem conduziu...</option>
-                        {formEdicaoOcorrencia.mediador && !listaMembrosGestaoDisponiveis.includes(formEdicaoOcorrencia.mediador) && (
-                          <option value={formEdicaoOcorrencia.mediador}>{formEdicaoOcorrencia.mediador}</option>
-                        )}
-                        {listaMembrosGestaoDisponiveis.map(m => (
-                          <option key={m} value={m}>
-                            {m}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
+              {/* Status da Ocorrência (Somente Leitura - Gerenciado Exclusivamente pela Gestão) */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-700 uppercase">Status:</span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                    modalEdicaoOcorrencia.status === 'Resolvido'
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      : modalEdicaoOcorrencia.status === 'Em Andamento'
+                      ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                      : modalEdicaoOcorrencia.status === 'Concluído'
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      : 'bg-amber-100 text-amber-800 border border-amber-200'
+                  }`}>
+                    {modalEdicaoOcorrencia.status || 'Pendente'}
+                  </span>
                 </div>
-
-                {(isGestao || isAdmin || formEdicaoOcorrencia.mediacao) && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      Parecer da Gestão / Mediação
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={formEdicaoOcorrencia.mediacao || ''}
-                      onChange={e => setFormEdicaoOcorrencia({ ...formEdicaoOcorrencia, mediacao: e.target.value })}
-                      placeholder="Parecer ou providências tomadas pela equipe gestora..."
-                      className="w-full p-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-slate-800 font-medium bg-white"
-                    />
-                  </div>
-                )}
+                <span className="text-[11px] text-slate-500 font-medium">
+                  🔒 O Status da ocorrência é atribuído e atualizado exclusivamente pela equipe gestora escolar.
+                </span>
               </div>
 
               {/* Botões de Ação */}
