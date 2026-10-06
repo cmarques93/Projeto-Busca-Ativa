@@ -515,13 +515,13 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
   // Abas de Navegação
   const [abaGestao, setAbaGestao] = useState<
-    'pendentes' | 'em_andamento' | 'concluidos' | 'sala' | 'consulta' | 'estatisticas' | 'registrar' | 'devolutivas' | 'tutorados' | 'config_admin'
+    'pendentes' | 'em_andamento' | 'concluidos' | 'sala' | 'consulta' | 'estatisticas' | 'registrar' | 'meus_registros' | 'devolutivas' | 'tutorados' | 'config_admin'
   >(isGestao ? 'pendentes' : 'registrar');
 
   // Filtro interno para a aba de Concluídos: Todos | Gestão | Resolvidos em Sala
   const [filtroConcluidos, setFiltroConcluidos] = useState<'todos' | 'gestao' | 'sala'>('todos');
 
-  const [abaProfessor, setAbaProfessor] = useState<'registrar' | 'devolutivas' | 'tutorados'>(
+  const [abaProfessor, setAbaProfessor] = useState<'registrar' | 'meus_registros' | 'devolutivas' | 'tutorados'>(
     'registrar'
   );
 
@@ -1127,8 +1127,17 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     }
   };
 
-  // Abrir Modal de Edição de Ocorrência Registrada
+  // Abrir Modal de Edição de Ocorrência Registrada (somente antes da mediação)
   const abrirEdicaoOcorrencia = (r: OcorrenciaRecord) => {
+    if (r.mediacao && r.mediacao.trim().length > 0) {
+      setMensagem({
+        texto: '🔒 Esta ocorrência já recebeu mediação da gestão escolar e não pode mais ser editada.',
+        tipo: 'erro',
+      });
+      setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
+      return;
+    }
+
     let dataIso = r.data;
     if (r.data && r.data.includes('/')) {
       const parts = r.data.split('/');
@@ -1162,6 +1171,15 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
   const handleSalvarEdicaoOcorrencia = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!modalEdicaoOcorrencia) return;
+
+    if (modalEdicaoOcorrencia.mediacao && modalEdicaoOcorrencia.mediacao.trim().length > 0) {
+      setMensagem({
+        texto: '🔒 Ação bloqueada: esta ocorrência já possui mediação da gestão escolar.',
+        tipo: 'erro',
+      });
+      setModalEdicaoOcorrencia(null);
+      return;
+    }
 
     if (!formEdicaoOcorrencia.estudante.trim()) {
       setMensagem({ texto: '⚠️ O nome do estudante é obrigatório.', tipo: 'erro' });
@@ -1804,11 +1822,13 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     resolvidoEmSala?: boolean;
     tipoStatus?: 'pendente' | 'em_andamento' | 'concluido';
     onMediar?: (r: OcorrenciaRecord) => void;
+    permitirEditar?: boolean;
   }> = ({
     reg,
     resolvidoEmSala,
     tipoStatus,
     onMediar,
+    permitirEditar = false,
   }) => {
     const concluido = tipoStatus === 'concluido' || isOcorrenciaConcluida(reg);
     const emAndamento = !concluido && (tipoStatus === 'em_andamento' || isOcorrenciaEmAndamento(reg));
@@ -1940,13 +1960,13 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             </button>
           )}
 
-          {/* Editar Ocorrência */}
-          {(isAdmin || isGestao || (reg.professor && reg.professor.toLowerCase() === userName.toLowerCase())) && (
+          {/* Editar Ocorrência (Exclusivo na aba 'Meus Registros' antes da mediação da gestão) */}
+          {permitirEditar && (!reg.mediacao || reg.mediacao.trim() === '') && (
             <button
               type="button"
               onClick={() => abrirEdicaoOcorrencia(reg)}
               className="w-full sm:w-auto bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2 px-3.5 rounded-xl text-xs border border-indigo-200 shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-              title="Editar dados desta ocorrência registrada"
+              title="Editar dados desta ocorrência antes da mediação da gestão"
             >
               <Edit2 className="w-3.5 h-3.5 text-indigo-600" />
               <span>Editar</span>
@@ -2742,40 +2762,29 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                               );
                             })()}
 
-                            {(isGestao || isAdmin || (o.professor && o.professor.toLowerCase() === userName.toLowerCase())) && (
+                            {(isGestao || isAdmin) && (
                               <div className="mt-2 pt-1.5 border-t border-slate-200 flex justify-end items-center gap-2 flex-wrap">
                                 {isGestao && (
-                                  <button
-                                    type="button"
-                                    onClick={() => abrirWhatsAppOcorrencia(o)}
-                                    className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1 cursor-pointer transition-colors"
-                                    title="Enviar este registro via WhatsApp aos responsáveis"
-                                  >
-                                    <Phone className="w-3 h-3 text-emerald-600" />
-                                    <span>WhatsApp Responsáveis</span>
-                                  </button>
-                                )}
-                                {(isAdmin || isGestao || (o.professor && o.professor.toLowerCase() === userName.toLowerCase())) && (
-                                  <button
-                                    type="button"
-                                    onClick={() => abrirEdicaoOcorrencia(o)}
-                                    className="text-[11px] font-bold text-indigo-700 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg border border-indigo-200 flex items-center gap-1 cursor-pointer transition-colors"
-                                    title="Editar dados desta ocorrência"
-                                  >
-                                    <Edit2 className="w-3 h-3 text-indigo-600" />
-                                    <span>Editar</span>
-                                  </button>
-                                )}
-                                {isGestao && (
-                                  <button
-                                    type="button"
-                                    onClick={() => abrirMediacao(o)}
-                                    className="text-[11px] font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 flex items-center gap-1 cursor-pointer transition-colors"
-                                    title="Mediar ou atualizar parecer desta ocorrência"
-                                  >
-                                    <Shield className="w-3 h-3 text-amber-600" />
-                                    <span>{o.mediacao ? 'Editar Mediação' : 'Mediar'}</span>
-                                  </button>
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirWhatsAppOcorrencia(o)}
+                                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-2.5 py-1 rounded-lg border border-emerald-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                      title="Enviar este registro via WhatsApp aos responsáveis"
+                                    >
+                                      <Phone className="w-3 h-3 text-emerald-600" />
+                                      <span>WhatsApp Responsáveis</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => abrirMediacao(o)}
+                                      className="text-[11px] font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-200 flex items-center gap-1 cursor-pointer transition-colors"
+                                      title="Mediar ou atualizar parecer desta ocorrência"
+                                    >
+                                      <Shield className="w-3 h-3 text-amber-600" />
+                                      <span>{o.mediacao ? 'Editar Mediação' : 'Mediar'}</span>
+                                    </button>
+                                  </>
                                 )}
                                 {isAdmin && (
                                   <button
@@ -2833,28 +2842,104 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     );
   };
 
-  // Minhas Devolutivas (Ocorrências mais recentes em primeiro lugar)
-  const renderMinhasDevolutivas = () => {
-    const minhas = ordenarOcorrenciasPorMaisRecentes(
-      bancoDeDados.registros.filter(r => r.professor.toLowerCase() === userName.toLowerCase())
-    );
-
+  // Meus Registros: Ocorrências lançadas pelo usuário atual que AINDA NÃO POSSUEM MEDIAÇÃO da gestão
+  // SOMENTE AQUI É PERMITIDO EDITAR A OCORRÊNCIA!
+  const renderMeusRegistros = () => {
     return (
       <div className="space-y-4">
-        <h2 className="text-base font-bold text-slate-900">
-          Ocorrências Lançadas por Mim ({minhas.length}) — Mais Recentes Primeiro
-        </h2>
-        {minhas.length === 0 ? (
-          <div className="bg-white p-8 text-center rounded-2xl shadow-xs border border-slate-200 text-slate-500 text-xs">
-            Você ainda não registrou nenhuma ocorrência no seu nome.
+        <div className="bg-indigo-50/80 border border-indigo-200 p-4 sm:p-5 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <FileText className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-indigo-950 flex items-center gap-2">
+                <span>Meus Registros</span>
+                <span className="bg-indigo-200 text-indigo-900 text-xs px-2.5 py-0.5 rounded-full font-bold">
+                  {meusRegistrosSemMediacao.length} pendente(s) de mediação
+                </span>
+              </h2>
+              <p className="text-xs text-indigo-800 mt-0.5">
+                Ocorrências registradas por <strong>{userName}</strong> que ainda aguardam atendimento da gestão.
+              </p>
+            </div>
+          </div>
+          <div className="text-[11px] text-indigo-900 bg-white/90 px-3 py-2 rounded-xl border border-indigo-200 font-medium">
+            ✏️ <strong>Edição Habilitada:</strong> Você pode editar qualquer dado enquanto a Gestão não registrar o parecer.
+          </div>
+        </div>
+
+        {meusRegistrosSemMediacao.length === 0 ? (
+          <div className="bg-white p-12 text-center rounded-2xl shadow-xs border border-slate-200 text-slate-500 space-y-2">
+            <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-1" />
+            <p className="font-bold text-sm text-slate-800">
+              Nenhuma ocorrência pendente de mediação!
+            </p>
+            <p className="text-xs text-slate-400 max-w-md mx-auto">
+              Todas as ocorrências registradas por você já receberam devolutiva da equipe gestora (disponíveis na aba <strong>Minhas Devolutivas</strong>) ou você ainda não realizou novos lançamentos.
+            </p>
           </div>
         ) : (
           <div className="grid gap-3">
-            {minhas.map(reg => (
+            {meusRegistrosSemMediacao.map(reg => (
               <OcorrenciaCard
                 key={reg.id}
                 reg={reg}
                 resolvidoEmSala={verificarResolvidoEmSala(reg.auxilio)}
+                permitirEditar={true}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Minhas Devolutivas: Ocorrências com parecer/mediação oficial já registrado pela gestão
+  // AQUI A EDIÇÃO É BLOQUEADA PORQUE A GESTÃO JÁ MEDIOU/INTERVEIO!
+  const renderMinhasDevolutivas = () => {
+    return (
+      <div className="space-y-4">
+        <div className="bg-emerald-50/80 border border-emerald-200 p-4 sm:p-5 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <CheckCircle className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-emerald-950 flex items-center gap-2">
+                <span>Minhas Devolutivas & Mediações</span>
+                <span className="bg-emerald-200 text-emerald-900 text-xs px-2.5 py-0.5 rounded-full font-bold">
+                  {minhasDevolutivasComMediacao.length} atendida(s)
+                </span>
+              </h2>
+              <p className="text-xs text-emerald-800 mt-0.5">
+                Ocorrências de <strong>{userName}</strong> que já receberam parecer oficial e tratativa da gestão escolar.
+              </p>
+            </div>
+          </div>
+          <div className="text-[11px] text-emerald-900 bg-white/90 px-3 py-2 rounded-xl border border-emerald-200 font-medium">
+            🔒 <strong>Mediação Concluída:</strong> O registro recebeu intervenção oficial da gestão e não permite mais alteração.
+          </div>
+        </div>
+
+        {minhasDevolutivasComMediacao.length === 0 ? (
+          <div className="bg-white p-12 text-center rounded-2xl shadow-xs border border-slate-200 text-slate-500 space-y-2">
+            <Clock className="w-10 h-10 text-amber-500 mx-auto mb-1" />
+            <p className="font-bold text-sm text-slate-800">
+              Ainda não há devolutivas registradas pela equipe gestora.
+            </p>
+            <p className="text-xs text-slate-400 max-w-md mx-auto">
+              Assim que a coordenação ou direção registrar o parecer e as providências tomadas para suas ocorrências, elas migrarão automaticamente para cá.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {minhasDevolutivasComMediacao.map(reg => (
+              <OcorrenciaCard
+                key={reg.id}
+                reg={reg}
+                resolvidoEmSala={verificarResolvidoEmSala(reg.auxilio)}
+                permitirEditar={false}
               />
             ))}
           </div>
@@ -3604,6 +3689,29 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     [bancoDeDados.registros]
   );
 
+  // 4. Meus Registros: Ocorrências do usuário atual que AINDA NÃO POSSUEM MEDIAÇÃO da gestão (permite edição)
+  const meusRegistrosSemMediacao = useMemo(() => {
+    return ordenarOcorrenciasPorMaisRecentes(
+      bancoDeDados.registros.filter(
+        r =>
+          (r.professor || '').trim().toLowerCase() === userName.trim().toLowerCase() &&
+          (!r.mediacao || r.mediacao.trim() === '')
+      )
+    );
+  }, [bancoDeDados.registros, userName]);
+
+  // 5. Minhas Devolutivas: Ocorrências do usuário atual que JÁ POSSUEM MEDIAÇÃO da gestão (edição bloqueada)
+  const minhasDevolutivasComMediacao = useMemo(() => {
+    return ordenarOcorrenciasPorMaisRecentes(
+      bancoDeDados.registros.filter(
+        r =>
+          (r.professor || '').trim().toLowerCase() === userName.trim().toLowerCase() &&
+          r.mediacao &&
+          r.mediacao.trim().length > 0
+      )
+    );
+  }, [bancoDeDados.registros, userName]);
+
   // Listas filtradas pela barra de busca rápida
   const pendentesFiltrados = useMemo(() => {
     if (!buscaPendentes.trim()) return pendentes;
@@ -3837,14 +3945,39 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setAbaGestao('devolutivas')}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                abaGestao === 'devolutivas'
+              onClick={() => setAbaGestao('meus_registros')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                abaGestao === 'meus_registros'
                   ? 'bg-indigo-600 text-white shadow-2xs'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              📬 Minhas Devolutivas
+              <span>📋 Meus Registros</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  abaGestao === 'meus_registros' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-800'
+                }`}
+              >
+                {meusRegistrosSemMediacao.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAbaGestao('devolutivas')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                abaGestao === 'devolutivas'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <span>📬 Minhas Devolutivas</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  abaGestao === 'devolutivas' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+                }`}
+              >
+                {minhasDevolutivasComMediacao.length}
+              </span>
             </button>
             <button
               type="button"
@@ -3873,14 +4006,39 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setAbaProfessor('devolutivas')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                abaProfessor === 'devolutivas'
+              onClick={() => setAbaProfessor('meus_registros')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                abaProfessor === 'meus_registros'
                   ? 'bg-indigo-600 text-white shadow-2xs'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              📬 Minhas Devolutivas
+              <span>📋 Meus Registros</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  abaProfessor === 'meus_registros' ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-800'
+                }`}
+              >
+                {meusRegistrosSemMediacao.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAbaProfessor('devolutivas')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                abaProfessor === 'devolutivas'
+                  ? 'bg-emerald-600 text-white shadow-2xs'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <span>📬 Minhas Devolutivas</span>
+              <span
+                className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  abaProfessor === 'devolutivas' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
+                }`}
+              >
+                {minhasDevolutivasComMediacao.length}
+              </span>
             </button>
             <button
               type="button"
@@ -4156,6 +4314,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             {abaGestao === 'consulta' && renderConsultaImpressao()}
             {abaGestao === 'estatisticas' && renderEstatisticasGlobais()}
             {abaGestao === 'registrar' && renderFormularioRegistro()}
+            {abaGestao === 'meus_registros' && renderMeusRegistros()}
             {abaGestao === 'devolutivas' && renderMinhasDevolutivas()}
             {abaGestao === 'tutorados' && renderMeusTutorados()}
             {abaGestao === 'config_admin' && renderPainelAdminConfig()}
@@ -4163,6 +4322,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         ) : (
           <>
             {abaProfessor === 'registrar' && renderFormularioRegistro()}
+            {abaProfessor === 'meus_registros' && renderMeusRegistros()}
             {abaProfessor === 'devolutivas' && renderMinhasDevolutivas()}
             {abaProfessor === 'tutorados' && renderMeusTutorados()}
           </>
