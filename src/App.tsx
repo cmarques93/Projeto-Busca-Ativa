@@ -22,6 +22,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { OcorrenciasManager } from './components/OcorrenciasManager';
 import { TabletsManager } from './components/TabletsManager';
 import { FirebaseStatusModal } from './components/FirebaseStatusModal';
+import { DashboardHome } from './components/DashboardHome';
 import {
   RotateCcw,
   ShieldCheck,
@@ -38,7 +39,10 @@ import {
   Users,
   AlertOctagon,
   Smartphone,
-  ShieldAlert
+  ShieldAlert,
+  ArrowRight,
+  Edit3,
+  Inbox
 } from 'lucide-react';
 import { storageService } from './data/storageService';
 import { firestoreService } from './lib/firestoreService';
@@ -61,10 +65,11 @@ export default function App() {
   // Current logged in user session (Inicia nulo para exibir a tela de Login como página inicial)
   const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
 
-  // Módulos Consolidados de Navegação
-  const [activeModule, setActiveModule] = useState<MainModuleType>('diario');
-  const [subTabDiario, setSubTabDiario] = useState<'chamada' | 'portaria' | 'ausencias' | 'turmas'>('chamada');
-  const [subTabBuscaAtiva, setSubTabBuscaAtiva] = useState<'ocorrencias' | 'alertas' | 'casos'>('ocorrencias');
+  // Módulos Consolidados de Navegação (Inicia na Tela Inicial)
+  const [activeModule, setActiveModule] = useState<MainModuleType>('inicio');
+  const [subTabDiario, setSubTabDiario] = useState<'hub' | 'chamada' | 'portaria' | 'ausencias' | 'turmas'>('hub');
+  const [subTabBuscaAtiva, setSubTabBuscaAtiva] = useState<'hub' | 'ocorrencias' | 'alertas' | 'casos'>('hub');
+  const [ocorrenciasSubTab, setOcorrenciasSubTab] = useState<string>('registrar');
 
   const [activeTab, setActiveTab] = useState<MainTabType>('attendance');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -421,31 +426,81 @@ export default function App() {
     });
   }, [loadAllFromFirebaseDirectly, fetchData]);
 
-  // Role selection & Login success handlers
+  // Role selection & Login success handlers (direciona para a Tela Inicial personalizada)
   const handleLoginSuccess = (session: UserSession) => {
     setCurrentUser(session);
 
     // Carrega dados diretamente do Firebase no exato momento que o usuário loga
     loadAllFromFirebaseDirectly(true);
 
-    // Automatically route to the appropriate module & subTab based on profile
-    if (session.role === 'admin') {
-      setActiveModule('diario');
-      setSubTabDiario('chamada');
-      setActiveTab('attendance');
-    } else if (session.role === 'professor') {
-      setActiveModule('diario');
-      setSubTabDiario('ausencias');
-      setActiveTab('teacher_absence');
-    } else if (session.role === 'aoe') {
-      setActiveModule('diario');
-      setSubTabDiario('chamada');
-      setActiveTab('attendance');
+    // Redireciona sempre para a Tela Inicial com botões contextuais por perfil
+    setActiveModule('inicio');
+
+    // Prepara sub-abas ideais caso o usuário navegue para os módulos
+    setSubTabDiario('hub');
+    setSubTabBuscaAtiva('hub');
+    setActiveTab(session.role === 'professor' ? 'teacher_absence' : 'attendance');
+  };
+
+  // Navegação direta acionada pelos cards/botões da Tela Inicial de acordo com o perfil
+  const handleNavigateFromHome = (
+    module: MainModuleType,
+    subDiario?: 'hub' | 'chamada' | 'portaria' | 'ausencias' | 'turmas',
+    subBuscaAtiva?: 'hub' | 'ocorrencias' | 'alertas' | 'casos',
+    ocorrTab?: string
+  ) => {
+    setActiveModule(module);
+    setSubTabDiario(subDiario || 'hub');
+    setSubTabBuscaAtiva(subBuscaAtiva || 'hub');
+    if (ocorrTab) setOcorrenciasSubTab(ocorrTab);
+  };
+
+  // Botão "Voltar à tela anterior"
+  const handleGoBack = () => {
+    if (activeModule === 'diario') {
+      if (subTabDiario !== 'hub' && currentUser?.role !== 'professor') {
+        setSubTabDiario('hub');
+      } else {
+        setActiveModule('inicio');
+      }
+    } else if (activeModule === 'busca_ativa') {
+      if (subTabBuscaAtiva !== 'hub') {
+        setSubTabBuscaAtiva('hub');
+      } else {
+        setActiveModule('inicio');
+      }
     } else {
-      setActiveModule('diario');
-      setSubTabDiario('chamada');
-      setActiveTab('attendance');
+      setActiveModule('inicio');
     }
+  };
+
+  // Botão "Tela de Início"
+  const handleGoHome = () => {
+    setActiveModule('inicio');
+    setSubTabDiario('hub');
+    setSubTabBuscaAtiva('hub');
+  };
+
+  // Breadcrumb legível para o cabeçalho
+  const getBreadcrumbText = (): string => {
+    if (activeModule === 'inicio') return 'Tela Inicial';
+    if (activeModule === 'diario') {
+      if (subTabDiario === 'hub') return 'Diário & Portaria';
+      if (subTabDiario === 'chamada') return 'Diário & Portaria > Chamada por Turma';
+      if (subTabDiario === 'portaria') return 'Diário & Portaria > Controle de Portaria';
+      if (subTabDiario === 'ausencias') return 'Diário & Portaria > Diário do Professor';
+      if (subTabDiario === 'turmas') return 'Diário & Portaria > Relação de Turmas';
+    }
+    if (activeModule === 'busca_ativa') {
+      if (subTabBuscaAtiva === 'hub') return 'Busca Ativa & Ocorrências';
+      if (subTabBuscaAtiva === 'ocorrencias') return 'Busca Ativa > Ocorrências & Mediação';
+      if (subTabBuscaAtiva === 'alertas') return 'Busca Ativa > Ausências & WhatsApp';
+      if (subTabBuscaAtiva === 'casos') return 'Busca Ativa > Casos de Busca Ativa & IA';
+    }
+    if (activeModule === 'tablets') return 'Agendamento de Tablets';
+    if (activeModule === 'relatorios') return 'Relatórios Pedagógicos SEDUC';
+    if (activeModule === 'system_manager') return 'Gerenciador Central do Sistema';
+    return '';
   };
 
   const handleSelectRole = (role: UserRole, customName?: string) => {
@@ -903,32 +958,21 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
-      {/* Top Application Header with Role Switcher & Consolidated Modules */}
+      {/* Top Application Header with SigaEscola brand & clean action bar */}
       <Header
         schoolName={schoolInfo.schoolName}
-        totalStudents={schoolInfo.totalStudents || students.length}
-        criticalStudentsCount={criticalStudentsTotal}
-        todayAlertsCount={alerts.length}
-        activeInterventionsCount={interventions.filter(i => i.stage !== 'reintegrado' && i.stage !== 'encerrado').length}
-        averageAttendance={avgAttendanceOverall}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        activeModule={activeModule}
-        setActiveModule={setActiveModule}
         currentUser={currentUser}
+        activeModule={activeModule}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
         onLogout={handleLogout}
         onOpenSeducReport={() => setIsSeducReportModalOpen(true)}
-        onRefresh={fetchData}
-        isRefreshing={isRefreshing}
-        onResetData={handleResetData}
-        onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
-        onOpenWhatsAppIntegration={() => setIsWhatsAppModalOpen(true)}
-        onOpenGoogleSheets={() => setIsGoogleSheetsModalOpen(true)}
         onSyncData={handleSyncData}
         isSyncing={isSyncing}
         syncMessage={syncMessage}
-        onOpenFirebaseStatus={() => setIsFirebaseStatusModalOpen(true)}
+        onGoBack={handleGoBack}
+        onGoHome={handleGoHome}
+        canGoBack={true}
+        breadcrumb={getBreadcrumbText()}
       />
 
       {/* Main Container Area */}
@@ -985,73 +1029,132 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* MÓDULO 1: DIÁRIO & PORTARIA                                              */}
+        {/* TELA INICIAL (DASHBOARD PERSONALIZADO POR PERFIL)                        */}
+        {/* ========================================================================= */}
+        {activeModule === 'inicio' && (
+          <DashboardHome
+            currentUser={currentUser}
+            classes={classes}
+            students={visibleStudents}
+            alerts={alerts}
+            interventions={interventions}
+            averageAttendance={avgAttendanceOverall}
+            criticalStudentsCount={criticalStudentsTotal}
+            onNavigate={handleNavigateFromHome}
+            onSelectStudent={(student) => setSelectedStudentDetailId(student.id)}
+            onOpenSeducReport={() => setIsSeducReportModalOpen(true)}
+            onOpenFirebaseStatus={() => setIsFirebaseStatusModalOpen(true)}
+          />
+        )}
+
+        {/* ========================================================================= */}
+        {/* MÓDULO 1: DIÁRIO & PORTARIA (NAVEGAÇÃO POR CARDS)                        */}
         {/* ========================================================================= */}
         {activeModule === 'diario' && (
-          <div className="space-y-5">
-            {/* Sub-barra contextual do Diário */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-1.5 shadow-2xs flex overflow-x-auto no-scrollbar gap-1">
-              {currentUser.role !== 'professor' && (
-                <button
-                  type="button"
-                  onClick={() => setSubTabDiario('chamada')}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                    subTabDiario === 'chamada'
-                      ? 'bg-indigo-600 text-white shadow-2xs'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  <UserCheck className="w-4 h-4" />
-                  <span>📝 Lançamento de Frequência</span>
-                </button>
-              )}
+          <div className="space-y-5 animate-in fade-in duration-200">
+            {/* Hub de Cards para Diário & Portaria */}
+            {subTabDiario === 'hub' && (
+              <div className="space-y-4">
+                <div className="mb-2">
+                  <h2 className="text-lg font-black text-slate-900">
+                    Diário & Portaria • Sub-menus
+                  </h2>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Selecione uma das opções abaixo para realizar seus lançamentos
+                  </p>
+                </div>
 
-              {currentUser.role !== 'professor' && (
-                <button
-                  type="button"
-                  onClick={() => setSubTabDiario('portaria')}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                    subTabDiario === 'portaria'
-                      ? 'bg-blue-600 text-white shadow-2xs'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  <DoorOpen className="w-4 h-4 text-blue-500" />
-                  <span>🚪 Portaria (Entradas & Saídas)</span>
-                </button>
-              )}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {currentUser.role !== 'professor' && (
+                    <div
+                      onClick={() => setSubTabDiario('chamada')}
+                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-2xs">
+                          <UserCheck className="w-6 h-6" />
+                        </div>
+                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-indigo-600 transition-colors">
+                          Chamada por Turma
+                        </h3>
+                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                          Lançar presenças, ausências e acompanhar percentual de frequência escolar das turmas.
+                        </p>
+                      </div>
+                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-600">
+                        <span>Abrir Chamada</span>
+                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                      </div>
+                    </div>
+                  )}
 
-              <button
-                type="button"
-                onClick={() => setSubTabDiario('ausencias')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                  subTabDiario === 'ausencias'
-                    ? 'bg-emerald-600 text-white shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <FileText className="w-4 h-4 text-emerald-500" />
-                <span>📋 Consulta de Ausências & Atestados</span>
-              </button>
+                  {currentUser.role !== 'professor' && (
+                    <div
+                      onClick={() => setSubTabDiario('portaria')}
+                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-blue-400 transition-all cursor-pointer flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-2xs">
+                          <DoorOpen className="w-6 h-6" />
+                        </div>
+                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-blue-600 transition-colors">
+                          Controle de Portaria
+                        </h3>
+                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                          Registrar entradas tardias de alunos e autorizações de saída antecipada com responsáveis.
+                        </p>
+                      </div>
+                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-blue-600">
+                        <span>Abrir Portaria</span>
+                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                      </div>
+                    </div>
+                  )}
 
-              <button
-                type="button"
-                onClick={() => setSubTabDiario('turmas')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                  subTabDiario === 'turmas'
-                    ? 'bg-indigo-600 text-white shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <Users className="w-4 h-4 text-indigo-500" />
-                <span>🏫 Turmas & Estudantes</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                  subTabDiario === 'turmas' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
-                }`}>
-                  {students.length}
-                </span>
-              </button>
-            </div>
+                  <div
+                    onClick={() => setSubTabDiario('ausencias')}
+                    className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-2xs">
+                        <FileText className="w-6 h-6" />
+                      </div>
+                      <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-emerald-600 transition-colors">
+                        Diário do Professor
+                      </h3>
+                      <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                        Lançamento de ausências, presenças e justificativas médicas por disciplina.
+                      </p>
+                    </div>
+                    <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
+                      <span>Abrir Diário</span>
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </div>
+                  </div>
+
+                  <div
+                    onClick={() => setSubTabDiario('turmas')}
+                    className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-slate-400 transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="w-12 h-12 rounded-2xl bg-slate-100 border border-slate-300 text-slate-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-slate-700 group-hover:text-white transition-all shadow-2xs">
+                        <Users className="w-6 h-6" />
+                      </div>
+                      <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-slate-800 transition-colors">
+                        Relação de Turmas
+                      </h3>
+                      <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                        Dossiê completo de turmas, listagem nominal de alunos e situação cadastral.
+                      </p>
+                    </div>
+                    <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-700">
+                      <span>Ver Turmas</span>
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Conteúdo da Sub-Aba do Diário */}
             {subTabDiario === 'chamada' && currentUser.role !== 'professor' && (
@@ -1105,69 +1208,190 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* MÓDULO 2: BUSCA ATIVA & OCORRÊNCIAS                                      */}
+        {/* MÓDULO 2: BUSCA ATIVA & OCORRÊNCIAS (NAVEGAÇÃO POR CARDS)                */}
         {/* ========================================================================= */}
         {activeModule === 'busca_ativa' && (
-          <div className="space-y-5">
-            {/* Sub-barra contextual de Busca Ativa & Ocorrências */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-1.5 shadow-2xs flex overflow-x-auto no-scrollbar gap-1">
-              <button
-                type="button"
-                onClick={() => setSubTabBuscaAtiva('ocorrencias')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                  subTabBuscaAtiva === 'ocorrencias'
-                    ? 'bg-amber-600 text-white shadow-2xs'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <AlertOctagon className="w-4 h-4 text-amber-500" />
-                <span>🚨 Ocorrências & Mediação Disciplinar</span>
-              </button>
+          <div className="space-y-5 animate-in fade-in duration-200">
+            {/* Hub de Cards para Busca Ativa & Ocorrências */}
+            {subTabBuscaAtiva === 'hub' && (
+              <div className="space-y-4">
+                <div className="mb-2">
+                  <h2 className="text-lg font-black text-slate-900">
+                    Busca Ativa & Ocorrências • Sub-menus
+                  </h2>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Selecione uma das opções abaixo para acessar o módulo
+                  </p>
+                </div>
 
-              {(currentUser.role === 'admin' || currentUser.role === 'gestao_paac') && (
-                <button
-                  type="button"
-                  onClick={() => setSubTabBuscaAtiva('alertas')}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                    subTabBuscaAtiva === 'alertas'
-                      ? 'bg-emerald-600 text-white shadow-2xs'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  <Smartphone className="w-4 h-4 text-emerald-500" />
-                  <span>📱 Ausências do Dia & WhatsApp</span>
-                  {alerts.length > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                      subTabBuscaAtiva === 'alertas' ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-800'
-                    }`}>
-                      {alerts.length}
-                    </span>
-                  )}
-                </button>
-              )}
+                {currentUser.role === 'professor' ? (
+                  /* Cards do Professor */
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div
+                      onClick={() => {
+                        setSubTabBuscaAtiva('ocorrencias');
+                        setOcorrenciasSubTab('registrar');
+                      }}
+                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-amber-600 group-hover:text-white transition-all shadow-2xs">
+                          <Edit3 className="w-6 h-6" />
+                        </div>
+                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-amber-600 transition-colors">
+                          Registrar Nova Ocorrência
+                        </h3>
+                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                          Criar novo registro disciplinar ou pedagógico em sala com assistência de IA.
+                        </p>
+                      </div>
+                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
+                        <span>Registrar</span>
+                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                      </div>
+                    </div>
 
-              {(currentUser.role === 'admin' || currentUser.role === 'gestao_paac') && (
-                <button
-                  type="button"
-                  onClick={() => setSubTabBuscaAtiva('casos')}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
-                    subTabBuscaAtiva === 'casos'
-                      ? 'bg-rose-600 text-white shadow-2xs'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  <ShieldAlert className="w-4 h-4 text-rose-500" />
-                  <span>🛡️ Casos de Busca Ativa & IA</span>
-                  {interventions.filter(i => i.stage !== 'reintegrado' && i.stage !== 'encerrado').length > 0 && (
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                      subTabBuscaAtiva === 'casos' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800'
-                    }`}>
-                      {interventions.filter(i => i.stage !== 'reintegrado' && i.stage !== 'encerrado').length}
-                    </span>
-                  )}
-                </button>
-              )}
-            </div>
+                    <div
+                      onClick={() => {
+                        setSubTabBuscaAtiva('ocorrencias');
+                        setOcorrenciasSubTab('meus_registros');
+                      }}
+                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-2xs">
+                          <FileText className="w-6 h-6" />
+                        </div>
+                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-indigo-600 transition-colors">
+                          Meus Registros (Edição)
+                        </h3>
+                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                          Edite suas ocorrências enviadas que ainda não receberam parecer da Gestão.
+                        </p>
+                      </div>
+                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-600">
+                        <span>Acessar</span>
+                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                      </div>
+                    </div>
+
+                    <div
+                      onClick={() => {
+                        setSubTabBuscaAtiva('ocorrencias');
+                        setOcorrenciasSubTab('devolutivas');
+                      }}
+                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-2xs">
+                          <Inbox className="w-6 h-6" />
+                        </div>
+                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-emerald-600 transition-colors">
+                          Minhas Devolutivas
+                        </h3>
+                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                          Consultar pareceres e medidas já tomadas pela gestão pedagógica nos seus casos.
+                        </p>
+                      </div>
+                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
+                        <span>Ver Devolutivas</span>
+                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                      </div>
+                    </div>
+
+                    <div
+                      onClick={() => {
+                        setSubTabBuscaAtiva('ocorrencias');
+                        setOcorrenciasSubTab('tutorados');
+                      }}
+                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-purple-400 transition-all cursor-pointer flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="w-12 h-12 rounded-2xl bg-purple-50 border border-purple-200 text-purple-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-purple-600 group-hover:text-white transition-all shadow-2xs">
+                          <Users className="w-6 h-6" />
+                        </div>
+                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-purple-600 transition-colors">
+                          Meus Tutorados
+                        </h3>
+                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                          Dossiê e acompanhamento disciplinar dos estudantes sob sua tutoria docente.
+                        </p>
+                      </div>
+                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-purple-600">
+                        <span>Ver Tutorados</span>
+                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Cards da Gestão e Admin */
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div
+                      onClick={() => setSubTabBuscaAtiva('ocorrencias')}
+                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-amber-600 group-hover:text-white transition-all shadow-2xs">
+                          <AlertOctagon className="w-6 h-6" />
+                        </div>
+                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-amber-600 transition-colors">
+                          Ocorrências & Mediação
+                        </h3>
+                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                          Analisar ocorrências de sala de aula, registrar parecer da gestão e alterar status.
+                        </p>
+                      </div>
+                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
+                        <span>Abrir Ocorrências</span>
+                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                      </div>
+                    </div>
+
+                    <div
+                      onClick={() => setSubTabBuscaAtiva('alertas')}
+                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-2xs">
+                          <Smartphone className="w-6 h-6" />
+                        </div>
+                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-emerald-600 transition-colors">
+                          Ausências & WhatsApp
+                        </h3>
+                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                          Notificação direta via WhatsApp para responsáveis sobre faltas do dia e busca ativa.
+                        </p>
+                      </div>
+                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
+                        <span>Abrir Alertas</span>
+                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                      </div>
+                    </div>
+
+                    <div
+                      onClick={() => setSubTabBuscaAtiva('casos')}
+                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-rose-400 transition-all cursor-pointer flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-rose-600 group-hover:text-white transition-all shadow-2xs">
+                          <ShieldAlert className="w-6 h-6" />
+                        </div>
+                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-rose-600 transition-colors">
+                          Casos de Busca Ativa & IA
+                        </h3>
+                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                          Intervenções pedagógicas, visitas domiciliares, notificações ao Conselho Tutelar e planos IA.
+                        </p>
+                      </div>
+                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-rose-600">
+                        <span>Abrir Casos</span>
+                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Conteúdo da Sub-Aba de Busca Ativa */}
             {subTabBuscaAtiva === 'ocorrencias' && (
@@ -1175,6 +1399,7 @@ export default function App() {
                 currentUser={currentUser}
                 classes={classes}
                 students={visibleStudents}
+                initialTab={ocorrenciasSubTab}
               />
             )}
 

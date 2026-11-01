@@ -44,6 +44,8 @@ export interface GateRecord {
   guardianPhone?: string;
   recordedBy: string;
   notes?: string;
+  isRetroactive?: boolean;
+  registeredAt?: string;
 }
 export type RiskLevel = 'baixo' | 'moderado' | 'alto' | 'critico';
 export type StudentStatus = 'regular' | 'alerta' | 'evasao_iminente' | 'em_busca_ativa' | 'reintegrado';
@@ -184,6 +186,22 @@ export interface SchoolClass {
   description?: string;
 }
 
+export interface CriticalStudentInfo {
+  id: string;
+  name: string;
+  ra: string;
+  classId: string;
+  className: string;
+  attendanceRate: number;
+  consecutiveAbsences: number;
+  riskLevel: RiskLevel;
+  hasDisciplinaryOccurrence: boolean;
+  totalOccurrences: number;
+  interventionStage?: string;
+  guardianName?: string;
+  guardianPhone?: string;
+}
+
 export interface MonthlyPedagogicalReport {
   month: string;
   monthIndex: number; // 1-12
@@ -192,12 +210,14 @@ export interface MonthlyPedagogicalReport {
   averageAttendanceRate: number;
   totalAbsences: number;
   studentsWithCriticalAbsence: number; // < 75%
+  businessDaysCount?: number;
+  criticalStudentsList?: CriticalStudentInfo[];
   activeSearchCasesCount: number;
   successfulReintegrations: number;
   alertsDispatched: number;
   alertsResponded: number;
   absenceCausesDistribution: { cause: string; count: number; percentage: number }[];
-  riskByClass: { classId: string; className: string; averageAttendance: number; riskStudents: number; totalStudents: number }[];
+  riskByClass: { classId: string; className: string; averageAttendance: number; riskStudents: number; totalStudents: number; isLaunched?: boolean; presentCount?: number; absentCount?: number }[];
   attendanceTrend: { week: string; rate: number; absences: number }[];
   pedagogicalInsights: string[];
 }

@@ -1463,13 +1463,16 @@ export class SchoolDatabase {
 
   public getGateRecords(filters?: { date?: string; classId?: string }): GateRecord[] {
     let records = this.data.gateRecords || [];
-    if (filters?.date) {
+    if (filters?.date && filters.date !== 'todas') {
       records = records.filter(r => r.date === filters.date);
     }
     if (filters?.classId && filters.classId !== 'todas') {
       records = records.filter(r => r.classId === filters.classId);
     }
-    return [...records].sort((a, b) => b.time.localeCompare(a.time));
+    return [...records].sort((a, b) => {
+      if (b.date !== a.date) return (b.date || '').localeCompare(a.date || '');
+      return (b.time || '').localeCompare(a.time || '');
+    });
   }
 
   public createGateRecord(input: Omit<GateRecord, 'id'>): GateRecord {

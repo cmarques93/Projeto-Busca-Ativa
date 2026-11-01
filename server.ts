@@ -352,7 +352,22 @@ async function startServer() {
 
   app.post('/api/gate-records', (req, res) => {
     try {
-      const { studentId, studentName, classId, className, date, time, type, reason, guardianOrAuthorizedPerson, guardianPhone, recordedBy, notes } = req.body;
+      const {
+        studentId,
+        studentName,
+        classId,
+        className,
+        date,
+        time,
+        type,
+        reason,
+        guardianOrAuthorizedPerson,
+        guardianPhone,
+        recordedBy,
+        notes,
+        isRetroactive,
+        registeredAt
+      } = req.body;
       if (!studentId || !time || !type || !reason) {
         return res.status(400).json({ error: 'Campos obrigatórios ausentes para registro de movimentação de portaria' });
       }
@@ -369,6 +384,8 @@ async function startServer() {
         guardianPhone,
         recordedBy: recordedBy || 'AOE - Portaria',
         notes,
+        isRetroactive: Boolean(isRetroactive),
+        registeredAt: registeredAt || new Date().toISOString(),
       });
       res.status(201).json(newRecord);
     } catch (e: any) {

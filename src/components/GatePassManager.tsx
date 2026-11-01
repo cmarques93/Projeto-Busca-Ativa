@@ -11,11 +11,13 @@ import {
   Search,
   CheckCircle2,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  History
 } from 'lucide-react';
 import { GateRecord, GateMovementType, Student, SchoolClass } from '../types';
 import { InfoTooltip } from './InfoTooltip';
 import { storageService } from '../data/storageService';
+import { formatDateBR, getLocalTodayStr } from '../utils/reportCalculator';
 
 interface GatePassManagerProps {
   students: Student[];
@@ -28,18 +30,48 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
   classes,
   operatorName,
 }) => {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalTodayStr();
+
+  const getYesterdayStr = (): string => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getBeforeYesterdayStr = (): string => {
+    const d = new Date();
+    d.setDate(d.getDate() - 2);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const getDaysAgoStr = (days: number): string => {
+    const d = new Date();
+    d.setDate(d.getDate() - days);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const [records, setRecords] = useState<GateRecord[]>([]);
+  const [dateFilterPreset, setDateFilterPreset] = useState<'hoje' | 'ontem' | '7dias' | 'todas' | 'personalizada'>('hoje');
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [selectedClassFilter, setSelectedClassFilter] = useState<string>('todas');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isFormOpen, setIsFormOpen] = useState<boolean>(false);
 
-  // Form state
+  // Form state com Suporte a Registro Retroativo
   const [formClassFilter, setFormClassFilter] = useState<string>('todas');
   const [studentId, setStudentId] = useState<string>('');
   const [type, setType] = useState<GateMovementType>('entrada_tardia');
+  const [recordDate, setRecordDate] = useState<string>(todayStr);
   const [time, setTime] = useState<string>(
     new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
   );
@@ -52,17 +84,26 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
   const [isDeletingRecord, setIsDeletingRecord] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
+  const isFormRetroactive = recordDate < todayStr;
+
   const fetchRecords = async () => {
     setIsLoading(true);
     let loadedFromServer = false;
+    const queryDate = (dateFilterPreset === 'todas' || dateFilterPreset === '7dias') ? 'todas' : selectedDate;
+
     try {
-      const url = `/api/gate-records?date=${selectedDate}&classId=${selectedClassFilter}`;
+      const url = `/api/gate-records?date=${queryDate}&classId=${selectedClassFilter}`;
       const res = await fetch(url);
       const contentType = res.headers.get('content-type');
       if (res.ok && contentType && contentType.includes('application/json')) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          setRecords(data);
+          let filteredData = data;
+          if (dateFilterPreset === '7dias') {
+            const limitDate = getDaysAgoStr(7);
+            filteredData = data.filter(r => r.date >= limitDate);
+          }
+          setRecords(filteredData);
           loadedFromServer = true;
         }
       }
@@ -70,10 +111,14 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
       console.warn('API de portaria não disponível, buscando do storageService:', err);
     } finally {
       if (!loadedFromServer) {
-        const local = storageService.getGateRecords(
-          selectedDate,
+        let local = storageService.getGateRecords(
+          queryDate !== 'todas' ? queryDate : undefined,
           selectedClassFilter !== 'todas' ? selectedClassFilter : undefined
         );
+        if (dateFilterPreset === '7dias') {
+          const limitDate = getDaysAgoStr(7);
+          local = local.filter(r => r.date >= limitDate);
+        }
         setRecords(local);
       }
       setIsLoading(false);
@@ -82,7 +127,7 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
 
   useEffect(() => {
     fetchRecords();
-  }, [selectedDate, selectedClassFilter]);
+  }, [selectedDate, selectedClassFilter, dateFilterPreset]);
 
   // When studentId changes in form, auto-fill student details
   const handleStudentSelect = (id: string) => {
@@ -100,13 +145,16 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
     if (!st) return;
 
     setIsSubmitting(true);
+    const isRetro = recordDate < todayStr;
+    const nowIso = new Date().toISOString();
+
     const payload: GateRecord = {
       id: `gate-${Date.now()}`,
       studentId: st.id,
       studentName: st.name,
       classId: st.classId,
       className: st.className,
-      date: selectedDate,
+      date: recordDate,
       time,
       type,
       reason,
@@ -114,6 +162,8 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
       guardianPhone,
       recordedBy: operatorName || 'AOE - Portaria',
       notes,
+      isRetroactive: isRetro,
+      registeredAt: nowIso
     };
 
     try {
@@ -131,12 +181,20 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
     }
 
     storageService.createGateRecord(payload);
-    setSuccessMsg(`Movimentação de ${type === 'entrada_tardia' ? 'Entrada Tardia' : 'Saída Antecipada'} registrada com sucesso!`);
-    setTimeout(() => setSuccessMsg(null), 4000);
+    
+    if (isRetro) {
+      setSuccessMsg(`Registro Retroativo (${formatDateBR(recordDate)}) de ${type === 'entrada_tardia' ? 'Entrada Tardia' : 'Saída Antecipada'} gravado com sucesso!`);
+    } else {
+      setSuccessMsg(`Movimentação de ${type === 'entrada_tardia' ? 'Entrada Tardia' : 'Saída Antecipada'} registrada com sucesso!`);
+    }
+
+    setTimeout(() => setSuccessMsg(null), 4500);
+
     // Reset form
     setStudentId('');
     setReason('');
     setNotes('');
+    setRecordDate(todayStr);
     setIsFormOpen(false);
     fetchRecords();
     setIsSubmitting(false);
@@ -261,6 +319,7 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
           </div>
 
           <form onSubmit={handleCreateRecord} className="space-y-4">
+            {/* Linha 1 do Formulário: Tipo, Turma/Estudante e Data/Horário com Retroatividade */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Type */}
               <div>
@@ -334,18 +393,73 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
                 </div>
               </div>
 
-              {/* Time */}
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Horário da Passagem (HH:MM):</label>
-                <input
-                  type="time"
-                  value={time}
-                  onChange={e => setTime(e.target.value)}
-                  required
-                  className="w-full text-xs py-2 px-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                />
+              {/* Data da Movimentação & Horário (com suporte total a lançamento retroativo) */}
+              <div className="space-y-2">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700">Data da Movimentação:</label>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setRecordDate(todayStr)}
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors ${
+                          recordDate === todayStr ? 'bg-blue-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        Hoje
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRecordDate(getYesterdayStr())}
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors ${
+                          recordDate === getYesterdayStr() ? 'bg-blue-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        Ontem
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRecordDate(getBeforeYesterdayStr())}
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-bold cursor-pointer transition-colors ${
+                          recordDate === getBeforeYesterdayStr() ? 'bg-blue-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        Anteontem
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    type="date"
+                    value={recordDate}
+                    max={todayStr}
+                    onChange={e => setRecordDate(e.target.value)}
+                    required
+                    className="w-full text-xs py-2 px-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Horário da Passagem (HH:MM):</label>
+                  <input
+                    type="time"
+                    value={time}
+                    onChange={e => setTime(e.target.value)}
+                    required
+                    className="w-full text-xs py-2 px-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  />
+                </div>
               </div>
             </div>
+
+            {/* Alerta Visual de Registro Retroativo */}
+            {isFormRetroactive && (
+              <div className="bg-amber-50 border border-amber-300 text-amber-900 px-3.5 py-2.5 rounded-xl flex items-start gap-2.5 text-xs animate-in fade-in">
+                <History className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-extrabold text-amber-950">Aviso de Registro Retroativo:</span> Esta movimentação refere-se ao dia <strong>{formatDateBR(recordDate)}</strong>. O registro será gravado com selo oficial de data retroativa e data/hora atual de auditoria, assegurando conformidade administrativa e transparência para a equipe escolar e pais.
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Reason */}
@@ -426,43 +540,118 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
         </div>
       )}
 
-      {/* Filter and Search Bar */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-slate-400" />
-            <input
-              type="date"
-              value={selectedDate}
-              onChange={e => setSelectedDate(e.target.value)}
-              className="text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-            />
-          </div>
+      {/* Filter and Search Bar com Atalhos Rápidos de Datas */}
+      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+          {/* Presets de Data (Hoje, Ontem, 7 Dias, Todas) */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-bold text-slate-600 mr-1 flex items-center gap-1">
+              <Calendar className="w-3.5 h-3.5 text-slate-400" />
+              <span>Filtro de Data:</span>
+            </span>
 
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-slate-500">Turma:</label>
-            <select
-              value={selectedClassFilter}
-              onChange={e => setSelectedClassFilter(e.target.value)}
-              className="text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+            <button
+              type="button"
+              onClick={() => {
+                setDateFilterPreset('hoje');
+                setSelectedDate(todayStr);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                dateFilterPreset === 'hoje'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
             >
-              <option value="todas">Todas as Turmas</option>
-              {classes.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+              Hoje
+            </button>
 
-        <div className="relative w-full md:w-72">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            placeholder="Buscar por aluno, turma ou motivo..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full text-xs pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-          />
+            <button
+              type="button"
+              onClick={() => {
+                setDateFilterPreset('ontem');
+                setSelectedDate(getYesterdayStr());
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                dateFilterPreset === 'ontem'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              Ontem
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setDateFilterPreset('7dias');
+                setSelectedDate('ultimos_7_dias');
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                dateFilterPreset === '7dias'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              Últimos 7 dias
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setDateFilterPreset('todas');
+                setSelectedDate('todas');
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                dateFilterPreset === 'todas'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              Todas as Datas
+            </button>
+
+            <div className="flex items-center gap-1.5 ml-1">
+              <span className="text-[11px] text-slate-400">ou</span>
+              <input
+                type="date"
+                value={dateFilterPreset === 'personalizada' ? selectedDate : ''}
+                onChange={e => {
+                  setDateFilterPreset('personalizada');
+                  setSelectedDate(e.target.value);
+                }}
+                className="text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                title="Selecione qualquer data retroativa específica"
+              />
+            </div>
+          </div>
+
+          {/* Filtro de Turma e Busca */}
+          <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-slate-500">Turma:</label>
+              <select
+                value={selectedClassFilter}
+                onChange={e => setSelectedClassFilter(e.target.value)}
+                className="text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+              >
+                <option value="todas">Todas as Turmas</option>
+                {classes.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="relative flex-1 lg:w-64">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Buscar por aluno, turma ou motivo..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full text-xs pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
@@ -475,9 +664,9 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
         ) : filteredRecords.length === 0 ? (
           <div className="p-12 text-center">
             <DoorOpen className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-            <h3 className="text-sm font-bold text-slate-700">Nenhum registro de portaria nesta data</h3>
+            <h3 className="text-sm font-bold text-slate-700">Nenhum registro de portaria para o filtro selecionado</h3>
             <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
-              Não foram registradas entradas tardias ou saídas antecipadas para os filtros selecionados.
+              Não foram localizadas entradas tardias ou saídas antecipadas para as datas e turmas escolhidas.
             </p>
           </div>
         ) : (
@@ -485,7 +674,7 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[10px]">
                 <tr>
-                  <th className="py-3 px-4">Horário / Tipo</th>
+                  <th className="py-3 px-4">Data, Horário & Tipo</th>
                   <th className="py-3 px-4">Estudante & Turma</th>
                   <th className="py-3 px-4">Motivo Apresentado</th>
                   <th className="py-3 px-4">Responsável / Autorização</th>
@@ -497,21 +686,34 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
                 {filteredRecords.map(record => (
                   <tr key={record.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="py-3.5 px-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded text-xs">
-                          {record.time}
-                        </span>
-                        {record.type === 'entrada_tardia' ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
-                            <ArrowRightCircle className="w-3 h-3 text-amber-600" />
-                            <span>Entrada Tardia</span>
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded text-xs">
+                            {formatDateBR(record.date)} • {record.time}
                           </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-800 border border-purple-200">
-                            <ArrowLeftCircle className="w-3 h-3 text-purple-600" />
-                            <span>Saída Antecipada</span>
-                          </span>
-                        )}
+                          {(record.isRetroactive || record.date < todayStr) && (
+                            <span
+                              className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300"
+                              title={`Lançamento efetuado a posteriori para a data de ${formatDateBR(record.date)}`}
+                            >
+                              <History className="w-3 h-3 text-amber-700" />
+                              <span>Retroativo</span>
+                            </span>
+                          )}
+                        </div>
+                        <div>
+                          {record.type === 'entrada_tardia' ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                              <ArrowRightCircle className="w-3 h-3 text-amber-600" />
+                              <span>Entrada Tardia</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-50 text-purple-800 border border-purple-200">
+                              <ArrowLeftCircle className="w-3 h-3 text-purple-600" />
+                              <span>Saída Antecipada</span>
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="py-3.5 px-4">

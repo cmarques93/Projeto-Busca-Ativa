@@ -687,13 +687,16 @@ export const storageService = {
   // === PORTARIA ===
   getGateRecords: (date?: string, classId?: string): GateRecord[] => {
     let list = getStored<GateRecord[]>('school_gate_records', []);
-    if (date) {
+    if (date && date !== 'todas') {
       list = list.filter(r => r.date === date);
     }
-    if (classId) {
+    if (classId && classId !== 'todas') {
       list = list.filter(r => r.classId === classId);
     }
-    return list;
+    return list.sort((a, b) => {
+      if (b.date !== a.date) return (b.date || '').localeCompare(a.date || '');
+      return (b.time || '').localeCompare(a.time || '');
+    });
   },
 
   createGateRecord: (record: GateRecord): GateRecord => {

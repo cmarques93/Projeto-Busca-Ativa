@@ -379,12 +379,14 @@ interface OcorrenciasManagerProps {
   currentUser?: { id: string; name: string; role: string; pin?: string } | null;
   classes: SchoolClass[];
   students: Student[];
+  initialTab?: string;
 }
 
 export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
   currentUser,
   classes,
   students,
+  initialTab,
 }) => {
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
@@ -524,6 +526,16 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
   const [abaProfessor, setAbaProfessor] = useState<'registrar' | 'meus_registros' | 'devolutivas' | 'tutorados'>(
     'registrar'
   );
+
+  // Sincroniza aba quando passado initialTab (por exemplo ao navegar da Tela Inicial)
+  useEffect(() => {
+    if (initialTab) {
+      if (isGestao) {
+        setAbaGestao(initialTab as any);
+      }
+      setAbaProfessor(initialTab as any);
+    }
+  }, [initialTab, isGestao]);
 
   // Estados do Painel de Administração (Edição de Ocorrências Principais, Medidas Tomadas, Grade de Horários e IA Gemini)
   const [abaAdminConfig, setAbaAdminConfig] = useState<'ocorrencias' | 'medidas' | 'horarios' | 'ia_gemini'>('ocorrencias');

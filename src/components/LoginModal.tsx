@@ -196,7 +196,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               <KeyRound className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold">Identificação de Usuário</h2>
+              <h2 className="text-base font-bold flex items-center gap-1.5">
+                <span className="text-indigo-400">SigaEscola</span>
+                <span>•</span>
+                <span>Alternar Usuário</span>
+              </h2>
               <p className="text-xs text-slate-300">EE Professor Arlindo Silvestre • SEDUC-SP</p>
             </div>
           </div>

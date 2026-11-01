@@ -27,6 +27,64 @@ export function getLocalTodayStr(): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Retorna true se a data informada (YYYY-MM-DD) for um dia útil escolar (Segunda a Sexta).
+ * Garante que fins de semana nunca sejam penalizados ou computados indevidamente como ausência.
+ */
+export function isBusinessDay(dateStr: string): boolean {
+  if (!dateStr) return false;
+  const clean = normalizeDateStr(dateStr);
+  const parts = clean.split('-');
+  if (parts.length !== 3) return false;
+  const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0);
+  const dayOfWeek = d.getDay(); // 0 = Domingo, 6 = Sábado
+  return dayOfWeek >= 1 && dayOfWeek <= 5;
+}
+
+/**
+ * Calcula a quantidade de dias úteis escolares (Segunda a Sexta) contidos no intervalo de datas.
+ */
+export function countBusinessDays(startDate: string, endDate: string): number {
+  const s = normalizeDateStr(startDate);
+  const e = normalizeDateStr(endDate) || s;
+  const minDate = s <= e ? s : e;
+  const maxDate = s <= e ? e : s;
+
+  const minParts = minDate.split('-').map(Number);
+  const maxParts = maxDate.split('-').map(Number);
+  if (minParts.length !== 3 || maxParts.length !== 3) return 1;
+
+  const current = new Date(minParts[0], minParts[1] - 1, minParts[2], 12, 0, 0);
+  const finish = new Date(maxParts[0], maxParts[1] - 1, maxParts[2], 12, 0, 0);
+
+  let count = 0;
+  while (current <= finish) {
+    const day = current.getDay();
+    if (day >= 1 && day <= 5) {
+      count++;
+    }
+    current.setDate(current.getDate() + 1);
+  }
+  return Math.max(1, count);
+}
+
+/**
+ * Retorna o dia útil mais recente (se hoje for sábado ou domingo, retorna a sexta-feira anterior).
+ */
+export function getRecentBusinessDay(): string {
+  const now = new Date();
+  const day = now.getDay();
+  if (day === 0) {
+    now.setDate(now.getDate() - 2);
+  } else if (day === 6) {
+    now.setDate(now.getDate() - 1);
+  }
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${d}`;
+}
+
 export function formatDateBR(dateStr?: string): string {
   if (!dateStr) return '';
   const clean = normalizeDateStr(dateStr);
@@ -42,9 +100,11 @@ export function formatDateRangeLabel(startDate: string, endDate: string): string
   const e = normalizeDateStr(endDate);
   if (!s && !e) return 'Período Atual';
   if (s === e || !e) {
-    return `${formatDateBR(s)} (Relatório Diário)`;
+    const weekday = isBusinessDay(s) ? 'Dia Letivo (Seg-Sex)' : 'Fim de Semana / Extraordinário';
+    return `${formatDateBR(s)} (${weekday})`;
   }
-  return `${formatDateBR(s)} até ${formatDateBR(e)}`;
+  const bDays = countBusinessDays(s, e);
+  return `${formatDateBR(s)} até ${formatDateBR(e)} (${bDays} ${bDays === 1 ? 'dia útil letivo' : 'dias úteis letivos'})`;
 }
 
 export function calculatePedagogicalReport(options: ReportCalculationOptions): MonthlyPedagogicalReport {
@@ -65,6 +125,7 @@ export function calculatePedagogicalReport(options: ReportCalculationOptions): M
   const minDate = startNorm <= endNorm ? startNorm : endNorm;
   const maxDate = startNorm <= endNorm ? endNorm : startNorm;
   const isSingleDay = minDate === maxDate;
+  const businessDaysCount = countBusinessDays(minDate, maxDate);
 
   // 1. Filtra registros de frequência no intervalo [minDate, maxDate]
   const periodRecords = attendanceRecords.filter(r => {
@@ -94,18 +155,62 @@ export function calculatePedagogicalReport(options: ReportCalculationOptions): M
   }
 
   // 2. Alunos em Frequência Crítica
-  // Alunos com taxa < 75% ou risco 'critico' ou 4+ faltas consecutivas ou que tiveram faltas injustificadas no dia
-  const criticalStudentsList = students.filter(s => {
+  // Lê base de ocorrências disciplinares para cruzamento analítico
+  let cachedOcorrenciasRegistros: any[] = [];
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem('CACHE_OCORRENCIAS_APP') : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.registros)) {
+        cachedOcorrenciasRegistros = parsed.registros;
+      }
+    }
+  } catch (e) {
+    // Silently continue
+  }
+
+  const normalizeName = (n: string) => (n || '').toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // Alunos com taxa < 75% ou risco 'critico' ou 4+ faltas consecutivas ou faltas no período
+  const criticalRawStudents = students.filter(s => {
     if (s.attendanceRate < 75 || s.riskLevel === 'critico' || (s.consecutiveAbsences && s.consecutiveAbsences >= 4)) {
       return true;
     }
-    // No dia avaliado, verificar se o aluno tomou falta injustificada e já acumula risco
+    // No período avaliado, verificar se o aluno tomou falta injustificada e já acumula risco
     const dayRecord = studentRecords.find(r => r.studentId === s.id);
     if (dayRecord && dayRecord.status === 'falta_injustificada' && (s.consecutiveAbsences >= 2 || s.attendanceRate < 80)) {
       return true;
     }
     return false;
   });
+
+  // Mapeia para lista nominal detalhada com cruzamento de ocorrências disciplinares
+  const criticalStudentsList = criticalRawStudents.map(s => {
+    const sNorm = normalizeName(s.name);
+    const matchingOccurrences = cachedOcorrenciasRegistros.filter(o => {
+      const oNorm = normalizeName(o.estudante || o.aluno || '');
+      return oNorm && (oNorm === sNorm || oNorm.includes(sNorm) || sNorm.includes(oNorm));
+    });
+
+    const matchingIntervention = interventions.find(i => i.studentId === s.id);
+
+    return {
+      id: s.id,
+      name: s.name,
+      ra: s.ra || 'N/D',
+      classId: s.classId,
+      className: s.className,
+      attendanceRate: typeof s.attendanceRate === 'number' ? s.attendanceRate : 70,
+      consecutiveAbsences: s.consecutiveAbsences || 0,
+      riskLevel: s.riskLevel || 'critico',
+      hasDisciplinaryOccurrence: matchingOccurrences.length > 0,
+      totalOccurrences: matchingOccurrences.length,
+      interventionStage: matchingIntervention?.stage,
+      guardianName: s.guardianName,
+      guardianPhone: s.guardianPhone
+    };
+  });
+
   const studentsWithCriticalAbsence = criticalStudentsList.length;
 
   // 3. Casos de Busca Ativa e Reintegrações Efetivas
@@ -282,8 +387,8 @@ export function calculatePedagogicalReport(options: ReportCalculationOptions): M
   const worstClass = sortedClasses[sortedClasses.length - 1] || { className: 'Geral', averageAttendance: 100 };
 
   const periodDescription = isSingleDay
-    ? `no dia ${formatDateBR(minDate)}`
-    : `no período de ${formatDateBR(minDate)} a ${formatDateBR(maxDate)}`;
+    ? `no dia ${formatDateBR(minDate)} (${isBusinessDay(minDate) ? 'dia letivo' : 'fim de semana'})`
+    : `no período de ${formatDateBR(minDate)} a ${formatDateBR(maxDate)} (${businessDaysCount} ${businessDaysCount === 1 ? 'dia útil letivo' : 'dias úteis letivos'})`;
 
   const pedagogicalInsights = [
     `Diagnóstico Geral: ${periodDescription}, a taxa média de frequência escolar consolidou-se em ${averageAttendanceRate}%, com ${turmasComChamada} de ${turmasTotal} turmas registradas no sistema.`,
@@ -307,6 +412,8 @@ export function calculatePedagogicalReport(options: ReportCalculationOptions): M
     averageAttendanceRate,
     totalAbsences,
     studentsWithCriticalAbsence,
+    businessDaysCount,
+    criticalStudentsList,
     activeSearchCasesCount,
     successfulReintegrations,
     alertsDispatched,

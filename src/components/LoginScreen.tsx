@@ -166,9 +166,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             <School className="w-5 h-5" />
           </div>
           <div>
-            <h1 className="text-sm sm:text-base font-bold text-white leading-tight">
-              EE Professor Arlindo Silvestre
-            </h1>
+            <div className="flex items-center gap-2">
+              <span className="text-sm sm:text-base font-black text-indigo-400">
+                SigaEscola
+              </span>
+              <span className="text-slate-500 hidden sm:inline">•</span>
+              <h1 className="text-xs sm:text-sm font-bold text-white leading-tight">
+                EE Professor Arlindo Silvestre
+              </h1>
+            </div>
             <p className="text-[11px] text-slate-400">
               Governo do Estado de São Paulo • SEDUC-SP
             </p>
@@ -192,11 +198,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
             <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white mx-auto flex items-center justify-center mb-3 shadow-md">
               <KeyRound className="w-6 h-6" />
             </div>
-            <h2 className="text-lg sm:text-xl font-black tracking-tight">
-              Identificação de Usuário
+            <h2 className="text-lg sm:text-xl font-black tracking-tight flex items-center justify-center gap-2">
+              <span>SigaEscola</span>
+              <span className="text-slate-400 font-normal">|</span>
+              <span className="text-sm text-slate-200 font-semibold">Identificação</span>
             </h2>
             <p className="text-xs text-slate-300 mt-1">
-              Busca Ativa Escolar & Diário Oficial de Frequência
+              Portal Integrado de Busca Ativa & Gestão Escolar
             </p>
           </div>
 
