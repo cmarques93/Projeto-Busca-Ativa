@@ -52,6 +52,9 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
   const isAOE = currentUser.role === 'aoe';
   const isProfessor = currentUser.role === 'professor';
 
+  // Barra de busca de estudantes para Dossiê liberada apenas para Gestão/PAAC e Administrador Geral
+  const canAccessDossierSearch = isAdmin || isGestao;
+
   // Busca rápida de alunos na tela inicial
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -150,63 +153,65 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
         </div>
       </div>
 
-      {/* 2. Barra de Busca Rápida de Alunos */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Localizar estudante por nome completo ou RA para ver dossiê..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
-            />
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-full w-5 h-5 flex items-center justify-center cursor-pointer"
-              >
-                ✕
-              </button>
-            )}
+      {/* 2. Barra de Busca Rápida de Alunos para Dossiê (Apenas Gestão/PAAC e Administrador Geral) */}
+      {canAccessDossierSearch && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Localizar estudante por nome completo ou RA para ver dossiê..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-full w-5 h-5 flex items-center justify-center cursor-pointer"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <span className="text-xs text-slate-500 font-medium whitespace-nowrap self-center sm:self-auto">
+              {students.length} estudantes cadastrados
+            </span>
           </div>
-          <span className="text-xs text-slate-500 font-medium whitespace-nowrap self-center sm:self-auto">
-            {students.length} estudantes cadastrados
-          </span>
-        </div>
 
-        {/* Resultados rápidos de pesquisa */}
-        {filteredStudents.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {filteredStudents.map(student => (
-              <button
-                key={student.id}
-                onClick={() => {
-                  onSelectStudent(student);
-                  setSearchTerm('');
-                }}
-                className="text-left p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-indigo-50/50 hover:border-indigo-300 transition-all flex items-center justify-between group cursor-pointer"
-              >
-                <div className="min-w-0 pr-2">
-                  <p className="font-bold text-xs text-slate-800 truncate group-hover:text-indigo-900">
-                    {student.name}
-                  </p>
-                  <p className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
-                    <span className="font-semibold text-slate-700">{student.classId}</span>
-                    <span>•</span>
-                    <span>RA: {student.ra || 'S/N'}</span>
-                  </p>
-                </div>
-                <div className="shrink-0 flex items-center gap-1 text-[11px] font-bold text-indigo-600 group-hover:translate-x-0.5 transition-transform">
-                  <span>Dossiê</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+          {/* Resultados rápidos de pesquisa */}
+          {filteredStudents.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {filteredStudents.map(student => (
+                <button
+                  key={student.id}
+                  onClick={() => {
+                    onSelectStudent(student);
+                    setSearchTerm('');
+                  }}
+                  className="text-left p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-indigo-50/50 hover:border-indigo-300 transition-all flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="min-w-0 pr-2">
+                    <p className="font-bold text-xs text-slate-800 truncate group-hover:text-indigo-900">
+                      {student.name}
+                    </p>
+                    <p className="text-[11px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                      <span className="font-semibold text-slate-700">{student.classId}</span>
+                      <span>•</span>
+                      <span>RA: {student.ra || 'S/N'}</span>
+                    </p>
+                  </div>
+                  <div className="shrink-0 flex items-center gap-1 text-[11px] font-bold text-indigo-600 group-hover:translate-x-0.5 transition-transform">
+                    <span>Dossiê</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 3. Navegação Apenas por Cards: Funcionalidades Principais por Perfil */}
       <div>
