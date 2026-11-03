@@ -79,9 +79,9 @@ export const Header: React.FC<HeaderProps> = ({
             SigaEscola
           </span>
           <span className="text-slate-500 hidden sm:inline">•</span>
-          <span className="font-semibold text-white">Governo do Estado de São Paulo • SEDUC</span>
+          <span className="font-semibold text-white">Sistema de Gestão Escolar & Busca Ativa</span>
           <span className="text-slate-500 hidden sm:inline">|</span>
-          <span className="text-slate-300 hidden sm:inline">Portal Integrado de Busca Ativa & Gestão Escolar</span>
+          <span className="text-slate-300 hidden sm:inline">Portal Integrado de Acompanhamento, Frequência & Mediação</span>
         </div>
 
         {/* Informações do Usuário Ativo e Ações de Sessão */}
@@ -155,15 +155,15 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Ações Funcionais Permitidas no Topo: Relatório SEDUC e Sincronizar Único */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {/* Relatório SEDUC Rápido (Gestão / Admin) */}
+          {/* Relatório Oficial de Acompanhamento (Gestão / Admin) */}
           {(isGestao || isAdmin) && onOpenSeducReport && (
             <button
               onClick={onOpenSeducReport}
               className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
-              title="Gerar relatório diário de ausências aos professores (Contingência SEDUC)"
+              title="Gerar Relatório Oficial de Acompanhamento Escolar (Frequência, Ocorrências, Mediação e Assinaturas)"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              <span>Relatório SEDUC</span>
+              <span>Relatório de Acompanhamento</span>
             </button>
           )}
 

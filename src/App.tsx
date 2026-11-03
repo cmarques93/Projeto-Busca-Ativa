@@ -1498,11 +1498,12 @@ export default function App() {
         onLoginSuccess={handleLoginSuccess}
       />
 
-      {/* SEDUC Contingency Daily Report Modal for Teachers */}
+      {/* Relatório Oficial de Acompanhamento Escolar (Frequência, Ocorrências, Mediação e Assinaturas) */}
       <SeducContingencyReportModal
         isOpen={isSeducReportModalOpen}
         onClose={() => setIsSeducReportModalOpen(false)}
         classes={classes}
+        students={students}
         currentUser={currentUser}
       />
 

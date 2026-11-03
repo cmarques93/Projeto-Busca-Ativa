@@ -269,6 +269,32 @@ export interface SeducContingencyReport {
   }[];
 }
 
+export interface StudentOccurrenceReportItem {
+  id: string;
+  data: string;
+  aula: string;
+  professor: string;
+  turma: string;
+  ocorrencia: string;
+  descricao?: string;
+  medida: string;
+  mediacao?: string;
+  mediador?: string;
+  status: string;
+}
+
+export interface FamilyInteractionReportItem {
+  id?: string;
+  data: string;
+  estudante: string;
+  tratativa: string;
+  mediador: string;
+}
+
+export interface OfficialSchoolMonitoringReport extends SeducContingencyReport {
+  commercialSystemName?: string;
+}
+
 export interface GoogleSheetsConfig {
   spreadsheetId: string | null;
   spreadsheetUrl: string | null;
