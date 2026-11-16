@@ -137,19 +137,31 @@ export function ordenarOcorrenciasPorMaisRecentes(registros: any[]): any[] {
  * 3. Base Oficial Integrada (59 ocorrências e 373 estudantes no bundle)
  * 4. Cache local offline (localStorage)
  */
+function getCurrentSchoolId(): string {
+  try {
+    const s = localStorage.getItem('sigaescola_active_school_id');
+    return !s || s === 'emeb-cecilia-meireles' ? 'ee-arlindo-silvestre' : s;
+  } catch {
+    return 'ee-arlindo-silvestre';
+  }
+}
+
 export async function carregarOcorrenciasSeguro(
   classes: any[] = [],
   students: any[] = []
 ): Promise<SyncResult<any>> {
+  const schoolId = getCurrentSchoolId();
+  const isDefaultSchool = schoolId === 'ee-arlindo-silvestre';
+
   // 1. Tenta Firestore Cloud (Ideal e 100% compatível com Google Sites/iframes sem restrição de cookies)
   try {
-    const cloudData = await firestoreService.getOcorrencias();
+    const cloudData = await firestoreService.getOcorrencias(schoolId);
     if (cloudData && Array.isArray(cloudData.registros)) {
       const sortedCloudData = {
         ...cloudData,
         registros: ordenarOcorrenciasPorMaisRecentes(cloudData.registros),
       };
-      salvarCacheOcorrencias(sortedCloudData);
+      salvarCacheOcorrencias(sortedCloudData, schoolId);
       return {
         success: true,
         data: sortedCloudData,
@@ -161,15 +173,39 @@ export async function carregarOcorrenciasSeguro(
     console.warn('Falha ao consultar Firestore para ocorrências:', err);
   }
 
-  // 2. Tenta API do Backend
+  // Para escolas novas (diferentes da EE Professor Arlindo Silvestre), usa apenas cache próprio ou base limpa da própria escola
+  if (!isDefaultSchool) {
+    const cached = lerCacheOcorrencias(schoolId);
+    if (cached && Array.isArray(cached.registros)) {
+      return {
+        success: true,
+        data: {
+          ...cached,
+          registros: ordenarOcorrenciasPorMaisRecentes(cached.registros),
+        },
+        source: 'cache',
+        message: 'Operando com dados da unidade escolar',
+      };
+    }
+    const cleanFallback = gerarFallbackOcorrencias(classes, students);
+    salvarCacheOcorrencias(cleanFallback, schoolId);
+    return {
+      success: true,
+      data: cleanFallback,
+      source: 'fallback',
+      message: 'Base inicial limpa da unidade escolar carregada',
+    };
+  }
+
+  // 2. Tenta API do Backend (Exclusivo EE Professor Arlindo Silvestre)
   const apiRes = await safeFetchJson('/api/sheets-ocorrencias');
   if (apiRes.ok && apiRes.data && !apiRes.data.erro) {
     const sortedApiData = {
       ...apiRes.data,
       registros: ordenarOcorrenciasPorMaisRecentes(apiRes.data.registros || []),
     };
-    salvarCacheOcorrencias(sortedApiData);
-    firestoreService.saveOcorrencias(sortedApiData).catch(() => {});
+    salvarCacheOcorrencias(sortedApiData, schoolId);
+    firestoreService.saveOcorrencias(sortedApiData, schoolId).catch(() => {});
     return {
       success: true,
       data: sortedApiData,
@@ -178,14 +214,14 @@ export async function carregarOcorrenciasSeguro(
     };
   }
 
-  // 3. Base Oficial Embutida Garantida
+  // 3. Base Oficial Embutida Garantida (Exclusivo EE Professor Arlindo Silvestre)
   if (ocorrenciasBaseline && (ocorrenciasBaseline as any).registros && (ocorrenciasBaseline as any).registros.length > 0) {
     const sortedBaseline = {
       ...ocorrenciasBaseline,
       registros: ordenarOcorrenciasPorMaisRecentes((ocorrenciasBaseline as any).registros),
     };
-    salvarCacheOcorrencias(sortedBaseline);
-    firestoreService.saveOcorrencias(sortedBaseline).catch(() => {});
+    salvarCacheOcorrencias(sortedBaseline, schoolId);
+    firestoreService.saveOcorrencias(sortedBaseline, schoolId).catch(() => {});
     return {
       success: true,
       data: sortedBaseline,
@@ -195,7 +231,7 @@ export async function carregarOcorrenciasSeguro(
   }
 
   // 4. Fallback para Cache Local
-  const cached = lerCacheOcorrencias();
+  const cached = lerCacheOcorrencias(schoolId);
   if (cached && cached.registros && cached.registros.length > 0) {
     const sortedCached = {
       ...cached,
@@ -227,11 +263,14 @@ export async function carregarOcorrenciasSeguro(
  * 4. Cache local offline (localStorage)
  */
 export async function carregarTabletsSeguro(classes: any[] = []): Promise<SyncResult<any>> {
+  const schoolId = getCurrentSchoolId();
+  const isDefaultSchool = schoolId === 'ee-arlindo-silvestre';
+
   // 1. Tenta Firestore Cloud (Ideal para Google Sites)
   try {
-    const cloudData = await firestoreService.getTablets();
+    const cloudData = await firestoreService.getTablets(schoolId);
     if (cloudData && Array.isArray(cloudData.agendamentos)) {
-      salvarCacheTablets(cloudData);
+      salvarCacheTablets(cloudData, schoolId);
       return {
         success: true,
         data: cloudData,
@@ -243,11 +282,31 @@ export async function carregarTabletsSeguro(classes: any[] = []): Promise<SyncRe
     console.warn('Falha ao consultar Firestore para tablets:', err);
   }
 
-  // 2. Tenta API do Backend
+  if (!isDefaultSchool) {
+    const cached = lerCacheTablets(schoolId);
+    if (cached && Array.isArray(cached.agendamentos)) {
+      return {
+        success: true,
+        data: cached,
+        source: 'cache',
+        message: 'Operando com a grade da unidade escolar',
+      };
+    }
+    const cleanFallback = gerarFallbackTablets(classes);
+    salvarCacheTablets(cleanFallback, schoolId);
+    return {
+      success: true,
+      data: cleanFallback,
+      source: 'fallback',
+      message: 'Grade inicial limpa da unidade escolar carregada',
+    };
+  }
+
+  // 2. Tenta API do Backend (Exclusivo EE Professor Arlindo Silvestre)
   const apiRes = await safeFetchJson('/api/sheets-tablets');
   if (apiRes.ok && apiRes.data && !apiRes.data.erro) {
-    salvarCacheTablets(apiRes.data);
-    firestoreService.saveTablets(apiRes.data).catch(() => {});
+    salvarCacheTablets(apiRes.data, schoolId);
+    firestoreService.saveTablets(apiRes.data, schoolId).catch(() => {});
     return {
       success: true,
       data: apiRes.data,
@@ -256,10 +315,10 @@ export async function carregarTabletsSeguro(classes: any[] = []): Promise<SyncRe
     };
   }
 
-  // 3. Base Oficial Embutida Garantida
+  // 3. Base Oficial Embutida Garantida (Exclusivo EE Professor Arlindo Silvestre)
   if (tabletsBaseline && (tabletsBaseline as any).agendamentos && (tabletsBaseline as any).agendamentos.length > 0) {
-    salvarCacheTablets(tabletsBaseline);
-    firestoreService.saveTablets(tabletsBaseline).catch(() => {});
+    salvarCacheTablets(tabletsBaseline, schoolId);
+    firestoreService.saveTablets(tabletsBaseline, schoolId).catch(() => {});
     return {
       success: true,
       data: tabletsBaseline,
@@ -269,7 +328,7 @@ export async function carregarTabletsSeguro(classes: any[] = []): Promise<SyncRe
   }
 
   // 4. Fallback para Cache Local
-  const cached = lerCacheTablets();
+  const cached = lerCacheTablets(schoolId);
   if (cached && cached.agendamentos && cached.agendamentos.length > 0) {
     return {
       success: true,
@@ -293,11 +352,14 @@ export async function carregarTabletsSeguro(classes: any[] = []): Promise<SyncRe
  * Envia dados de ocorrência de forma segura para Firestore e Backend
  */
 export async function salvarOcorrenciaSeguro(payload: any, currentDb?: any): Promise<boolean> {
+  const schoolId = getCurrentSchoolId();
+  const isDefaultSchool = schoolId === 'ee-arlindo-silvestre';
+
   // 1. Atualiza e persiste no Firestore imediatamente (acessível por todos no Google Sites)
   try {
     let base = currentDb;
     if (!base) {
-      base = (await firestoreService.getOcorrencias()) || lerCacheOcorrencias() || ocorrenciasBaseline;
+      base = (await firestoreService.getOcorrencias(schoolId)) || lerCacheOcorrencias(schoolId) || (isDefaultSchool ? ocorrenciasBaseline : gerarFallbackOcorrencias());
     }
     if (base) {
       if (payload.action === 'excluir' || payload.acao === 'excluir') {
@@ -373,19 +435,21 @@ export async function salvarOcorrenciaSeguro(payload: any, currentDb?: any): Pro
         const registros = [novaOcorr, ...(base.registros || [])];
         base = { ...base, registros };
       }
-      await firestoreService.saveOcorrencias(base);
-      salvarCacheOcorrencias(base);
+      await firestoreService.saveOcorrencias(base, schoolId);
+      salvarCacheOcorrencias(base, schoolId);
     }
   } catch (err) {
     console.warn('Erro ao atualizar ocorrência no Firestore:', err);
   }
 
-  // 2. Tenta enviar para o backend
-  safeFetchJson('/api/sheets-ocorrencias', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }).catch(() => {});
+  // 2. Tenta enviar para o backend se for a escola padrão
+  if (isDefaultSchool) {
+    safeFetchJson('/api/sheets-ocorrencias', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  }
 
   return true;
 }
@@ -404,10 +468,13 @@ export async function salvarConfigOcorrenciasSeguro(
   config: { turmas?: string[]; ocorrencias?: string[]; medidas?: string[]; aulas?: string[]; gradeHorarios?: any[]; geminiApiKey?: string },
   currentDb?: any
 ): Promise<boolean> {
+  const schoolId = getCurrentSchoolId();
+  const isDefaultSchool = schoolId === 'ee-arlindo-silvestre';
+
   try {
     let base = currentDb;
     if (!base) {
-      base = (await firestoreService.getOcorrencias()) || lerCacheOcorrencias() || ocorrenciasBaseline;
+      base = (await firestoreService.getOcorrencias(schoolId)) || lerCacheOcorrencias(schoolId) || (isDefaultSchool ? ocorrenciasBaseline : gerarFallbackOcorrencias());
     }
     if (base) {
       const updatedBase = {
@@ -419,18 +486,20 @@ export async function salvarConfigOcorrenciasSeguro(
         gradeHorarios: config.gradeHorarios !== undefined ? config.gradeHorarios : base.gradeHorarios,
         geminiApiKey: config.geminiApiKey !== undefined ? config.geminiApiKey : base.geminiApiKey,
       };
-      await firestoreService.saveOcorrencias(updatedBase);
-      salvarCacheOcorrencias(updatedBase);
+      await firestoreService.saveOcorrencias(updatedBase, schoolId);
+      salvarCacheOcorrencias(updatedBase, schoolId);
     }
   } catch (err) {
     console.warn('Erro ao salvar config no Firestore:', err);
   }
 
-  safeFetchJson('/api/sheets-ocorrencias', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'salvar_config_ocorrencias', ...config }),
-  }).catch(() => {});
+  if (isDefaultSchool) {
+    safeFetchJson('/api/sheets-ocorrencias', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'salvar_config_ocorrencias', ...config }),
+    }).catch(() => {});
+  }
 
   return true;
 }
@@ -439,11 +508,14 @@ export async function salvarConfigOcorrenciasSeguro(
  * Envia reserva de tablets para Firestore e Backend
  */
 export async function salvarReservaTabletsSeguro(payload: any, currentDb?: any): Promise<{ ok: boolean; msg?: string }> {
+  const schoolId = getCurrentSchoolId();
+  const isDefaultSchool = schoolId === 'ee-arlindo-silvestre';
+
   // 1. Atualiza e persiste no Firestore imediatamente
   try {
     let base = currentDb;
     if (!base) {
-      base = (await firestoreService.getTablets()) || lerCacheTablets() || tabletsBaseline;
+      base = (await firestoreService.getTablets(schoolId)) || lerCacheTablets(schoolId) || (isDefaultSchool ? tabletsBaseline : gerarFallbackTablets());
     }
     if (base) {
       if (payload.action === 'salvar_config_tablets') {
@@ -477,26 +549,30 @@ export async function salvarReservaTabletsSeguro(payload: any, currentDb?: any):
         const agendamentos = [novoAg, ...(base.agendamentos || [])];
         base = { ...base, agendamentos };
       }
-      await firestoreService.saveTablets(base);
-      salvarCacheTablets(base);
+      await firestoreService.saveTablets(base, schoolId);
+      salvarCacheTablets(base, schoolId);
     }
   } catch (err) {
     console.warn('Erro ao atualizar tablets no Firestore:', err);
   }
 
-  // 2. Tenta enviar para backend
-  safeFetchJson('/api/sheets-tablets', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }).catch(() => {});
+  // 2. Tenta enviar para backend se for a escola padrão
+  if (isDefaultSchool) {
+    safeFetchJson('/api/sheets-tablets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  }
 
   return { ok: true };
 }
 
 // Helpers de Cache Local
-export function salvarCacheOcorrencias(data: any) {
+export function salvarCacheOcorrencias(data: any, schoolId?: string) {
   try {
+    const sId = schoolId || getCurrentSchoolId();
+    const key = sId === 'ee-arlindo-silvestre' ? 'CACHE_OCORRENCIAS_APP' : `CACHE_OCORRENCIAS_APP_${sId}`;
     let payload = data;
     if (data && Array.isArray(data.registros)) {
       payload = {
@@ -504,32 +580,38 @@ export function salvarCacheOcorrencias(data: any) {
         registros: ordenarOcorrenciasPorMaisRecentes(data.registros),
       };
     }
-    localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(payload));
+    localStorage.setItem(key, JSON.stringify(payload));
   } catch (e) {
     console.warn('Erro ao salvar cache de ocorrências:', e);
   }
 }
 
-export function lerCacheOcorrencias(): any | null {
+export function lerCacheOcorrencias(schoolId?: string): any | null {
   try {
-    const raw = localStorage.getItem('CACHE_OCORRENCIAS_APP');
+    const sId = schoolId || getCurrentSchoolId();
+    const key = sId === 'ee-arlindo-silvestre' ? 'CACHE_OCORRENCIAS_APP' : `CACHE_OCORRENCIAS_APP_${sId}`;
+    const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
 
-export function salvarCacheTablets(data: any) {
+export function salvarCacheTablets(data: any, schoolId?: string) {
   try {
-    localStorage.setItem('CACHE_TABLET_APP', JSON.stringify(data));
+    const sId = schoolId || getCurrentSchoolId();
+    const key = sId === 'ee-arlindo-silvestre' ? 'CACHE_TABLET_APP' : `CACHE_TABLET_APP_${sId}`;
+    localStorage.setItem(key, JSON.stringify(data));
   } catch (e) {
     console.warn('Erro ao salvar cache de tablets:', e);
   }
 }
 
-export function lerCacheTablets(): any | null {
+export function lerCacheTablets(schoolId?: string): any | null {
   try {
-    const raw = localStorage.getItem('CACHE_TABLET_APP');
+    const sId = schoolId || getCurrentSchoolId();
+    const key = sId === 'ee-arlindo-silvestre' ? 'CACHE_TABLET_APP' : `CACHE_TABLET_APP_${sId}`;
+    const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;

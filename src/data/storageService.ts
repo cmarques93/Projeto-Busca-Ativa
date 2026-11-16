@@ -1,4 +1,5 @@
 import {
+  School,
   UserAccount,
   UserRole,
   AttendanceStatus,
@@ -11,6 +12,10 @@ import {
   MonthlyPedagogicalReport
 } from '../types';
 import {
+  DEFAULT_SCHOOL_ID,
+  DEFAULT_SCHOOLS,
+  SECOND_SCHOOL_CLASSES,
+  SECOND_SCHOOL_STUDENTS,
   DEFAULT_USERS,
   DEFAULT_PINS,
   DEFAULT_CLASSES,
@@ -24,8 +29,12 @@ import { generateAtestadoRecordsSequence, generateJustifiedAbsenceSequence } fro
 
 export function getRoleLabel(role: UserRole): string {
   switch (role) {
+    case 'super_admin':
+      return 'Proprietário / Admin Universal (SaaS)';
+    case 'admin_escola':
+      return 'Administrador da Unidade Escolar';
     case 'admin':
-      return 'Direção Escolar (Administrador)';
+      return 'Administrador da Unidade Escolar';
     case 'gestao_paac':
       return 'Coordenação Pedagógica / PAAC';
     case 'aoe':
@@ -57,6 +66,38 @@ function setStored<T>(key: string, data: T): void {
   }
 }
 
+// Helper para armazenamento isolado por escola (Multi-Tenant)
+function getStoredSchool<T>(baseKey: string, fallback: T, schoolId?: string): T {
+  const sId = schoolId || storageService.getActiveSchoolId();
+  const scopedKey = `sigaescola_${sId}_${baseKey}`;
+  try {
+    const val = localStorage.getItem(scopedKey);
+    if (val) return JSON.parse(val);
+    // Retrocompatibilidade: Se não há valor na chave com prefixo da escola e é a escola padrão, usa chave legada
+    if (sId === DEFAULT_SCHOOL_ID) {
+      const legacyVal = localStorage.getItem(`school_${baseKey}`);
+      if (legacyVal) return JSON.parse(legacyVal);
+    }
+    return fallback;
+  } catch (e) {
+    console.warn(`Erro ao ler ${scopedKey} do localStorage:`, e);
+    return fallback;
+  }
+}
+
+function setStoredSchool<T>(baseKey: string, data: T, schoolId?: string): void {
+  const sId = schoolId || storageService.getActiveSchoolId();
+  const scopedKey = `sigaescola_${sId}_${baseKey}`;
+  try {
+    localStorage.setItem(scopedKey, JSON.stringify(data));
+    if (sId === DEFAULT_SCHOOL_ID) {
+      localStorage.setItem(`school_${baseKey}`, JSON.stringify(data));
+    }
+  } catch (e) {
+    console.warn(`Erro ao salvar ${scopedKey} no localStorage:`, e);
+  }
+}
+
 // Ensure default users have their default PIN attached
 function initializeDefaultUsers(): UserAccount[] {
   return DEFAULT_USERS.map(u => ({
@@ -67,37 +108,177 @@ function initializeDefaultUsers(): UserAccount[] {
 }
 
 export const storageService = {
-  // === SETTERS PARA SINCRONIZAÇÃO COM A NUVEM ===
-  setUsers: (users: UserAccount[]): void => {
-    setStored('school_users', users);
+  // === GESTÃO MULTI-ESCOLAS (SaaS Multi-Tenant) ===
+  getActiveSchoolId: (): string => {
+    try {
+      const stored = localStorage.getItem('sigaescola_active_school_id');
+      if (!stored || stored === 'emeb-cecilia-meireles') {
+        return DEFAULT_SCHOOL_ID;
+      }
+      return stored;
+    } catch {
+      return DEFAULT_SCHOOL_ID;
+    }
   },
-  setClasses: (classes: SchoolClass[]): void => {
-    setStored('school_classes', classes);
+
+  setActiveSchoolId: (schoolId: string): void => {
+    try {
+      localStorage.setItem('sigaescola_active_school_id', schoolId);
+    } catch {}
   },
-  setStudents: (students: Student[]): void => {
-    setStored('school_students', students);
+
+  getSchools: (): School[] => {
+    let schools = getStored<School[]>('sigaescola_all_schools', []);
+    // Remove escola fictícia de demonstração caso estivesse em cache antigo
+    schools = (schools || []).filter(s => s && s.id !== 'emeb-cecilia-meireles');
+    if (schools.length === 0) {
+      schools = DEFAULT_SCHOOLS;
+      setStored('sigaescola_all_schools', schools);
+    } else if (!schools.some(s => s.id === DEFAULT_SCHOOL_ID)) {
+      schools = [DEFAULT_SCHOOLS[0], ...schools];
+      setStored('sigaescola_all_schools', schools);
+    }
+    return schools;
   },
-  setAttendanceRecords: (records: AttendanceRecord[]): void => {
-    setStored('school_attendance', records);
+
+  setSchools: (schools: School[]): void => {
+    const clean = (schools || []).filter(s => s && s.id !== 'emeb-cecilia-meireles');
+    setStored('sigaescola_all_schools', clean.length > 0 ? clean : DEFAULT_SCHOOLS);
   },
-  setAlerts: (alerts: ParentAlert[]): void => {
-    setStored('school_alerts', alerts);
+
+  getActiveSchool: (schoolId?: string): School => {
+    const targetId = schoolId || storageService.getActiveSchoolId();
+    const schools = storageService.getSchools();
+    const found = schools.find(s => s.id === targetId);
+    return found || DEFAULT_SCHOOLS[0];
   },
-  setInterventions: (interventions: InterventionCase[]): void => {
-    setStored('school_interventions', interventions);
+
+  saveSchool: (school: School): School => {
+    const schools = storageService.getSchools();
+    const idx = schools.findIndex(s => s.id === school.id);
+    if (idx >= 0) {
+      schools[idx] = school;
+    } else {
+      schools.push(school);
+    }
+    setStored('sigaescola_all_schools', schools);
+    firestoreService.saveSchool(school).catch(err => console.warn('Erro ao salvar escola no Firestore:', err));
+    return school;
   },
-  setGateRecords: (records: GateRecord[]): void => {
-    setStored('school_gate_records', records);
+
+  deleteSchool: (schoolId: string): boolean => {
+    let schools = storageService.getSchools().filter(s => s.id !== schoolId);
+    if (schools.length === 0) schools = DEFAULT_SCHOOLS;
+    setStored('sigaescola_all_schools', schools);
+    firestoreService.deleteSchool(schoolId).catch(err => console.warn('Erro ao deletar escola no Firestore:', err));
+    return true;
+  },
+
+  // === SETTERS PARA SINCRONIZAÇÃO COM A NUVEM (Com isolamento por escola e preservação total) ===
+  setUsers: (incomingUsers: UserAccount[]): void => {
+    if (!Array.isArray(incomingUsers)) return;
+    const existing = getStored<UserAccount[]>('school_users', []);
+    const byId = new Map<string, UserAccount>();
+
+    // Garante que todos os operadores da base oficial (Arlindo Silvestre) nunca sejam perdidos
+    for (const def of initializeDefaultUsers()) {
+      byId.set(def.id, def);
+    }
+    for (const u of existing) {
+      if (u && u.id && !u.id.includes('cecilia') && !u.id.includes('usr-cec') && u.id !== 'usr-admin-arlindo') {
+        byId.set(u.id, u);
+      }
+    }
+    for (const u of incomingUsers) {
+      if (u && u.id && !u.id.includes('cecilia') && !u.id.includes('usr-cec') && u.id !== 'usr-admin-arlindo') {
+        const prev = byId.get(u.id);
+        byId.set(u.id, {
+          ...prev,
+          ...u,
+          pin: u.pin || prev?.pin || DEFAULT_PINS[u.id]?.pin || '1234',
+          schoolId: (u.isUniversal || u.role === 'super_admin' || u.id === 'usr-master')
+            ? undefined
+            : (u.schoolId || prev?.schoolId || DEFAULT_SCHOOL_ID),
+        });
+      }
+    }
+
+    setStored('school_users', Array.from(byId.values()));
+  },
+  setClasses: (classes: SchoolClass[], schoolId?: string): void => {
+    setStoredSchool('classes', classes, schoolId);
+  },
+  setStudents: (students: Student[], schoolId?: string): void => {
+    setStoredSchool('students', students, schoolId);
+  },
+  setAttendanceRecords: (records: AttendanceRecord[], schoolId?: string): void => {
+    setStoredSchool('attendance', records, schoolId);
+  },
+  setAlerts: (alerts: ParentAlert[], schoolId?: string): void => {
+    setStoredSchool('alerts', alerts, schoolId);
+  },
+  setInterventions: (interventions: InterventionCase[], schoolId?: string): void => {
+    setStoredSchool('interventions', interventions, schoolId);
+  },
+  setGateRecords: (records: GateRecord[], schoolId?: string): void => {
+    setStoredSchool('gate_records', records, schoolId);
   },
 
   // === USUÁRIOS & ACESSOS ===
-  getUsers: (): UserAccount[] => {
-    let users = getStored<UserAccount[]>('school_users', []);
-    if (!users || users.length === 0) {
-      users = initializeDefaultUsers();
-      setStored('school_users', users);
+  getUsers: (schoolId?: string): UserAccount[] => {
+    let storedUsers = getStored<UserAccount[]>('school_users', []);
+    const byId = new Map<string, UserAccount>();
+
+    // Sempre preserva os operadores reais da EE Professor Arlindo Silvestre e o perfil Master
+    for (const def of initializeDefaultUsers()) {
+      byId.set(def.id, def);
     }
-    return users;
+
+    for (const u of storedUsers) {
+      if (!u || !u.id || u.id.includes('cecilia') || u.id.includes('usr-cec') || u.id === 'usr-admin-arlindo') continue;
+      // Remove os antigos perfis fictícios de seed se já temos os 26 reais da escola
+      if (['usr-gestao', 'usr-aoe', 'usr-professor'].includes(u.id)) continue;
+
+      const isMaster = u.id === 'usr-master' || u.role === 'super_admin' || u.isUniversal === true;
+      byId.set(u.id, {
+        ...byId.get(u.id),
+        ...u,
+        pin: u.pin || byId.get(u.id)?.pin || DEFAULT_PINS[u.id]?.pin || '1234',
+        isUniversal: isMaster ? true : undefined,
+        schoolId: isMaster ? undefined : (u.schoolId || DEFAULT_SCHOOL_ID),
+      });
+    }
+
+    const allUsers = Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    setStored('school_users', allUsers);
+
+    if (schoolId) {
+      // Lista APENAS os operadores vinculados à unidade escolar selecionada (sem misturar o Painel Master Global)
+      return allUsers.filter(u =>
+        !u.isUniversal &&
+        u.role !== 'super_admin' &&
+        u.id !== 'usr-master' &&
+        (u.schoolId || DEFAULT_SCHOOL_ID) === schoolId
+      );
+    }
+    return allUsers;
+  },
+
+  getMasterUser: (): UserAccount => {
+    const allUsers = storageService.getUsers();
+    const found = allUsers.find(u => u.id === 'usr-master' || u.role === 'super_admin' || u.isUniversal === true);
+    if (found) return found;
+    return {
+      id: 'usr-master',
+      name: 'Proprietário (Painel Master Global)',
+      username: 'proprietario.master',
+      role: 'super_admin',
+      roleLabel: 'Proprietário / Admin Universal (SaaS)',
+      pin: '1234',
+      createdAt: new Date().toISOString(),
+      active: true,
+      isUniversal: true,
+    };
   },
 
   getUserById: (id: string): UserAccount | undefined => {
@@ -105,10 +286,20 @@ export const storageService = {
     return users.find(u => u.id === id);
   },
 
-  createUser: (data: { name: string; username?: string; role: UserRole; pin: string; notes?: string }): UserAccount => {
+  createUser: (data: {
+    name: string;
+    username?: string;
+    role: UserRole;
+    pin: string;
+    notes?: string;
+    schoolId?: string;
+    isUniversal?: boolean;
+  }): UserAccount => {
     const cleanName = data.name.trim();
     const cleanPin = (data.pin || '').trim();
     const cleanUsername = data.username?.trim() || cleanName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '.');
+    const isUniv = data.isUniversal || data.role === 'super_admin';
+    const targetSchoolId = isUniv ? undefined : (data.schoolId || storageService.getActiveSchoolId());
     
     const newUser: UserAccount = {
       id: `usr-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
@@ -119,7 +310,9 @@ export const storageService = {
       pin: cleanPin,
       createdAt: new Date().toISOString(),
       active: true,
-      notes: data.notes?.trim() || ''
+      notes: data.notes?.trim() || '',
+      schoolId: targetSchoolId,
+      isUniversal: isUniv || undefined
     };
 
     const users = storageService.getUsers();
@@ -127,7 +320,7 @@ export const storageService = {
     setStored('school_users', users);
 
     // Sincroniza em nuvem no Firestore
-    firestoreService.saveUser(newUser).catch(err => console.warn('Erro ao salvar usuário no Firestore:', err));
+    firestoreService.saveUser(newUser, targetSchoolId).catch(err => console.warn('Erro ao salvar usuário no Firestore:', err));
 
     return newUser;
   },
@@ -209,7 +402,9 @@ export const storageService = {
           username: user.username,
           name: user.name,
           role: user.role,
-          roleLabel: user.roleLabel || getRoleLabel(user.role)
+          roleLabel: user.roleLabel || getRoleLabel(user.role),
+          schoolId: user.schoolId,
+          isUniversal: user.isUniversal || user.role === 'super_admin',
         }
       };
     }
@@ -218,71 +413,80 @@ export const storageService = {
   },
 
   // === TURMAS ===
-  getClasses: (): SchoolClass[] => {
-    return getStored<SchoolClass[]>('school_classes', DEFAULT_CLASSES);
+  getClasses: (schoolId?: string): SchoolClass[] => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const fallback = sId === 'emeb-cecilia-meireles' ? SECOND_SCHOOL_CLASSES : DEFAULT_CLASSES;
+    return getStoredSchool<SchoolClass[]>('classes', fallback, sId);
   },
 
-  createClass: (cls: SchoolClass): SchoolClass => {
-    const classes = storageService.getClasses();
+  createClass: (cls: SchoolClass, schoolId?: string): SchoolClass => {
+    const sId = schoolId || cls.schoolId || storageService.getActiveSchoolId();
+    const clsWithSchool = { ...cls, schoolId: sId };
+    const classes = storageService.getClasses(sId);
     const existingIdx = classes.findIndex(c => c.id === cls.id);
     if (existingIdx >= 0) {
-      classes[existingIdx] = cls;
+      classes[existingIdx] = clsWithSchool;
     } else {
-      classes.push(cls);
+      classes.push(clsWithSchool);
     }
-    setStored('school_classes', classes);
+    setStoredSchool('classes', classes, sId);
 
     // Sincroniza em nuvem no Firestore
-    firestoreService.saveClass(cls).catch(err => console.warn('Erro ao salvar turma no Firestore:', err));
+    firestoreService.saveClass(clsWithSchool, sId).catch(err => console.warn('Erro ao salvar turma no Firestore:', err));
 
-    return cls;
+    return clsWithSchool;
   },
 
-  updateClass: (clsId: string, updates: Partial<SchoolClass>): SchoolClass | null => {
-    const classes = storageService.getClasses();
+  updateClass: (clsId: string, updates: Partial<SchoolClass>, schoolId?: string): SchoolClass | null => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const classes = storageService.getClasses(sId);
     const idx = classes.findIndex(c => c.id === clsId);
     if (idx === -1) return null;
-    classes[idx] = { ...classes[idx], ...updates };
-    setStored('school_classes', classes);
+    classes[idx] = { ...classes[idx], ...updates, schoolId: sId };
+    setStoredSchool('classes', classes, sId);
 
     // Sincroniza em nuvem no Firestore
-    firestoreService.saveClass(classes[idx]).catch(err => console.warn('Erro ao atualizar turma no Firestore:', err));
+    firestoreService.saveClass(classes[idx], sId).catch(err => console.warn('Erro ao atualizar turma no Firestore:', err));
 
     return classes[idx];
   },
 
-  deleteClass: (clsId: string): void => {
-    const classes = storageService.getClasses().filter(c => c.id !== clsId);
-    setStored('school_classes', classes);
+  deleteClass: (clsId: string, schoolId?: string): void => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const classes = storageService.getClasses(sId).filter(c => c.id !== clsId);
+    setStoredSchool('classes', classes, sId);
 
     // Sincroniza em nuvem no Firestore
     firestoreService.deleteClass(clsId).catch(err => console.warn('Erro ao deletar turma no Firestore:', err));
   },
 
   // === ESTUDANTES ===
-  getStudents: (classId?: string): Student[] => {
-    const students = getStored<Student[]>('school_students', DEFAULT_STUDENTS);
+  getStudents: (classId?: string, schoolId?: string): Student[] => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const fallback = sId === 'emeb-cecilia-meireles' ? SECOND_SCHOOL_STUDENTS : DEFAULT_STUDENTS;
+    const students = getStoredSchool<Student[]>('students', fallback, sId);
     if (classId) {
       return students.filter(s => s.classId === classId);
     }
     return students;
   },
 
-  getStudentById: (id: string): Student | undefined => {
-    const students = storageService.getStudents();
+  getStudentById: (id: string, schoolId?: string): Student | undefined => {
+    const students = storageService.getStudents(undefined, schoolId);
     return students.find(s => s.id === id);
   },
 
-  getStudentDetails: (studentId: string): any => {
-    const student = storageService.getStudentById(studentId);
+  getStudentDetails: (studentId: string, schoolId?: string): any => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const student = storageService.getStudentById(studentId, sId);
     if (!student) return null;
-    const history = storageService.getAttendanceRecords()
+    const history = storageService.getAttendanceRecords(undefined, undefined, sId)
       .filter(r => r.studentId === studentId)
       .sort((a, b) => b.date.localeCompare(a.date));
-    const alerts = storageService.getAlerts()
+    const alerts = storageService.getAlerts(sId)
       .filter(a => a.studentId === studentId)
       .sort((a, b) => b.sentAt.localeCompare(a.sentAt));
-    const intervention = storageService.getInterventions().find(i => i.studentId === studentId);
+    const intervention = storageService.getInterventions(sId).find(i => i.studentId === studentId);
 
     return {
       student,
@@ -292,8 +496,9 @@ export const storageService = {
     };
   },
 
-  createStudent: (data: Partial<Student>): Student => {
-    const students = storageService.getStudents();
+  createStudent: (data: Partial<Student>, schoolId?: string): Student => {
+    const sId = schoolId || data.schoolId || storageService.getActiveSchoolId();
+    const students = storageService.getStudents(undefined, sId);
     const id = data.id || `std-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`;
     const newStudent: Student = {
       id,
@@ -315,40 +520,44 @@ export const storageService = {
       attendanceRate: data.attendanceRate ?? 100,
       vulnerabilityFactors: data.vulnerabilityFactors || [],
       lastAttendanceDate: data.lastAttendanceDate || new Date().toISOString().split('T')[0],
-      notes: data.notes || ''
+      notes: data.notes || '',
+      schoolId: sId
     };
     students.push(newStudent);
-    setStored('school_students', students);
+    setStoredSchool('students', students, sId);
 
     // Sincroniza em nuvem no Firestore
-    firestoreService.saveStudent(newStudent).catch(err => console.warn('Erro ao salvar estudante no Firestore:', err));
+    firestoreService.saveStudent(newStudent, sId).catch(err => console.warn('Erro ao salvar estudante no Firestore:', err));
 
     return newStudent;
   },
 
-  updateStudent: (studentId: string, updates: Partial<Student>): Student | null => {
-    const students = storageService.getStudents();
+  updateStudent: (studentId: string, updates: Partial<Student>, schoolId?: string): Student | null => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const students = storageService.getStudents(undefined, sId);
     const idx = students.findIndex(s => s.id === studentId);
     if (idx === -1) return null;
-    students[idx] = { ...students[idx], ...updates };
-    setStored('school_students', students);
+    students[idx] = { ...students[idx], ...updates, schoolId: sId };
+    setStoredSchool('students', students, sId);
 
     // Sincroniza em nuvem no Firestore
-    firestoreService.saveStudent(students[idx]).catch(err => console.warn('Erro ao atualizar estudante no Firestore:', err));
+    firestoreService.saveStudent(students[idx], sId).catch(err => console.warn('Erro ao atualizar estudante no Firestore:', err));
 
     return students[idx];
   },
 
-  deleteStudent: (studentId: string): void => {
-    const students = storageService.getStudents().filter(s => s.id !== studentId);
-    setStored('school_students', students);
+  deleteStudent: (studentId: string, schoolId?: string): void => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const students = storageService.getStudents(undefined, sId).filter(s => s.id !== studentId);
+    setStoredSchool('students', students, sId);
 
     // Sincroniza em nuvem no Firestore
     firestoreService.deleteStudent(studentId).catch(err => console.warn('Erro ao deletar estudante no Firestore:', err));
   },
 
-  batchCreateStudents: (newStudents: Partial<Student>[]): number => {
-    const existing = storageService.getStudents();
+  batchCreateStudents: (newStudents: Partial<Student>[], schoolId?: string): number => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const existing = storageService.getStudents(undefined, sId);
     const createdList: Student[] = [];
     let count = 0;
     for (const data of newStudents) {
@@ -373,16 +582,17 @@ export const storageService = {
         attendanceRate: data.attendanceRate ?? 100,
         vulnerabilityFactors: data.vulnerabilityFactors || [],
         lastAttendanceDate: data.lastAttendanceDate || new Date().toISOString().split('T')[0],
-        notes: data.notes || ''
+        notes: data.notes || '',
+        schoolId: sId
       };
       existing.push(s);
       createdList.push(s);
       count++;
     }
-    setStored('school_students', existing);
+    setStoredSchool('students', existing, sId);
 
     // Sincroniza em nuvem no Firestore
-    firestoreService.batchSaveStudents(createdList).catch(err => console.warn('Erro ao salvar lote de estudantes no Firestore:', err));
+    firestoreService.batchSaveStudents(createdList, sId).catch(err => console.warn('Erro ao salvar lote de estudantes no Firestore:', err));
 
     return count;
   },
@@ -569,8 +779,9 @@ export const storageService = {
     return { success: true, count: newRecords.length, newRecords };
   },
 
-  getAttendanceRecords: (classId?: string, date?: string): AttendanceRecord[] => {
-    let records = getStored<AttendanceRecord[]>('school_attendance', []);
+  getAttendanceRecords: (classId?: string, date?: string, schoolId?: string): AttendanceRecord[] => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    let records = getStoredSchool<AttendanceRecord[]>('attendance', [], sId);
     if (classId) {
       const cleanClassId = classId.trim().toLowerCase();
       records = records.filter(r => (r.classId || '').trim().toLowerCase() === cleanClassId || (r.className || '').trim().toLowerCase() === cleanClassId);
@@ -685,8 +896,9 @@ export const storageService = {
   },
 
   // === PORTARIA ===
-  getGateRecords: (date?: string, classId?: string): GateRecord[] => {
-    let list = getStored<GateRecord[]>('school_gate_records', []);
+  getGateRecords: (date?: string, classId?: string, schoolId?: string): GateRecord[] => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    let list = getStoredSchool<GateRecord[]>('gate_records', [], sId);
     if (date && date !== 'todas') {
       list = list.filter(r => r.date === date);
     }
@@ -699,77 +911,89 @@ export const storageService = {
     });
   },
 
-  createGateRecord: (record: GateRecord): GateRecord => {
-    const list = storageService.getGateRecords();
+  createGateRecord: (record: GateRecord, schoolId?: string): GateRecord => {
+    const sId = schoolId || record.schoolId || storageService.getActiveSchoolId();
+    const list = storageService.getGateRecords(undefined, undefined, sId);
     const newRecord = {
       ...record,
-      id: record.id || `gate-${Date.now()}`
+      id: record.id || `gate-${Date.now()}`,
+      schoolId: sId
     };
     list.push(newRecord);
-    setStored('school_gate_records', list);
+    setStoredSchool('gate_records', list, sId);
 
     // Sincroniza em nuvem no Firestore
-    firestoreService.saveGateRecord(newRecord).catch(err => console.warn('Erro ao salvar registro de portaria no Firestore:', err));
+    firestoreService.saveGateRecord(newRecord, sId).catch(err => console.warn('Erro ao salvar registro de portaria no Firestore:', err));
 
     return newRecord;
   },
 
-  deleteGateRecord: (id: string): void => {
-    const list = storageService.getGateRecords().filter(r => r.id !== id);
-    setStored('school_gate_records', list);
+  deleteGateRecord: (id: string, schoolId?: string): void => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const list = storageService.getGateRecords(undefined, undefined, sId).filter(r => r.id !== id);
+    setStoredSchool('gate_records', list, sId);
 
     // Sincroniza em nuvem no Firestore
     firestoreService.deleteGateRecord(id).catch(err => console.warn('Erro ao deletar registro de portaria no Firestore:', err));
   },
 
   // === ALERTAS ===
-  getAlerts: (): ParentAlert[] => {
-    return getStored<ParentAlert[]>('school_alerts', DEFAULT_ALERTS);
+  getAlerts: (schoolId?: string): ParentAlert[] => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const fallback = sId === DEFAULT_SCHOOL_ID ? DEFAULT_ALERTS : [];
+    return getStoredSchool<ParentAlert[]>('alerts', fallback, sId);
   },
 
-  addAlert: (alert: ParentAlert): ParentAlert => {
-    const list = storageService.getAlerts();
+  addAlert: (alert: ParentAlert, schoolId?: string): ParentAlert => {
+    const sId = schoolId || alert.schoolId || storageService.getActiveSchoolId();
+    const list = storageService.getAlerts(sId);
     const newAlert = {
       ...alert,
-      id: alert.id || `alt-${Date.now()}`
+      id: alert.id || `alt-${Date.now()}`,
+      schoolId: sId
     };
     list.unshift(newAlert);
-    setStored('school_alerts', list);
+    setStoredSchool('alerts', list, sId);
 
     // Sincroniza em nuvem no Firestore
-    firestoreService.saveAlert(newAlert).catch(err => console.warn('Erro ao salvar alerta no Firestore:', err));
+    firestoreService.saveAlert(newAlert, sId).catch(err => console.warn('Erro ao salvar alerta no Firestore:', err));
 
     return newAlert;
   },
 
-  updateAlertStatus: (alertId: string, status: any, notes?: string): void => {
-    const list = storageService.getAlerts();
+  updateAlertStatus: (alertId: string, status: any, notes?: string, schoolId?: string): void => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const list = storageService.getAlerts(sId);
     const alert = list.find(a => a.id === alertId);
     if (alert) {
       alert.status = status;
       if (notes) alert.guardianFeedback = notes;
-      setStored('school_alerts', list);
+      setStoredSchool('alerts', list, sId);
 
       // Sincroniza em nuvem no Firestore
-      firestoreService.saveAlert(alert).catch(err => console.warn('Erro ao atualizar alerta no Firestore:', err));
+      firestoreService.saveAlert(alert, sId).catch(err => console.warn('Erro ao atualizar alerta no Firestore:', err));
     }
   },
 
-  deleteAlert: (alertId: string): void => {
-    const list = storageService.getAlerts().filter(a => a.id !== alertId);
-    setStored('school_alerts', list);
+  deleteAlert: (alertId: string, schoolId?: string): void => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const list = storageService.getAlerts(sId).filter(a => a.id !== alertId);
+    setStoredSchool('alerts', list, sId);
 
     // Sincroniza em nuvem no Firestore
     firestoreService.deleteAlert(alertId).catch(err => console.warn('Erro ao excluir alerta no Firestore:', err));
   },
 
   // === INTERVENÇÕES ===
-  getInterventions: (): InterventionCase[] => {
-    return getStored<InterventionCase[]>('school_interventions', DEFAULT_INTERVENTIONS);
+  getInterventions: (schoolId?: string): InterventionCase[] => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const fallback = sId === DEFAULT_SCHOOL_ID ? DEFAULT_INTERVENTIONS : [];
+    return getStoredSchool<InterventionCase[]>('interventions', fallback, sId);
   },
 
-  addInterventionAction: (caseId: string, action: any): void => {
-    const list = storageService.getInterventions();
+  addInterventionAction: (caseId: string, action: any, schoolId?: string): void => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const list = storageService.getInterventions(sId);
     const item = list.find(i => i.id === caseId);
     if (item) {
       item.actionLog = item.actionLog || [];
@@ -778,27 +1002,36 @@ export const storageService = {
         id: action.id || `act-${Date.now()}`
       });
       item.lastUpdatedAt = new Date().toISOString().split('T')[0];
-      setStored('school_interventions', list);
+      item.schoolId = sId;
+      setStoredSchool('interventions', list, sId);
 
       // Sincroniza em nuvem no Firestore
-      firestoreService.saveIntervention(item).catch(err => console.warn('Erro ao salvar intervenção no Firestore:', err));
+      firestoreService.saveIntervention(item, sId).catch(err => console.warn('Erro ao salvar intervenção no Firestore:', err));
     }
   },
 
-  deleteOpenInterventions: (): void => {
-    const list = storageService.getInterventions().filter(i => i.stage === 'reintegrado' || i.stage === 'encerrado');
-    setStored('school_interventions', list);
+  deleteOpenInterventions: (schoolId?: string): void => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const list = storageService.getInterventions(sId).filter(i => i.stage === 'reintegrado' || i.stage === 'encerrado');
+    setStoredSchool('interventions', list, sId);
   },
 
-  // === INFORMAÇÕES ESCOLARES & RELATÓRIOS ===
-  getSchoolInfo: (): any => {
-    const students = storageService.getStudents();
-    const classes = storageService.getClasses();
-    const alerts = storageService.getAlerts();
-    const interventions = storageService.getInterventions();
+  // === INFORMAÇÕES ESCOLARES & RELATÓRIOS (Multi-Tenant) ===
+  getSchoolInfo: (schoolId?: string): any => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const school = storageService.getActiveSchool(sId);
+    const students = storageService.getStudents(undefined, sId);
+    const classes = storageService.getClasses(sId);
+    const alerts = storageService.getAlerts(sId);
+    const interventions = storageService.getInterventions(sId);
 
     return {
-      schoolName: 'EE Professor Arlindo Silvestre',
+      schoolName: school.name,
+      schoolId: school.id,
+      codeCie: school.codeCie || '',
+      network: school.network || '',
+      city: school.city || '',
+      directorName: school.directorName || '',
       lastUpdated: new Date().toISOString(),
       totalStudents: students.length,
       totalClasses: classes.length,

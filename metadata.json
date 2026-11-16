@@ -1,6 +1,6 @@
 {
   "name": "SigaEscola",
-  "description": "SigaEscola - Portal Integrado de Busca Ativa & Gestão Escolar da EE Professor Arlindo Silvestre para monitorar frequência em tempo real, diário de faltas e atestados, agendamento de tablets, portaria e mediação pedagógica.",
+  "description": "SigaEscola - Sistema Integrado de Gestão Escolar & Busca Ativa Multi-Escolas para monitorar frequência em tempo real, diário de faltas e atestados, agendamento de tablets, portaria, ocorrências e relatórios oficiais.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

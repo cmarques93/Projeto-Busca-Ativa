@@ -42,7 +42,7 @@ import {
   AlertCircle,
   X
 } from 'lucide-react';
-import { SchoolClass, Student, UserAccount, UserRole, UserSession } from '../types';
+import { SchoolClass, Student, UserAccount, UserRole, UserSession, School as SchoolType, SchoolModulesConfig, isModuleEnabled } from '../types';
 import { storageService, getRoleLabel } from '../data/storageService';
 import { firestoreService } from '../lib/firestoreService';
 import {
@@ -65,6 +65,7 @@ import ocorrenciasBaseline from '../data/ocorrenciasBaseline.json';
 import tabletsBaseline from '../data/tabletsBaseline.json';
 
 export type SystemConfigSubTab =
+  | 'escolas'
   | 'busca_ativa'
   | 'ocorrencias'
   | 'tablets'
@@ -75,6 +76,10 @@ interface SystemConfigManagerProps {
   currentUser: UserSession;
   classes: SchoolClass[];
   students: Student[];
+  currentSchool?: SchoolType;
+  schools?: SchoolType[];
+  onSelectSchool?: (schoolId: string) => void;
+  onOpenSchoolOperationalPanel?: () => void;
   onRefresh: () => void;
   onOpenStudentRegistration: () => void;
   onOpenWhatsAppIntegration: () => void;
@@ -87,6 +92,10 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
   currentUser,
   classes,
   students,
+  currentSchool,
+  schools: propSchools,
+  onSelectSchool,
+  onOpenSchoolOperationalPanel,
   onRefresh,
   onOpenStudentRegistration,
   onOpenWhatsAppIntegration,
@@ -94,7 +103,11 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
   onOpenResetAllModal,
   onOpenFirebaseStatus,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<SystemConfigSubTab>('busca_ativa');
+  const isUniversalMaster = currentUser.role === 'super_admin' || (currentUser as any).isUniversal === true;
+
+  const [activeSubTab, setActiveSubTab] = useState<SystemConfigSubTab>(() =>
+    isUniversalMaster ? 'escolas' : 'busca_ativa'
+  );
   const [mensagem, setMensagem] = useState<{ texto: string; tipo: 'sucesso' | 'erro' | '' }>({
     texto: '',
     tipo: '',
@@ -103,6 +116,193 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
   const showToast = (texto: string, tipo: 'sucesso' | 'erro' = 'sucesso', duracao = 4500) => {
     setMensagem({ texto, tipo });
     setTimeout(() => setMensagem({ texto: '', tipo: '' }), duracao);
+  };
+
+  // ==========================================
+  // ESTADOS: SUB-ABA 0 - UNIDADES ESCOLARES (Multi-Tenant SaaS)
+  // ==========================================
+  const [allSchools, setAllSchools] = useState<SchoolType[]>(() => {
+    return propSchools && propSchools.length > 0 ? propSchools : storageService.getSchools();
+  });
+  const [activeSchoolId, setActiveSchoolId] = useState<string>(() => {
+    return currentSchool?.id || storageService.getActiveSchoolId();
+  });
+
+  const [isSchoolModalOpen, setIsSchoolModalOpen] = useState(false);
+  const [editingSchool, setEditingSchool] = useState<SchoolType | null>(null);
+  const [schoolToDelete, setSchoolToDelete] = useState<SchoolType | null>(null);
+  const [isSavingSchool, setIsSavingSchool] = useState(false);
+
+  const [schoolFormName, setSchoolFormName] = useState('');
+  const [schoolFormCodeCie, setSchoolFormCodeCie] = useState('');
+  const [schoolFormNetwork, setSchoolFormNetwork] = useState('Rede Estadual SP');
+  const [schoolFormCity, setSchoolFormCity] = useState('');
+  const [schoolFormAddress, setSchoolFormAddress] = useState('');
+  const [schoolFormPhone, setSchoolFormPhone] = useState('');
+  const [schoolFormDirector, setSchoolFormDirector] = useState('');
+  const [schoolFormSeedDefaults, setSchoolFormSeedDefaults] = useState(true);
+  const [schoolFormModules, setSchoolFormModules] = useState<SchoolModulesConfig>({
+    diario: true,
+    portaria: true,
+    busca_ativa: true,
+    ocorrencias: true,
+    tablets: true,
+    relatorios: true,
+  });
+
+  useEffect(() => {
+    if (propSchools && propSchools.length > 0) {
+      setAllSchools(propSchools);
+    }
+  }, [propSchools]);
+
+  useEffect(() => {
+    if (currentSchool?.id) {
+      setActiveSchoolId(currentSchool.id);
+    }
+  }, [currentSchool]);
+
+  const openNewSchoolModal = () => {
+    setEditingSchool(null);
+    setSchoolFormName('');
+    setSchoolFormCodeCie('');
+    setSchoolFormNetwork('Rede Estadual SP');
+    setSchoolFormCity('');
+    setSchoolFormAddress('');
+    setSchoolFormPhone('');
+    setSchoolFormDirector('');
+    setSchoolFormSeedDefaults(true);
+    setSchoolFormModules({
+      diario: true,
+      portaria: true,
+      busca_ativa: true,
+      ocorrencias: true,
+      tablets: true,
+      relatorios: true,
+    });
+    setIsSchoolModalOpen(true);
+  };
+
+  const openEditSchoolModal = (sch: SchoolType) => {
+    setEditingSchool(sch);
+    setSchoolFormName(sch.name);
+    setSchoolFormCodeCie(sch.codeCie || '');
+    setSchoolFormNetwork(sch.network || 'Rede Estadual SP');
+    setSchoolFormCity(sch.city || '');
+    setSchoolFormAddress(sch.address || '');
+    setSchoolFormPhone(sch.phone || '');
+    setSchoolFormDirector(sch.directorName || '');
+    setSchoolFormSeedDefaults(false);
+    setSchoolFormModules(sch.modules || {
+      diario: true,
+      portaria: true,
+      busca_ativa: true,
+      ocorrencias: true,
+      tablets: true,
+      relatorios: true,
+    });
+    setIsSchoolModalOpen(true);
+  };
+
+  const handleSaveSchool = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!schoolFormName.trim()) {
+      showToast('O nome da unidade escolar é obrigatório.', 'erro');
+      return;
+    }
+
+    setIsSavingSchool(true);
+    try {
+      const schId = editingSchool?.id || `sch-${schoolFormName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').substring(0, 30)}-${Date.now().toString().slice(-4)}`;
+      
+      const newSchoolObj: SchoolType = {
+        id: schId,
+        name: schoolFormName.trim(),
+        codeCie: schoolFormCodeCie.trim() || undefined,
+        network: schoolFormNetwork.trim() || undefined,
+        city: schoolFormCity.trim() || undefined,
+        address: schoolFormAddress.trim() || undefined,
+        phone: schoolFormPhone.trim() || undefined,
+        directorName: schoolFormDirector.trim() || undefined,
+        modules: schoolFormModules,
+        active: true,
+        createdAt: editingSchool?.createdAt || new Date().toISOString()
+      };
+
+      storageService.saveSchool(newSchoolObj);
+      await firestoreService.saveSchool(newSchoolObj);
+
+      if (!editingSchool) {
+        // Cria automaticamente o perfil de Administrador da Unidade Escolar para esta nova escola
+        const adminId = `usr-admin-${schId.substring(0, 15)}`;
+        const cleanSchoolShort = schoolFormName.split(' ')[0] || 'Escolar';
+        const initialAdminUser: UserAccount = {
+          id: adminId,
+          name: `Admin Escolar (${cleanSchoolShort})`,
+          username: `admin.${schId.replace(/[^a-z0-9]/g, '').substring(0, 12)}`,
+          role: 'admin_escola',
+          roleLabel: 'Administrador da Unidade Escolar',
+          pin: '1234',
+          createdAt: new Date().toISOString(),
+          active: true,
+          schoolId: schId,
+          notes: `Administrador institucional da unidade ${schoolFormName}.`
+        };
+        storageService.createUser(initialAdminUser);
+      }
+
+      if (!editingSchool && schoolFormSeedDefaults) {
+        const seedClasses: SchoolClass[] = [
+          { id: `6A-${schId.substring(0, 6)}`, name: '6º Ano A', grade: 'Ensino Fundamental II', shift: 'Manhã', totalStudents: 30, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0, schoolId: schId },
+          { id: `7A-${schId.substring(0, 6)}`, name: '7º Ano A', grade: 'Ensino Fundamental II', shift: 'Manhã', totalStudents: 30, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0, schoolId: schId },
+          { id: `8A-${schId.substring(0, 6)}`, name: '8º Ano A', grade: 'Ensino Fundamental II', shift: 'Manhã', totalStudents: 30, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0, schoolId: schId },
+          { id: `9A-${schId.substring(0, 6)}`, name: '9º Ano A', grade: 'Ensino Fundamental II', shift: 'Manhã', totalStudents: 30, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0, schoolId: schId },
+          { id: `1EM-${schId.substring(0, 6)}`, name: '1ª Série EM', grade: 'Ensino Médio', shift: 'Integral', totalStudents: 32, presentToday: 0, absentToday: 0, attendanceRateToday: 100, studentsAtRiskCount: 0, schoolId: schId },
+        ];
+        storageService.setClasses(seedClasses, schId);
+        for (const sc of seedClasses) {
+          await firestoreService.saveClass(sc, schId);
+        }
+      }
+
+      const updatedSchools = storageService.getSchools();
+      setAllSchools(updatedSchools);
+      setIsSchoolModalOpen(false);
+      showToast(editingSchool ? 'Dados da escola atualizados com sucesso!' : 'Nova unidade escolar cadastrada com sucesso!');
+      
+      if (!editingSchool && onSelectSchool) {
+        onSelectSchool(schId);
+      }
+    } catch (err) {
+      console.error('Erro ao salvar escola:', err);
+      showToast('Erro ao salvar unidade escolar na nuvem.', 'erro');
+    } finally {
+      setIsSavingSchool(false);
+    }
+  };
+
+  const handleDeleteSchool = async (schId: string) => {
+    if (allSchools.length <= 1) {
+      showToast('Não é permitido excluir a única escola cadastrada no sistema.', 'erro');
+      setSchoolToDelete(null);
+      return;
+    }
+
+    try {
+      storageService.deleteSchool(schId);
+      await firestoreService.deleteSchool(schId);
+      const updated = storageService.getSchools();
+      setAllSchools(updated);
+      setSchoolToDelete(null);
+      showToast('Unidade escolar excluída com sucesso.');
+
+      if (activeSchoolId === schId && onSelectSchool && updated.length > 0) {
+        onSelectSchool(updated[0].id);
+      }
+    } catch (e) {
+      console.error('Erro ao excluir escola:', e);
+      showToast('Erro ao excluir escola.', 'erro');
+    }
   };
 
   // ==========================================
@@ -830,16 +1030,23 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
   // HANDLERS: USUÁRIOS & PERFIS
   // ==========================================
   const usuariosFiltrados = useMemo(() => {
+    const targetSchool = activeSchoolId || currentUser.schoolId || 'ee-arlindo-silvestre';
     return usuarios.filter(u => {
+      // O perfil Master Global não é um operador vinculado a escola
+      if (u.isUniversal || u.role === 'super_admin' || u.id === 'usr-master') {
+        return false;
+      }
+      const userSchool = u.schoolId || 'ee-arlindo-silvestre';
+      const matchSchool = userSchool === targetSchool;
       const matchQuery =
         !buscaUsuarios.trim() ||
         u.name.toLowerCase().includes(buscaUsuarios.toLowerCase()) ||
         (u.username && u.username.toLowerCase().includes(buscaUsuarios.toLowerCase())) ||
         (u.roleLabel && u.roleLabel.toLowerCase().includes(buscaUsuarios.toLowerCase()));
       const matchRole = filtroRoleUsuario === 'todos' || u.role === filtroRoleUsuario;
-      return matchQuery && matchRole;
+      return matchSchool && matchQuery && matchRole;
     });
-  }, [usuarios, buscaUsuarios, filtroRoleUsuario]);
+  }, [usuarios, buscaUsuarios, filtroRoleUsuario, activeSchoolId, currentUser.schoolId]);
 
   const handleCriarNovoUsuario = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -861,6 +1068,8 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
         .replace(/\.+/g, '.')
         .replace(/^\.|\.$/g, '');
 
+      const targetSchoolId = activeSchoolId || currentUser.schoolId || storageService.getActiveSchoolId();
+
       const novoUsuario: UserAccount = {
         id: `usr-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
         name: novoNomeUsuario.trim(),
@@ -871,12 +1080,13 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
         active: true,
         createdAt: new Date().toISOString(),
         notes: novoNotasUsuario.trim(),
+        schoolId: targetSchoolId,
       };
 
       const updated = [...usuarios, novoUsuario];
       setUsuarios(updated);
       storageService.setUsers(updated);
-      await firestoreService.saveUser(novoUsuario);
+      await firestoreService.saveUser(novoUsuario, targetSchoolId);
 
       setIsNovoUsuarioModalOpen(false);
       setNovoNomeUsuario('');
@@ -911,6 +1121,11 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
 
   const handleConfirmDeleteUser = async () => {
     if (!userToDelete) return;
+    if (userToDelete.isUniversal || userToDelete.role === 'super_admin') {
+      showToast('⚠️ O perfil do Proprietário Universal não pode ser excluído.', 'erro');
+      setUserToDelete(null);
+      return;
+    }
     setIsDeletingUser(true);
     try {
       const updatedList = usuarios.filter(u => u.id !== userToDelete.id);
@@ -933,28 +1148,51 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Top Banner do Gerenciador Master */}
+      {/* Top Banner do Gerenciador */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-purple-700 text-white flex items-center justify-center shadow-md shrink-0">
-            <Settings className="w-6 h-6" />
+          <div className={`w-12 h-12 rounded-2xl text-white flex items-center justify-center shadow-md shrink-0 ${isUniversalMaster ? 'bg-indigo-700' : 'bg-purple-700'}`}>
+            {isUniversalMaster ? <Shield className="w-6 h-6" /> : <Settings className="w-6 h-6" />}
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-black text-slate-900 tracking-tight">
-                Gerenciador Central & Cadastros do Sistema
+                {isUniversalMaster
+                  ? 'Painel Master Global • Gestão de Escolas & Configurações'
+                  : 'Gerenciador Central & Cadastros do Sistema'}
               </h1>
-              <span className="bg-purple-100 text-purple-900 text-[11px] font-extrabold px-2.5 py-0.5 rounded-full border border-purple-200">
-                🛡️ Exclusivo Administrador Master
+              <span className={`text-[11px] font-extrabold px-2.5 py-0.5 rounded-full border ${
+                isUniversalMaster
+                  ? 'bg-amber-100 text-amber-900 border-amber-300'
+                  : 'bg-purple-100 text-purple-900 border-purple-200'
+              }`}>
+                {isUniversalMaster ? '🛡️ Painel Master Global (SaaS)' : `🏫 ${currentSchool?.name || 'EE Professor Arlindo Silvestre'}`}
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium mt-0.5">
-              Configure turmas, estudantes, motivos de ocorrência, grade de horários, tablets, usuários e integrações em nuvem.
+              {isUniversalMaster
+                ? 'Gerencie todas as Unidades Escolares, libere módulos contratados e auxilie na configuração individual de cada escola.'
+                : 'Configure turmas, estudantes, motivos de ocorrência, grade de horários, tablets, usuários e integrações em nuvem.'}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {isUniversalMaster && (
+            <button
+              type="button"
+              onClick={() => {
+                const masterAcc = storageService.getMasterUser();
+                setSelectedUserForPin(masterAcc);
+                setNovoPinEdit(masterAcc.pin || '9999');
+              }}
+              className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Alterar a senha de 4 dígitos do Painel Master Global"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-amber-700" />
+              <span>Senha Master</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={onRefresh}
@@ -966,6 +1204,51 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Barra de Unidade em Auxílio (Exibida ao Master quando está auxiliando abas internas de uma escola) */}
+      {isUniversalMaster && activeSubTab !== 'escolas' && (
+        <div className="bg-indigo-950 text-white rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm border border-indigo-800">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shrink-0">
+              <Building2 className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <div className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-300">
+                Modo de Auxílio Técnico Master • Configurando Unidade Escolar:
+              </div>
+              <div className="text-sm font-black text-white">
+                {allSchools.find(s => s.id === activeSchoolId)?.name || currentSchool?.name || 'EE Professor Arlindo Silvestre'}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={activeSchoolId}
+              onChange={e => {
+                const newId = e.target.value;
+                setActiveSchoolId(newId);
+                if (onSelectSchool) onSelectSchool(newId);
+              }}
+              className="px-3 py-1.5 rounded-xl bg-slate-900 border border-indigo-500/40 text-white text-xs font-bold cursor-pointer"
+            >
+              {allSchools.map(s => (
+                <option key={s.id} value={s.id}>
+                  Auxiliar: {s.name}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('escolas')}
+              className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold cursor-pointer transition-colors"
+            >
+              Voltar para Lista de Escolas
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Toast de Mensagem */}
       {mensagem.texto && (
@@ -996,6 +1279,26 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
 
       {/* Menu Superior de Sub-Abas do Gerenciador */}
       <div className="bg-white rounded-2xl border border-slate-200 p-1.5 shadow-2xs flex overflow-x-auto no-scrollbar gap-1">
+        {isUniversalMaster && (
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('escolas')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+              activeSubTab === 'escolas'
+                ? 'bg-indigo-700 text-white shadow-xs'
+                : 'text-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            <Building2 className="w-4 h-4" />
+            <span>🏢 Unidades Escolares (Master)</span>
+            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+              activeSubTab === 'escolas' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+            }`}>
+              {allSchools.length} {allSchools.length === 1 ? 'Escola' : 'Escolas'}
+            </span>
+          </button>
+        )}
+
         <button
           type="button"
           onClick={() => setActiveSubTab('busca_ativa')}
@@ -1064,7 +1367,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
           <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
             activeSubTab === 'usuarios' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
           }`}>
-            {usuarios.length} Contas
+            {usuariosFiltrados.length} Contas
           </span>
         </button>
 
@@ -1081,6 +1384,589 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
           <span>☁️ Nuvem & Integrações</span>
         </button>
       </div>
+
+      {/* ========================================================================= */}
+      {/* CONTEÚDO DA SUB-ABA 0: UNIDADES ESCOLARES (Exclusivo Painel Master)       */}
+      {/* ========================================================================= */}
+      {activeSubTab === 'escolas' && isUniversalMaster && (
+        <div className="space-y-6">
+          {/* Top Banner de Gestão Multi-Escolas */}
+          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-md border border-slate-800">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/30 text-indigo-300 text-xs font-extrabold uppercase tracking-wider border border-indigo-400/40">
+                    SigaEscola SaaS • Painel Master Global
+                  </span>
+                  <span className="text-slate-400 text-xs">• Isolamento Total por Unidade Escolar</span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black text-white">
+                  Central Global de Unidades Escolares
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
+                  Cadastre novas escolas, libere ou bloqueie módulos de acordo com o plano de cada instituição e clique em <strong>Auxiliar Configuração</strong> ou <strong>Painel Operacional</strong> para prestar suporte técnico em qualquer unidade.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={openNewSchoolModal}
+                  className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-2 cursor-pointer shadow-md transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Cadastrar Nova Escola</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Lista de Escolas Cadastradas */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {allSchools.map(sch => {
+              const isCurrent = sch.id === activeSchoolId;
+              const schoolOperatorsCount = usuarios.filter(
+                u => !u.isUniversal && u.role !== 'super_admin' && u.id !== 'usr-master' && (u.schoolId || 'ee-arlindo-silvestre') === sch.id
+              ).length;
+              return (
+                <div
+                  key={sch.id}
+                  className={`bg-white rounded-2xl border-2 p-5 transition-all flex flex-col justify-between shadow-xs ${
+                    isCurrent
+                      ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20'
+                      : 'border-slate-200 hover:border-slate-300'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                            isCurrent
+                              ? 'bg-indigo-600 text-white shadow-xs'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          <School className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-base font-black text-slate-900 leading-tight">
+                              {sch.name}
+                            </h4>
+                            {isCurrent && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-black bg-indigo-600 text-white px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                <CheckCircle2 className="w-3 h-3" />
+                                Em Auxílio Ativo
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-500 font-medium mt-0.5">
+                            ID: <code className="bg-slate-100 text-slate-700 px-1 py-0.5 rounded text-[11px] font-mono">{sch.id}</code> • <strong>{schoolOperatorsCount}</strong> operadores vinculados
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 py-3 border-y border-slate-100 text-xs text-slate-600">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400">Código CIE / INEP:</span>
+                        <span className="font-semibold text-slate-800">{sch.codeCie || 'Não informado'}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400">Rede de Ensino:</span>
+                        <span className="font-semibold text-slate-800">{sch.network || 'Rede Pública'}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400">Município / UF:</span>
+                        <span className="font-semibold text-slate-800">{sch.city || 'Não informado'}</span>
+                      </div>
+                      {sch.directorName && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400">Direção Escolar:</span>
+                          <span className="font-semibold text-slate-800">{sch.directorName}</span>
+                        </div>
+                      )}
+                      {sch.phone && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400">Telefone:</span>
+                          <span className="font-semibold text-slate-800">{sch.phone}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Módulos & Sistemas Habilitados no Painel desta Escola */}
+                    <div className="pt-2.5 mt-2.5 border-t border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                        Módulos Liberados nesta Escola:
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${isModuleEnabled(sch, 'diario') ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-slate-100 text-slate-400 line-through'}`}>
+                          Diário
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${isModuleEnabled(sch, 'portaria') ? 'bg-indigo-100 text-indigo-800 border border-indigo-200' : 'bg-slate-100 text-slate-400 line-through'}`}>
+                          Portaria
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${isModuleEnabled(sch, 'busca_ativa') ? 'bg-blue-100 text-blue-800 border border-blue-200' : 'bg-slate-100 text-slate-400 line-through'}`}>
+                          Busca Ativa
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${isModuleEnabled(sch, 'ocorrencias') ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-slate-100 text-slate-400 line-through'}`}>
+                          Ocorrências
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${isModuleEnabled(sch, 'tablets') ? 'bg-purple-100 text-purple-800 border border-purple-200' : 'bg-slate-100 text-slate-400 line-through'}`}>
+                          Tablets
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${isModuleEnabled(sch, 'relatorios') ? 'bg-teal-100 text-teal-800 border border-teal-200' : 'bg-slate-100 text-slate-400 line-through'}`}>
+                          Relatórios
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Ações Master para a Escola */}
+                  <div className="pt-4 mt-4 border-t border-slate-100 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveSchoolId(sch.id);
+                          if (onSelectSchool) onSelectSchool(sch.id);
+                          setActiveSubTab('busca_ativa');
+                          showToast(`Auxiliando configuração da unidade: ${sch.name}`);
+                        }}
+                        className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                        <span>Auxiliar Configuração</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveSchoolId(sch.id);
+                          if (onSelectSchool) onSelectSchool(sch.id);
+                          if (onOpenSchoolOperationalPanel) onOpenSchoolOperationalPanel();
+                        }}
+                        className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Painel Operacional</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => openEditSchoolModal(sch)}
+                        className="flex-1 px-3 py-1.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                        title="Liberar/Bloquear módulos e editar dados institucionais desta escola"
+                      >
+                        <Edit2 className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Editar Dados & Liberar Módulos</span>
+                      </button>
+
+                      {allSchools.length > 1 && sch.id !== 'ee-arlindo-silvestre' && (
+                        <button
+                          type="button"
+                          onClick={() => setSchoolToDelete(sch)}
+                          className="px-2.5 py-1.5 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-700 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                          title="Excluir unidade escolar"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Modal de Cadastrar / Editar Escola */}
+          {isSchoolModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-200">
+              <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden flex flex-col max-h-[92vh]">
+                <div className="bg-slate-900 text-white p-5 flex items-center justify-between border-b border-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white">
+                      <Building2 className="w-5 h-5 text-indigo-200" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-white">
+                        {editingSchool ? 'Editar Unidade Escolar' : 'Cadastrar Nova Unidade Escolar'}
+                      </h3>
+                      <p className="text-xs text-slate-400">
+                        SigaEscola SaaS • Plataforma Multi-Institucional
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsSchoolModalOpen(false)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveSchool} className="p-5 space-y-4 overflow-y-auto">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Nome da Escola / Unidade *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: EMEB Monteiro Lobato ou EE Maria José"
+                      value={schoolFormName}
+                      onChange={e => setSchoolFormName(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm font-semibold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Código CIE / INEP
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 045892"
+                        value={schoolFormCodeCie}
+                        onChange={e => setSchoolFormCodeCie(e.target.value)}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Rede de Ensino
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Rede Estadual, Municipal ou Particular"
+                        value={schoolFormNetwork}
+                        onChange={e => setSchoolFormNetwork(e.target.value)}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Município / UF
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: São Paulo - SP"
+                        value={schoolFormCity}
+                        onChange={e => setSchoolFormCity(e.target.value)}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Telefone Institucional
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: (11) 3456-7890"
+                        value={schoolFormPhone}
+                        onChange={e => setSchoolFormPhone(e.target.value)}
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Endereço da Unidade
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Rua das Flores, 100 - Bairro Centro"
+                      value={schoolFormAddress}
+                      onChange={e => setSchoolFormAddress(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Direção Escolar Responsável
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Profª. Maria Aparecida Silva"
+                      value={schoolFormDirector}
+                      onChange={e => setSchoolFormDirector(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs sm:text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  {!editingSchool && (
+                    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 flex items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        id="seed-checkbox"
+                        checked={schoolFormSeedDefaults}
+                        onChange={e => setSchoolFormSeedDefaults(e.target.checked)}
+                        className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <label htmlFor="seed-checkbox" className="text-xs text-indigo-900 cursor-pointer">
+                        <strong className="block font-bold">Criar turmas padrão iniciais para esta escola</strong>
+                        Cria automaticamente turmas de Ensino Fundamental (6º ao 9º Ano) e Ensino Médio prontas para uso.
+                      </label>
+                    </div>
+                  )}
+
+                  {/* Liberação de Sistemas e Módulos para esta Escola (Licenciamento Flexível) */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+                          Sistemas & Módulos Habilitados
+                        </label>
+                        <p className="text-[11px] text-slate-500">
+                          {isUniversalMaster
+                            ? 'Defina quais funcionalidades estarão liberadas no painel desta instituição.'
+                            : 'Módulos liberados para esta escola (gerenciado pelo Administrador Universal).'}
+                        </p>
+                      </div>
+
+                      {isUniversalMaster && (
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSchoolFormModules({
+                                diario: true,
+                                portaria: true,
+                                busca_ativa: true,
+                                ocorrencias: true,
+                                tablets: true,
+                                relatorios: true,
+                              })
+                            }
+                            className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[10px] border border-indigo-200 cursor-pointer"
+                          >
+                            Liberar Tudo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSchoolFormModules({
+                                diario: false,
+                                portaria: false,
+                                busca_ativa: true,
+                                ocorrencias: true,
+                                tablets: false,
+                                relatorios: true,
+                              })
+                            }
+                            className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-[10px] border border-amber-200 cursor-pointer"
+                          >
+                            Apenas Busca Ativa
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                      {/* Diário de Classe */}
+                      <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs transition-colors ${
+                        isUniversalMaster ? 'cursor-pointer' : 'cursor-default'
+                      } ${
+                        schoolFormModules.diario !== false
+                          ? 'border-emerald-300 bg-emerald-50/60 text-emerald-950 font-semibold'
+                          : 'border-slate-200 bg-white text-slate-400 opacity-60'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          disabled={!isUniversalMaster}
+                          checked={schoolFormModules.diario !== false}
+                          onChange={e => setSchoolFormModules(prev => ({ ...prev, diario: e.target.checked }))}
+                          className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <div>
+                          <strong className="block text-slate-800">Diário de Classe & Chamada</strong>
+                          <span className="text-[10px] text-slate-500">Lançamento de frequências e ausências</span>
+                        </div>
+                      </label>
+
+                      {/* Controle de Portaria */}
+                      <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs transition-colors ${
+                        isUniversalMaster ? 'cursor-pointer' : 'cursor-default'
+                      } ${
+                        schoolFormModules.portaria !== false
+                          ? 'border-indigo-300 bg-indigo-50/60 text-indigo-950 font-semibold'
+                          : 'border-slate-200 bg-white text-slate-400 opacity-60'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          disabled={!isUniversalMaster}
+                          checked={schoolFormModules.portaria !== false}
+                          onChange={e => setSchoolFormModules(prev => ({ ...prev, portaria: e.target.checked }))}
+                          className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <div>
+                          <strong className="block text-slate-800">Controle de Portaria</strong>
+                          <span className="text-[10px] text-slate-500">Entradas tardias e saídas autorizadas</span>
+                        </div>
+                      </label>
+
+                      {/* Busca Ativa */}
+                      <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs transition-colors ${
+                        isUniversalMaster ? 'cursor-pointer' : 'cursor-default'
+                      } ${
+                        schoolFormModules.busca_ativa !== false
+                          ? 'border-blue-300 bg-blue-50/60 text-blue-950 font-semibold'
+                          : 'border-slate-200 bg-white text-slate-400 opacity-60'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          disabled={!isUniversalMaster}
+                          checked={schoolFormModules.busca_ativa !== false}
+                          onChange={e => setSchoolFormModules(prev => ({ ...prev, busca_ativa: e.target.checked }))}
+                          className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <div>
+                          <strong className="block text-slate-800">Busca Ativa & WhatsApp</strong>
+                          <span className="text-[10px] text-slate-500">Alertas automáticos e fichas de busca ativa</span>
+                        </div>
+                      </label>
+
+                      {/* Ocorrências */}
+                      <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs transition-colors ${
+                        isUniversalMaster ? 'cursor-pointer' : 'cursor-default'
+                      } ${
+                        schoolFormModules.ocorrencias !== false
+                          ? 'border-amber-300 bg-amber-50/60 text-amber-950 font-semibold'
+                          : 'border-slate-200 bg-white text-slate-400 opacity-60'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          disabled={!isUniversalMaster}
+                          checked={schoolFormModules.ocorrencias !== false}
+                          onChange={e => setSchoolFormModules(prev => ({ ...prev, ocorrencias: e.target.checked }))}
+                          className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <div>
+                          <strong className="block text-slate-800">Ocorrências & Mediação</strong>
+                          <span className="text-[10px] text-slate-500">Registros pedagógicos e devolutivas</span>
+                        </div>
+                      </label>
+
+                      {/* Tablets */}
+                      <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs transition-colors ${
+                        isUniversalMaster ? 'cursor-pointer' : 'cursor-default'
+                      } ${
+                        schoolFormModules.tablets !== false
+                          ? 'border-purple-300 bg-purple-50/60 text-purple-950 font-semibold'
+                          : 'border-slate-200 bg-white text-slate-400 opacity-60'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          disabled={!isUniversalMaster}
+                          checked={schoolFormModules.tablets !== false}
+                          onChange={e => setSchoolFormModules(prev => ({ ...prev, tablets: e.target.checked }))}
+                          className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <div>
+                          <strong className="block text-slate-800">Agendamento de Tablets</strong>
+                          <span className="text-[10px] text-slate-500">Reserva de kits e grade tecnológica</span>
+                        </div>
+                      </label>
+
+                      {/* Relatórios SEDUC */}
+                      <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs transition-colors ${
+                        isUniversalMaster ? 'cursor-pointer' : 'cursor-default'
+                      } ${
+                        schoolFormModules.relatorios !== false
+                          ? 'border-teal-300 bg-teal-50/60 text-teal-950 font-semibold'
+                          : 'border-slate-200 bg-white text-slate-400 opacity-60'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          disabled={!isUniversalMaster}
+                          checked={schoolFormModules.relatorios !== false}
+                          onChange={e => setSchoolFormModules(prev => ({ ...prev, relatorios: e.target.checked }))}
+                          className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <div>
+                          <strong className="block text-slate-800">Relatórios & Dossiês</strong>
+                          <span className="text-[10px] text-slate-500">Relatório Oficial com assinaturas</span>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsSchoolModalOpen(false)}
+                      className="px-4 py-2 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold cursor-pointer transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingSchool}
+                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer transition-colors flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+                    >
+                      {isSavingSchool ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Salvando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-3.5 h-3.5" />
+                          <span>{editingSchool ? 'Salvar Alterações' : 'Cadastrar Escola'}</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal de Confirmação de Exclusão de Escola */}
+          {schoolToDelete && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-200">
+              <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 text-center space-y-4">
+                <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 mx-auto flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Confirmar Exclusão da Escola?
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    Você está prestes a remover o cadastro da escola <strong>{schoolToDelete.name}</strong> do sistema SaaS.
+                  </p>
+                </div>
+                <div className="flex items-center justify-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSchoolToDelete(null)}
+                    className="px-4 py-2 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteSchool(schoolToDelete.id)}
+                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer transition-colors shadow-xs"
+                  >
+                    Sim, Excluir Escola
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* CONTEÚDO DA SUB-ABA 1: BUSCA ATIVA & TURMAS/ESTUDANTES                   */}
@@ -2861,10 +3747,10 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
                     onChange={e => setNovoCargoUsuario(e.target.value as any)}
                     className="w-full p-2.5 border border-slate-300 rounded-xl font-bold bg-white text-slate-800"
                   >
-                    <option value="professor">Professor(a)</option>
-                    <option value="gestao_paac">Gestão / PAAC</option>
+                    <option value="professor">Professor(a) / Docente</option>
+                    <option value="gestao_paac">Gestão / PAAC (Coordenação)</option>
                     <option value="aoe">AOE (Secretaria / Portaria)</option>
-                    <option value="admin">Administrador (Master)</option>
+                    <option value="admin_escola">Administrador da Unidade Escolar</option>
                   </select>
                 </div>
                 <div>

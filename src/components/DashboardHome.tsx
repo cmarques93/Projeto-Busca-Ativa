@@ -17,10 +17,12 @@ import {
   FileText
 } from 'lucide-react';
 import { MainModuleType } from './Header';
-import { SchoolClass, Student, ParentAlert, InterventionCase, UserSession } from '../types';
+import { SchoolClass, Student, ParentAlert, InterventionCase, UserSession, School as SchoolType, isModuleEnabled } from '../types';
 
 interface DashboardHomeProps {
   currentUser: UserSession;
+  currentSchool?: SchoolType;
+  onOpenSchoolSelector?: () => void;
   classes: SchoolClass[];
   students: Student[];
   alerts: ParentAlert[];
@@ -34,23 +36,35 @@ interface DashboardHomeProps {
     ocorrenciasSubTab?: string
   ) => void;
   onSelectStudent: (student: Student) => void;
+  onOpenStudentRegistration?: () => void;
   onOpenSeducReport?: () => void;
   onOpenFirebaseStatus?: () => void;
 }
 
 export const DashboardHome: React.FC<DashboardHomeProps> = ({
   currentUser,
+  currentSchool,
+  onOpenSchoolSelector,
   classes,
   students,
   alerts,
   interventions,
   onNavigate,
   onSelectStudent,
+  onOpenStudentRegistration,
 }) => {
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'admin_escola' || currentUser.role === 'super_admin';
   const isGestao = currentUser.role === 'gestao_paac';
   const isAOE = currentUser.role === 'aoe';
   const isProfessor = currentUser.role === 'professor';
+
+  // Permissões de Módulos liberados para a Escola Atual (Multi-Escola SaaS com Planos Flexíveis)
+  const hasDiario = isModuleEnabled(currentSchool, 'diario');
+  const hasPortaria = isModuleEnabled(currentSchool, 'portaria');
+  const hasBuscaAtiva = isModuleEnabled(currentSchool, 'busca_ativa');
+  const hasOcorrencias = isModuleEnabled(currentSchool, 'ocorrencias');
+  const hasTablets = isModuleEnabled(currentSchool, 'tablets');
+  const hasRelatorios = isModuleEnabled(currentSchool, 'relatorios');
 
   // Barra de busca de estudantes para Dossiê liberada apenas para Gestão/PAAC e Administrador Geral
   const canAccessDossierSearch = isAdmin || isGestao;
@@ -114,7 +128,16 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
                 <School className="w-3.5 h-3.5 text-indigo-400" />
-                <span>EE Professor Arlindo Silvestre</span>
+                <span>{currentSchool?.name || currentUser.schoolName || 'Unidade Escolar'}</span>
+                {(currentUser.role === 'super_admin' || currentUser.isUniversal) && onOpenSchoolSelector && (
+                  <button
+                    type="button"
+                    onClick={onOpenSchoolSelector}
+                    className="ml-1 text-[10px] text-indigo-200 hover:text-white underline cursor-pointer"
+                  >
+                    (Trocar Escola)
+                  </button>
+                )}
               </span>
               <span className="text-slate-400 text-xs">•</span>
               <span className="capitalize text-slate-300 text-xs font-medium">{dataHojeExtenso}</span>
@@ -175,9 +198,31 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                 </button>
               )}
             </div>
-            <span className="text-xs text-slate-500 font-medium whitespace-nowrap self-center sm:self-auto">
-              {students.length} estudantes cadastrados
-            </span>
+            <div className="flex flex-wrap items-center gap-2 shrink-0 self-end sm:self-auto">
+              <span className="text-xs text-slate-500 font-medium whitespace-nowrap mr-1">
+                {classes.length} turmas • {students.length} estudantes
+              </span>
+              {onOpenStudentRegistration && (
+                <button
+                  type="button"
+                  onClick={onOpenStudentRegistration}
+                  className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+                  title="Cadastrar nova turma ou matricular novos estudantes (individual ou lote)"
+                >
+                  <Users className="w-3.5 h-3.5" />
+                  <span>+ Cadastrar Turma / Estudante</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onNavigate('diario', 'turmas')}
+                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                title="Abrir gestão de turmas e lista de estudantes para editar ou excluir"
+              >
+                <Settings className="w-3.5 h-3.5 text-slate-600" />
+                <span>Gerenciar Turmas & Excluir Alunos</span>
+              </button>
+            </div>
           </div>
 
           {/* Resultados rápidos de pesquisa */}
@@ -230,112 +275,120 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
         {isProfessor && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Card 1: Lançamento de Frequência & Ausências */}
-            <div
-              onClick={() => onNavigate('diario', 'ausencias')}
-              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-2xs">
-                    <UserCheck className="w-6 h-6" />
+            {hasDiario && (
+              <div
+                onClick={() => onNavigate('diario', 'ausencias')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-2xs">
+                      <UserCheck className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
+                      Diário de Classe
+                    </span>
                   </div>
-                  <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
-                    Diário de Classe
-                  </span>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-indigo-600 transition-colors">
+                    Lançamento de Frequência & Ausências
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Lançar faltas, presenças e atestados médicos dos estudantes nas suas aulas e disciplinas.
+                  </p>
                 </div>
-                <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-indigo-600 transition-colors">
-                  Lançamento de Frequência & Ausências
-                </h3>
-                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  Lançar faltas, presenças e atestados médicos dos estudantes nas suas aulas e disciplinas.
-                </p>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-600">
+                  <span>Acessar Diário</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
               </div>
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-600">
-                <span>Acessar Diário</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </div>
+            )}
 
             {/* Card 2: Ocorrências Escolares (Leva ao Hub de Cards de Ocorrências do Professor) */}
-            <div
-              onClick={() => onNavigate('busca_ativa', undefined, 'hub')}
-              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-amber-600 group-hover:text-white transition-all shadow-2xs">
-                    <AlertOctagon className="w-6 h-6" />
+            {(hasOcorrencias || hasBuscaAtiva) && (
+              <div
+                onClick={() => onNavigate('busca_ativa', undefined, 'hub')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-amber-600 group-hover:text-white transition-all shadow-2xs">
+                      <AlertOctagon className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
+                      4 Sub-menus
+                    </span>
                   </div>
-                  <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
-                    4 Sub-menus
-                  </span>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-amber-600 transition-colors">
+                    Ocorrências Escolares
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Nova Ocorrência, Meus Registros (Edição), Minhas Devolutivas da Gestão e Tutorados.
+                  </p>
                 </div>
-                <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-amber-600 transition-colors">
-                  Ocorrências Escolares
-                </h3>
-                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  Nova Ocorrência, Meus Registros (Edição), Minhas Devolutivas da Gestão e Tutorados.
-                </p>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
+                  <span>Ver Sub-menus</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
               </div>
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
-                <span>Ver Sub-menus</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </div>
+            )}
 
             {/* Card 3: Agendamento de Tablets */}
-            <div
-              onClick={() => onNavigate('tablets')}
-              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-sky-400 transition-all cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-200 text-sky-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-sky-600 group-hover:text-white transition-all shadow-2xs">
-                    <Tablet className="w-6 h-6" />
+            {hasTablets && (
+              <div
+                onClick={() => onNavigate('tablets')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-sky-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-200 text-sky-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-sky-600 group-hover:text-white transition-all shadow-2xs">
+                      <Tablet className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-sky-700 bg-sky-50 px-2.5 py-1 rounded-full border border-sky-200">
+                      Tecnologia
+                    </span>
                   </div>
-                  <span className="text-[11px] font-bold text-sky-700 bg-sky-50 px-2.5 py-1 rounded-full border border-sky-200">
-                    Tecnologia
-                  </span>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-sky-600 transition-colors">
+                    Agendar Carrinho de Tablets
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Reserve kits de tablets para suas aulas por turma, horário e disciplina na grade semanal.
+                  </p>
                 </div>
-                <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-sky-600 transition-colors">
-                  Agendar Carrinho de Tablets
-                </h3>
-                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  Reserve kits de tablets para suas aulas por turma, horário e disciplina na grade semanal.
-                </p>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
+                  <span>Abrir Grade</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
               </div>
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
-                <span>Abrir Grade</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </div>
+            )}
 
             {/* Card 4: Meus Alunos Tutorados */}
-            <div
-              onClick={() => onNavigate('busca_ativa', undefined, 'ocorrencias', 'tutorados')}
-              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-purple-400 transition-all cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-purple-50 border border-purple-200 text-purple-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-purple-600 group-hover:text-white transition-all shadow-2xs">
-                    <Users className="w-6 h-6" />
+            {(hasBuscaAtiva || hasOcorrencias) && (
+              <div
+                onClick={() => onNavigate('busca_ativa', undefined, 'ocorrencias', 'tutorados')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-purple-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-purple-50 border border-purple-200 text-purple-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-purple-600 group-hover:text-white transition-all shadow-2xs">
+                      <Users className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-purple-700 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200">
+                      Tutoria
+                    </span>
                   </div>
-                  <span className="text-[11px] font-bold text-purple-700 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200">
-                    Tutoria
-                  </span>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-purple-600 transition-colors">
+                    Meus Alunos Tutorados
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Acompanhar o histórico de ocorrências e assiduidade dos estudantes sob sua tutoria docente.
+                  </p>
                 </div>
-                <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-purple-600 transition-colors">
-                  Meus Alunos Tutorados
-                </h3>
-                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  Acompanhar o histórico de ocorrências e assiduidade dos estudantes sob sua tutoria docente.
-                </p>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-purple-600">
+                  <span>Ver Tutorados</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
               </div>
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-purple-600">
-                <span>Ver Tutorados</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -345,109 +398,144 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
         {isGestao && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Card 1: Diário & Portaria (Hub com 4 sub-menus) */}
-            <div
-              onClick={() => onNavigate('diario', 'hub')}
-              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-2xs">
-                    <UserCheck className="w-6 h-6" />
+            {(hasDiario || hasPortaria) && (
+              <div
+                onClick={() => onNavigate('diario', 'hub')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-2xs">
+                      <UserCheck className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
+                      4 Sub-menus
+                    </span>
                   </div>
-                  <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
-                    4 Sub-menus
-                  </span>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-indigo-600 transition-colors">
+                    Diário & Portaria
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Chamada por Turma, Portaria (Entradas & Saídas), Diário do Professor e Relação de Turmas.
+                  </p>
                 </div>
-                <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-indigo-600 transition-colors">
-                  Diário & Portaria
-                </h3>
-                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  Chamada por Turma, Portaria (Entradas & Saídas), Diário do Professor e Relação de Turmas.
-                </p>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-600">
+                  <span>Acessar Módulo</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
               </div>
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-600">
-                <span>Acessar Módulo</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </div>
+            )}
 
             {/* Card 2: Busca Ativa & Ocorrências (Hub com 3 sub-menus) */}
-            <div
-              onClick={() => onNavigate('busca_ativa', undefined, 'hub')}
-              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-amber-600 group-hover:text-white transition-all shadow-2xs">
-                    <AlertOctagon className="w-6 h-6" />
+            {(hasBuscaAtiva || hasOcorrencias) && (
+              <div
+                onClick={() => onNavigate('busca_ativa', undefined, 'hub')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-amber-600 group-hover:text-white transition-all shadow-2xs">
+                      <AlertOctagon className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
+                      3 Sub-menus
+                    </span>
                   </div>
-                  <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
-                    3 Sub-menus
-                  </span>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-amber-600 transition-colors">
+                    Busca Ativa & Ocorrências
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Triagem de Ocorrências com parecer, Notificações WhatsApp e Casos Críticos com IA.
+                  </p>
                 </div>
-                <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-amber-600 transition-colors">
-                  Busca Ativa & Ocorrências
-                </h3>
-                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  Triagem de Ocorrências com parecer, Notificações WhatsApp e Casos Críticos com IA.
-                </p>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
+                  <span>Acessar Módulo</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
               </div>
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
-                <span>Acessar Módulo</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </div>
+            )}
 
             {/* Card 3: Agendamento de Tablets */}
-            <div
-              onClick={() => onNavigate('tablets')}
-              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-sky-400 transition-all cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-200 text-sky-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-sky-600 group-hover:text-white transition-all shadow-2xs">
-                    <Tablet className="w-6 h-6" />
+            {hasTablets && (
+              <div
+                onClick={() => onNavigate('tablets')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-sky-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-200 text-sky-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-sky-600 group-hover:text-white transition-all shadow-2xs">
+                      <Tablet className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-sky-700 bg-sky-50 px-2.5 py-1 rounded-full border border-sky-200">
+                      Equipamentos
+                    </span>
                   </div>
-                  <span className="text-[11px] font-bold text-sky-700 bg-sky-50 px-2.5 py-1 rounded-full border border-sky-200">
-                    Equipamentos
-                  </span>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-sky-600 transition-colors">
+                    Agendamento de Tablets
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Grade semanal de alocação de equipamentos e disponibilidade de kits de tablets.
+                  </p>
                 </div>
-                <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-sky-600 transition-colors">
-                  Agendamento de Tablets
-                </h3>
-                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  Grade semanal de alocação de equipamentos e disponibilidade de kits de tablets.
-                </p>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
+                  <span>Ver Grade</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
               </div>
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
-                <span>Ver Grade</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </div>
+            )}
 
             {/* Card 4: Relatórios Pedagógicos SEDUC */}
+            {hasRelatorios && (
+              <div
+                onClick={() => onNavigate('relatorios')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-2xs">
+                      <Sparkles className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                      SEDUC
+                    </span>
+                  </div>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-emerald-600 transition-colors">
+                    Relatórios Pedagógicos
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Demonstrativos de infrequência escolar, análise por turma e contingência oficial SEDUC.
+                  </p>
+                </div>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
+                  <span>Consultar Relatórios</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            )}
+
+            {/* Card 5: Cadastro de Turmas & Estudantes (Gestão) */}
             <div
-              onClick={() => onNavigate('relatorios')}
-              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
+              onClick={() => onNavigate('diario', 'turmas')}
+              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-purple-400 transition-all cursor-pointer flex flex-col justify-between"
             >
               <div>
                 <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-2xs">
-                    <Sparkles className="w-6 h-6" />
+                  <div className="w-12 h-12 rounded-2xl bg-purple-50 border border-purple-200 text-purple-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-purple-600 group-hover:text-white transition-all shadow-2xs">
+                    <Users className="w-6 h-6" />
                   </div>
-                  <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                    SEDUC
+                  <span className="text-[11px] font-bold text-purple-700 bg-purple-50 px-2.5 py-1 rounded-full border border-purple-200">
+                    Cadastros & Exclusão
                   </span>
                 </div>
-                <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-emerald-600 transition-colors">
-                  Relatórios Pedagógicos
+                <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-purple-600 transition-colors">
+                  Turmas & Estudantes (Cadastros)
                 </h3>
                 <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  Demonstrativos de infrequência escolar, análise por turma e contingência oficial SEDUC.
+                  Cadastrar novas turmas, incluir novos estudantes (individual ou lote), editar dados e excluir estudantes.
                 </p>
               </div>
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
-                <span>Consultar Relatórios</span>
+              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-purple-600">
+                <span>Gerenciar Turmas e Alunos</span>
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </div>
             </div>
@@ -460,117 +548,125 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
         {isAOE && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Card 1: Portaria */}
-            <div
-              onClick={() => onNavigate('diario', 'portaria')}
-              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-blue-400 transition-all cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-2xs">
-                    <DoorOpen className="w-6 h-6" />
+            {hasPortaria && (
+              <div
+                onClick={() => onNavigate('diario', 'portaria')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-blue-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-2xs">
+                      <DoorOpen className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200">
+                      Portaria
+                    </span>
                   </div>
-                  <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200">
-                    Portaria
-                  </span>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-blue-600 transition-colors">
+                    Controle de Portaria
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Registrar entrada de alunos atrasados e saídas antecipadas autorizadas pelos responsáveis.
+                  </p>
                 </div>
-                <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-blue-600 transition-colors">
-                  Controle de Portaria
-                </h3>
-                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  Registrar entrada de alunos atrasados e saídas antecipadas autorizadas pelos responsáveis.
-                </p>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-blue-600">
+                  <span>Abrir Portaria</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
               </div>
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-blue-600">
-                <span>Abrir Portaria</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </div>
+            )}
 
             {/* Card 2: Consulta de Frequência */}
-            <div
-              onClick={() => onNavigate('diario', 'chamada')}
-              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-2xs">
-                    <UserCheck className="w-6 h-6" />
+            {hasDiario && (
+              <div
+                onClick={() => onNavigate('diario', 'chamada')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-2xs">
+                      <UserCheck className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
+                      Frequência
+                    </span>
                   </div>
-                  <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-200">
-                    Frequência
-                  </span>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-indigo-600 transition-colors">
+                    Consulta de Frequência
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Verificar presenças e faltas do dia para averiguação de estudantes em trânsito no pátio.
+                  </p>
                 </div>
-                <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-indigo-600 transition-colors">
-                  Consulta de Frequência
-                </h3>
-                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  Verificar presenças e faltas do dia para averiguação de estudantes em trânsito no pátio.
-                </p>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-600">
+                  <span>Ver Frequência</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
               </div>
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-600">
-                <span>Ver Frequência</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </div>
+            )}
 
             {/* Card 3: Relação de Turmas & Salas */}
-            <div
-              onClick={() => onNavigate('diario', 'turmas')}
-              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-slate-400 transition-all cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-slate-100 border border-slate-300 text-slate-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-slate-700 group-hover:text-white transition-all shadow-2xs">
-                    <Users className="w-6 h-6" />
+            {(hasDiario || hasBuscaAtiva) && (
+              <div
+                onClick={() => onNavigate('diario', 'turmas')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-slate-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-100 border border-slate-300 text-slate-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-slate-700 group-hover:text-white transition-all shadow-2xs">
+                      <Users className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-300">
+                      Localização
+                    </span>
                   </div>
-                  <span className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-300">
-                    Localização
-                  </span>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-slate-800 transition-colors">
+                    Relação de Turmas & Salas
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Localizar em qual sala ou turma o estudante está matriculado para atendimento na secretaria.
+                  </p>
                 </div>
-                <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-slate-800 transition-colors">
-                  Relação de Turmas & Salas
-                </h3>
-                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  Localizar em qual sala ou turma o estudante está matriculado para atendimento na secretaria.
-                </p>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-700">
+                  <span>Ver Turmas</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
               </div>
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-slate-700">
-                <span>Ver Turmas</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </div>
+            )}
 
             {/* Card 4: Grade de Tablets */}
-            <div
-              onClick={() => onNavigate('tablets')}
-              className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-sky-400 transition-all cursor-pointer flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between">
-                  <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-200 text-sky-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-sky-600 group-hover:text-white transition-all shadow-2xs">
-                    <Tablet className="w-6 h-6" />
+            {hasTablets && (
+              <div
+                onClick={() => onNavigate('tablets')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-sky-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-sky-50 border border-sky-200 text-sky-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-sky-600 group-hover:text-white transition-all shadow-2xs">
+                      <Tablet className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-sky-700 bg-sky-50 px-2.5 py-1 rounded-full border border-sky-200">
+                      Apoio
+                    </span>
                   </div>
-                  <span className="text-[11px] font-bold text-sky-700 bg-sky-50 px-2.5 py-1 rounded-full border border-sky-200">
-                    Apoio
-                  </span>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-sky-600 transition-colors">
+                    Grade de Tablets
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Verificar agendamentos do dia para conferência e entrega dos carrinhos aos professores.
+                  </p>
                 </div>
-                <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-sky-600 transition-colors">
-                  Grade de Tablets
-                </h3>
-                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  Verificar agendamentos do dia para conferência e entrega dos carrinhos aos professores.
-                </p>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
+                  <span>Ver Agendamentos</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
               </div>
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
-                <span>Ver Agendamentos</span>
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-              </div>
-            </div>
+            )}
           </div>
         )}
 
         {/* ========================================================================= */}
-        {/* D. PERFIL: ADMINISTRADOR MASTER                                           */}
+        {/* D. PERFIL: ADMINISTRADOR MASTER & ESCOLAR                                 */}
         {/* ========================================================================= */}
         {isAdmin && (
           <div className="space-y-4">
@@ -586,15 +682,15 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-200 border border-purple-400/30">
-                      Painel Master
+                      Painel Administrativo
                     </span>
-                    <span className="text-xs text-purple-300 font-semibold">• Configurações Globais</span>
+                    <span className="text-xs text-purple-300 font-semibold">• Configurações & Cadastros</span>
                   </div>
                   <h3 className="text-xl font-black text-white mt-1 group-hover:text-purple-200 transition-colors">
                     ⚙️ Gerenciador Central do Sistema
                   </h3>
                   <p className="text-xs text-purple-200/90 max-w-2xl mt-1 leading-relaxed">
-                    Cadastre e gerencie Turmas (com abas de Tablets e Grade de Horários), Alunos, Usuários & PINs de Acesso, Tipos de Ocorrências e Backup Firebase.
+                    Cadastre e gerencie Unidades Escolares, Turmas, Estudantes, Operadores & Senhas PIN, Ocorrências e Banco de Dados.
                   </p>
                 </div>
               </div>
@@ -604,107 +700,115 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
               </div>
             </div>
 
-            {/* Grid dos Módulos Principais */}
+            {/* Grid dos Módulos Principais Liberados */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {/* Diário & Portaria */}
-              <div
-                onClick={() => onNavigate('diario', 'hub')}
-                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="w-11 h-11 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-2xs">
-                      <UserCheck className="w-5 h-5" />
+              {(hasDiario || hasPortaria) && (
+                <div
+                  onClick={() => onNavigate('diario', 'hub')}
+                  className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="w-11 h-11 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-2xs">
+                        <UserCheck className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                        4 Sub-menus
+                      </span>
                     </div>
-                    <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
-                      4 Sub-menus
-                    </span>
+                    <h4 className="font-extrabold text-sm text-slate-900 mt-3 group-hover:text-indigo-600 transition-colors">
+                      Diário & Portaria
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1">Chamada, Portaria, Ausências do Professor e Turmas.</p>
                   </div>
-                  <h4 className="font-extrabold text-sm text-slate-900 mt-3 group-hover:text-indigo-600 transition-colors">
-                    Diário & Portaria
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-1">Chamada, Portaria, Ausências do Professor e Turmas.</p>
+                  <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-600">
+                    <span>Acessar Sub-menus</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </div>
                 </div>
-                <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-600">
-                  <span>Acessar Sub-menus</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </div>
-              </div>
+              )}
 
               {/* Busca Ativa & Ocorrências */}
-              <div
-                onClick={() => onNavigate('busca_ativa', undefined, 'hub')}
-                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-all shadow-2xs">
-                      <AlertOctagon className="w-5 h-5" />
+              {(hasBuscaAtiva || hasOcorrencias) && (
+                <div
+                  onClick={() => onNavigate('busca_ativa', undefined, 'hub')}
+                  className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center group-hover:bg-amber-600 group-hover:text-white transition-all shadow-2xs">
+                        <AlertOctagon className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                        3 Sub-menus
+                      </span>
                     </div>
-                    <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                      3 Sub-menus
-                    </span>
+                    <h4 className="font-extrabold text-sm text-slate-900 mt-3 group-hover:text-amber-600 transition-colors">
+                      Busca Ativa & Ocorrências
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1">Ocorrências, Notificações WhatsApp e Casos com IA.</p>
                   </div>
-                  <h4 className="font-extrabold text-sm text-slate-900 mt-3 group-hover:text-amber-600 transition-colors">
-                    Busca Ativa & Ocorrências
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-1">Ocorrências, Notificações WhatsApp e Casos com IA.</p>
+                  <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
+                    <span>Acessar Sub-menus</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </div>
                 </div>
-                <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
-                  <span>Acessar Sub-menus</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </div>
-              </div>
+              )}
 
               {/* Agendamento de Tablets */}
-              <div
-                onClick={() => onNavigate('tablets')}
-                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-sky-400 transition-all cursor-pointer flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="w-11 h-11 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 flex items-center justify-center group-hover:bg-sky-600 group-hover:text-white transition-all shadow-2xs">
-                      <Tablet className="w-5 h-5" />
+              {hasTablets && (
+                <div
+                  onClick={() => onNavigate('tablets')}
+                  className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-sky-400 transition-all cursor-pointer flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="w-11 h-11 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 flex items-center justify-center group-hover:bg-sky-600 group-hover:text-white transition-all shadow-2xs">
+                        <Tablet className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-200">
+                        Tablets
+                      </span>
                     </div>
-                    <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-200">
-                      Tablets
-                    </span>
+                    <h4 className="font-extrabold text-sm text-slate-900 mt-3 group-hover:text-sky-600 transition-colors">
+                      Agendamento de Tablets
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1">Grade semanal de carrinhos e kits de tecnologia.</p>
                   </div>
-                  <h4 className="font-extrabold text-sm text-slate-900 mt-3 group-hover:text-sky-600 transition-colors">
-                    Agendamento de Tablets
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-1">Grade semanal de carrinhos e kits de tecnologia.</p>
+                  <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
+                    <span>Ver Grade</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </div>
                 </div>
-                <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
-                  <span>Ver Grade</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </div>
-              </div>
+              )}
 
               {/* Relatórios SEDUC */}
-              <div
-                onClick={() => onNavigate('relatorios')}
-                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-2xs">
-                      <Sparkles className="w-5 h-5" />
+              {hasRelatorios && (
+                <div
+                  onClick={() => onNavigate('relatorios')}
+                  className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-2xs">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                        SEDUC
+                      </span>
                     </div>
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                      SEDUC
-                    </span>
+                    <h4 className="font-extrabold text-sm text-slate-900 mt-3 group-hover:text-emerald-600 transition-colors">
+                      Relatórios Pedagógicos
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1">Demonstrativos de assiduidade e contingência.</p>
                   </div>
-                  <h4 className="font-extrabold text-sm text-slate-900 mt-3 group-hover:text-emerald-600 transition-colors">
-                    Relatórios Pedagógicos
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-1">Demonstrativos de assiduidade e contingência.</p>
+                  <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
+                    <span>Abrir Relatórios</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </div>
                 </div>
-                <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
-                  <span>Abrir Relatórios</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </div>
-              </div>
+              )}
             </div>
           </div>
         )}

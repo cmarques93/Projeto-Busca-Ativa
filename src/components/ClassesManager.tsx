@@ -49,7 +49,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   onOpenStudentRegistration,
   onOpenResetAllModal,
 }) => {
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'admin_escola' || currentUser.role === 'super_admin';
   const isGestao = currentUser.role === 'gestao_paac';
   const isProfessor = currentUser.role === 'professor';
   const isAOE = currentUser.role === 'aoe';
@@ -151,12 +151,13 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     if (!studentToDelete) return;
     try {
       // Backend deletion
-      const res = await fetch(`/api/students/${encodeURIComponent(studentToDelete.id)}`, {
+      await fetch(`/api/students/${encodeURIComponent(studentToDelete.id)}`, {
         method: 'DELETE',
       }).catch(() => null);
 
-      // Local storage deletion with complete cascade
+      // Local storage deletion with complete cascade + Firestore deletion
       storageService.deleteStudent(studentToDelete.id);
+      await firestoreService.deleteStudent(studentToDelete.id);
 
       showToast(`Estudante ${studentToDelete.name} e todos os seus registros de faltas/alertas foram removidos.`);
       setStudentToDelete(null);
@@ -171,12 +172,13 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     if (!classToDelete) return;
     try {
       // Backend deletion
-      const res = await fetch(`/api/classes/${encodeURIComponent(classToDelete.id)}`, {
+      await fetch(`/api/classes/${encodeURIComponent(classToDelete.id)}`, {
         method: 'DELETE',
       }).catch(() => null);
 
-      // Local storage deletion with cascade
+      // Local storage deletion with cascade + Firestore deletion
       storageService.deleteClass(classToDelete.id);
+      await firestoreService.deleteClass(classToDelete.id);
 
       showToast(`Turma ${classToDelete.name} e seus estudantes foram removidos com sucesso.`);
       setClassToDelete(null);
@@ -193,14 +195,15 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
 
     try {
       // Update in backend
-      const res = await fetch(`/api/students/${encodeURIComponent(editingStudent.id)}`, {
+      await fetch(`/api/students/${encodeURIComponent(editingStudent.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editingStudent),
       }).catch(() => null);
 
-      // Update in storageService
+      // Update in storageService + Firestore
       storageService.updateStudent(editingStudent.id, editingStudent);
+      await firestoreService.saveStudent(editingStudent);
 
       showToast(`Dados de ${editingStudent.name} atualizados com sucesso.`);
       setEditingStudent(null);
@@ -239,6 +242,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       }).catch(() => null);
 
       storageService.createClass(newCls);
+      await firestoreService.saveClass(newCls);
 
       showToast(`Turma ${newCls.name} criada com sucesso!`);
       setIsNewClassModalOpen(false);
@@ -263,6 +267,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       }).catch(() => null);
 
       storageService.updateClass(editingClass.id, editingClass);
+      await firestoreService.saveClass(editingClass);
 
       showToast(`Turma ${editingClass.name} atualizada com sucesso.`);
       setEditingClass(null);
@@ -317,7 +322,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
             </div>
             <p className="text-xs text-slate-500 font-medium mt-0.5">
               {isAdmin && 'Controle Pleno (Master): Cadastre e gerencie turmas, estudantes e parâmetros cadastrais.'}
-              {isGestao && 'Gestão Escolar / PAAC: Cadastre novas turmas e estudantes, atualizando contatos e responsáveis.'}
+              {isGestao && 'Gestão Escolar / PAAC: Cadastre novas turmas, matricule ou exclua estudantes e atualize contatos.'}
               {isProfessor && 'Modo Consulta Docente: Acompanhe a lista de estudantes, RA e assiduidade acumulada.'}
               {isAOE && 'Modo Secretaria & Portaria: Localize estudantes para controle de portaria e conferência cadastral.'}
             </p>
@@ -456,8 +461,8 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                           </div>
                         </div>
 
-                        {/* Master Actions for Class */}
-                        {isAdmin && (
+                        {/* Actions for Class (Admin & Gestão) */}
+                        {(isAdmin || isGestao) && (
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => setEditingClass(cls)}
@@ -794,12 +799,12 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                                 </button>
                               )}
 
-                              {/* Delete student (Master Only) */}
-                              {isAdmin && (
+                              {/* Delete student (Admin & Gestão) */}
+                              {(isAdmin || isGestao) && (
                                 <button
                                   onClick={() => setStudentToDelete(student)}
-                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
-                                  title="Excluir estudante e purgar dados"
+                                  className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                                  title="Excluir estudante do sistema"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>

@@ -11,6 +11,7 @@ import {
 import { db, auth } from './firebase';
 import firebaseConfig from '../../firebase-applet-config.json';
 import {
+  School,
   UserAccount,
   SchoolClass,
   Student,
@@ -19,6 +20,7 @@ import {
   InterventionCase,
   GateRecord
 } from '../types';
+import { DEFAULT_SCHOOL_ID, DEFAULT_SCHOOLS } from '../data/fallbackData';
 
 export enum OperationType {
   CREATE = 'create',
@@ -115,26 +117,87 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 }
 
 export const firestoreService = {
+  // === SCHOOLS (Unidades Escolares cadastradas no sistema SaaS) ===
+  async getSchools(): Promise<School[]> {
+    try {
+      const snap = await getDocs(collection(db, 'schools'));
+      const list: School[] = [];
+      snap.forEach(d => {
+        if (d.id !== 'emeb-cecilia-meireles') {
+          list.push({ id: d.id, ...d.data() } as School);
+        }
+      });
+      if (list.length === 0) {
+        // Inicializa com a escola padrão se ainda não gravado no Firestore
+        for (const s of DEFAULT_SCHOOLS) {
+          const cleanId = sanitizeDocId(s.id);
+          await setDoc(doc(db, 'schools', cleanId), s, { merge: true });
+        }
+        return DEFAULT_SCHOOLS;
+      }
+      return list.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    } catch (e) {
+      console.warn('Erro ao buscar escolas do Firestore:', e);
+      return DEFAULT_SCHOOLS;
+    }
+  },
+
+  async saveSchool(school: School): Promise<void> {
+    const cleanId = sanitizeDocId(school.id);
+    const path = `schools/${cleanId}`;
+    try {
+      const cleanData = sanitizeForFirestore({ ...school, id: cleanId });
+      await setDoc(doc(db, 'schools', cleanId), cleanData, { merge: true });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async deleteSchool(schoolId: string): Promise<void> {
+    const cleanId = sanitizeDocId(schoolId);
+    const path = `schools/${cleanId}`;
+    try {
+      await deleteDoc(doc(db, 'schools', cleanId));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, path);
+    }
+  },
+
   // === USERS ===
-  async getUsers(): Promise<UserAccount[]> {
+  async getUsers(schoolId?: string): Promise<UserAccount[]> {
     try {
       const snap = await getDocs(collection(db, 'users'));
       const list: UserAccount[] = [];
       snap.forEach(d => {
-        list.push({ id: d.id, ...d.data() } as UserAccount);
+        if (!d.id.includes('cecilia') && !d.id.includes('usr-cec') && d.id !== 'usr-admin-arlindo') {
+          list.push({ id: d.id, ...d.data() } as UserAccount);
+        }
       });
-      // Sort alphabetically by name
-      return list.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+      // Filtra por escola: preserva base de dados atual mapeando usuários sem escola para DEFAULT_SCHOOL_ID
+      // O perfil do Painel Master Global (super_admin / isUniversal) é separado e não aparece na lista de operadores da escola
+      const filtered = schoolId
+        ? list.filter(u =>
+            !u.isUniversal &&
+            u.role !== 'super_admin' &&
+            u.id !== 'usr-master' &&
+            (u.schoolId || DEFAULT_SCHOOL_ID) === schoolId
+          )
+        : list;
+      return filtered.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
     } catch (e) {
       console.warn('Erro ao buscar usuários do Firestore:', e);
       return [];
     }
   },
 
-  async saveUser(user: UserAccount): Promise<void> {
+  async saveUser(user: UserAccount, schoolId?: string): Promise<void> {
     const path = `users/${user.id}`;
     try {
-      await setDoc(doc(db, 'users', user.id), user, { merge: true });
+      const withSchool = {
+        ...user,
+        schoolId: user.schoolId || schoolId || undefined
+      };
+      await setDoc(doc(db, 'users', user.id), sanitizeForFirestore(withSchool), { merge: true });
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
     }
@@ -150,24 +213,31 @@ export const firestoreService = {
   },
 
   // === CLASSES ===
-  async getClasses(): Promise<SchoolClass[]> {
+  async getClasses(schoolId?: string): Promise<SchoolClass[]> {
     try {
       const snap = await getDocs(collection(db, 'classes'));
       const list: SchoolClass[] = [];
       snap.forEach(d => {
         list.push({ id: d.id, ...d.data() } as SchoolClass);
       });
-      return list.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+      const filtered = schoolId
+        ? list.filter(c => (c.schoolId || DEFAULT_SCHOOL_ID) === schoolId)
+        : list;
+      return filtered.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
     } catch (e) {
       console.warn('Erro ao buscar turmas do Firestore:', e);
       return [];
     }
   },
 
-  async saveClass(cls: SchoolClass): Promise<void> {
+  async saveClass(cls: SchoolClass, schoolId?: string): Promise<void> {
     const path = `classes/${cls.id}`;
     try {
-      await setDoc(doc(db, 'classes', cls.id), cls, { merge: true });
+      const withSchool = {
+        ...cls,
+        schoolId: cls.schoolId || schoolId || DEFAULT_SCHOOL_ID
+      };
+      await setDoc(doc(db, 'classes', cls.id), sanitizeForFirestore(withSchool), { merge: true });
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
     }
@@ -183,25 +253,32 @@ export const firestoreService = {
   },
 
   // === STUDENTS ===
-  async getStudents(): Promise<Student[]> {
+  async getStudents(schoolId?: string): Promise<Student[]> {
     try {
       const snap = await getDocs(collection(db, 'students'));
       const list: Student[] = [];
       snap.forEach(d => {
         list.push({ id: d.id, ...d.data() } as Student);
       });
-      return list.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+      const filtered = schoolId
+        ? list.filter(s => (s.schoolId || DEFAULT_SCHOOL_ID) === schoolId)
+        : list;
+      return filtered.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
     } catch (e) {
       console.warn('Erro ao buscar estudantes do Firestore:', e);
       return [];
     }
   },
 
-  async saveStudent(student: Student): Promise<void> {
+  async saveStudent(student: Student, schoolId?: string): Promise<void> {
     const cleanId = sanitizeDocId(student.id);
     const path = `students/${cleanId}`;
     try {
-      const cleanData = sanitizeForFirestore({ ...student, id: cleanId });
+      const cleanData = sanitizeForFirestore({
+        ...student,
+        id: cleanId,
+        schoolId: student.schoolId || schoolId || DEFAULT_SCHOOL_ID
+      });
       await setDoc(doc(db, 'students', cleanId), cleanData, { merge: true });
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
@@ -218,7 +295,7 @@ export const firestoreService = {
     }
   },
 
-  async batchSaveStudents(students: Student[]): Promise<void> {
+  async batchSaveStudents(students: Student[], schoolId?: string): Promise<void> {
     if (!students || students.length === 0) return;
     try {
       const chunkSize = 450;
@@ -227,7 +304,11 @@ export const firestoreService = {
         const batch = writeBatch(db);
         for (const s of chunk) {
           const cleanId = sanitizeDocId(s.id);
-          const cleanData = sanitizeForFirestore({ ...s, id: cleanId });
+          const cleanData = sanitizeForFirestore({
+            ...s,
+            id: cleanId,
+            schoolId: s.schoolId || schoolId || DEFAULT_SCHOOL_ID
+          });
           batch.set(doc(db, 'students', cleanId), cleanData, { merge: true });
         }
         await batch.commit();
@@ -238,7 +319,7 @@ export const firestoreService = {
   },
 
   // === ATTENDANCE RECORDS ===
-  async getAttendanceRecords(): Promise<AttendanceRecord[]> {
+  async getAttendanceRecords(date?: string, schoolId?: string): Promise<AttendanceRecord[]> {
     try {
       const snap = await getDocs(collection(db, 'attendance_records'));
       const list: AttendanceRecord[] = [];
@@ -250,14 +331,20 @@ export const firestoreService = {
           date: normalizeDateStr(raw.date) || raw.date,
         });
       });
-      return list;
+      let filtered = schoolId
+        ? list.filter(r => (r.schoolId || DEFAULT_SCHOOL_ID) === schoolId)
+        : list;
+      if (date) {
+        filtered = filtered.filter(r => isSameDay(r.date, date));
+      }
+      return filtered;
     } catch (e) {
       console.warn('Erro ao buscar chamadas do Firestore:', e);
       return [];
     }
   },
 
-  async batchSaveAttendance(records: AttendanceRecord[]): Promise<void> {
+  async batchSaveAttendance(records: AttendanceRecord[], schoolId?: string): Promise<void> {
     if (!records || records.length === 0) return;
     try {
       const chunkSize = 450;
@@ -270,6 +357,7 @@ export const firestoreService = {
             ...r,
             id: cleanId,
             date: normalizeDateStr(r.date) || r.date,
+            schoolId: r.schoolId || schoolId || DEFAULT_SCHOOL_ID
           });
           batch.set(doc(db, 'attendance_records', cleanId), cleanRecord, { merge: true });
         }
@@ -336,24 +424,31 @@ export const firestoreService = {
   },
 
   // === ALERTS ===
-  async getAlerts(): Promise<ParentAlert[]> {
+  async getAlerts(schoolId?: string): Promise<ParentAlert[]> {
     try {
       const snap = await getDocs(collection(db, 'alerts'));
       const list: ParentAlert[] = [];
       snap.forEach(d => {
         list.push({ id: d.id, ...d.data() } as ParentAlert);
       });
-      return list.sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
+      const filtered = schoolId
+        ? list.filter(a => (a.schoolId || DEFAULT_SCHOOL_ID) === schoolId)
+        : list;
+      return filtered.sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
     } catch (e) {
       console.warn('Erro ao buscar alertas do Firestore:', e);
       return [];
     }
   },
 
-  async saveAlert(alert: ParentAlert): Promise<void> {
+  async saveAlert(alert: ParentAlert, schoolId?: string): Promise<void> {
     const path = `alerts/${alert.id}`;
     try {
-      await setDoc(doc(db, 'alerts', alert.id), alert, { merge: true });
+      const withSchool = {
+        ...alert,
+        schoolId: alert.schoolId || schoolId || DEFAULT_SCHOOL_ID
+      };
+      await setDoc(doc(db, 'alerts', alert.id), sanitizeForFirestore(withSchool), { merge: true });
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
     }
@@ -369,48 +464,65 @@ export const firestoreService = {
   },
 
   // === INTERVENTIONS ===
-  async getInterventions(): Promise<InterventionCase[]> {
+  async getInterventions(schoolId?: string): Promise<InterventionCase[]> {
     try {
       const snap = await getDocs(collection(db, 'interventions'));
       const list: InterventionCase[] = [];
       snap.forEach(d => {
         list.push({ id: d.id, ...d.data() } as InterventionCase);
       });
-      return list;
+      const filtered = schoolId
+        ? list.filter(i => (i.schoolId || DEFAULT_SCHOOL_ID) === schoolId)
+        : list;
+      return filtered;
     } catch (e) {
       console.warn('Erro ao buscar intervenções do Firestore:', e);
       return [];
     }
   },
 
-  async saveIntervention(intervention: InterventionCase): Promise<void> {
+  async saveIntervention(intervention: InterventionCase, schoolId?: string): Promise<void> {
     const path = `interventions/${intervention.id}`;
     try {
-      await setDoc(doc(db, 'interventions', intervention.id), intervention, { merge: true });
+      const withSchool = {
+        ...intervention,
+        schoolId: intervention.schoolId || schoolId || DEFAULT_SCHOOL_ID
+      };
+      await setDoc(doc(db, 'interventions', intervention.id), sanitizeForFirestore(withSchool), { merge: true });
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
     }
   },
 
   // === GATE RECORDS ===
-  async getGateRecords(): Promise<GateRecord[]> {
+  async getGateRecords(date?: string, schoolId?: string): Promise<GateRecord[]> {
     try {
       const snap = await getDocs(collection(db, 'gate_records'));
       const list: GateRecord[] = [];
       snap.forEach(d => {
         list.push({ id: d.id, ...d.data() } as GateRecord);
       });
-      return list;
+      let filtered = schoolId
+        ? list.filter(g => (g.schoolId || DEFAULT_SCHOOL_ID) === schoolId)
+        : list;
+      if (date) {
+        filtered = filtered.filter(g => isSameDay(g.date, date));
+      }
+      return filtered.sort((a, b) => (b.time || '').localeCompare(a.time || ''));
     } catch (e) {
       console.warn('Erro ao buscar registros de portaria do Firestore:', e);
       return [];
     }
   },
 
-  async saveGateRecord(record: GateRecord): Promise<void> {
+  async saveGateRecord(record: GateRecord, schoolId?: string): Promise<void> {
     const path = `gate_records/${record.id}`;
     try {
-      await setDoc(doc(db, 'gate_records', record.id), record, { merge: true });
+      const withSchool = {
+        ...record,
+        schoolId: record.schoolId || schoolId || DEFAULT_SCHOOL_ID
+      };
+      await setDoc(doc(db, 'gate_records', record.id), sanitizeForFirestore(withSchool), { merge: true });
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
     }
@@ -425,53 +537,68 @@ export const firestoreService = {
     }
   },
 
-  // === OCORRÊNCIAS & MEDIAÇÃO (Nuvem compartilhada para Google Sites) ===
-  async getOcorrencias(): Promise<any | null> {
+  // === OCORRÊNCIAS & MEDIAÇÃO (Nuvem compartilhada e isolada por escola) ===
+  async getOcorrencias(schoolId?: string): Promise<any | null> {
+    const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `ocorrencias_${sanitizeDocId(schoolId)}` : 'ocorrencias';
     try {
-      const snap = await getDoc(doc(db, 'system_data', 'ocorrencias'));
+      const snap = await getDoc(doc(db, 'system_data', docId));
       if (snap.exists()) {
         return snap.data();
       }
-      return null;
-    } catch (e) {
-      console.warn('Erro ao carregar ocorrências do Firestore:', e);
-      return null;
-    }
-  },
-
-  async saveOcorrencias(data: any): Promise<void> {
-    try {
-      await setDoc(doc(db, 'system_data', 'ocorrencias'), {
-        ...data,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
-    } catch (e) {
-      console.warn('Erro ao salvar ocorrências no Firestore:', e);
-    }
-  },
-
-  // === TABLETS & AGENDAMENTOS (Nuvem compartilhada para Google Sites) ===
-  async getTablets(): Promise<any | null> {
-    try {
-      const snap = await getDoc(doc(db, 'system_data', 'tablets'));
-      if (snap.exists()) {
-        return snap.data();
+      // Se não existir na escola específica e for a escola padrão, tenta ler a global legada
+      if (schoolId === DEFAULT_SCHOOL_ID) {
+        const legacySnap = await getDoc(doc(db, 'system_data', 'ocorrencias'));
+        if (legacySnap.exists()) return legacySnap.data();
       }
       return null;
     } catch (e) {
-      console.warn('Erro ao carregar tablets do Firestore:', e);
+      console.warn(`Erro ao carregar ocorrências (${docId}) do Firestore:`, e);
       return null;
     }
   },
 
-  async saveTablets(data: any): Promise<void> {
+  async saveOcorrencias(data: any, schoolId?: string): Promise<void> {
+    const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `ocorrencias_${sanitizeDocId(schoolId)}` : 'ocorrencias';
     try {
-      await setDoc(doc(db, 'system_data', 'tablets'), {
+      await setDoc(doc(db, 'system_data', docId), {
         ...data,
+        schoolId: schoolId || DEFAULT_SCHOOL_ID,
         updatedAt: new Date().toISOString()
       }, { merge: true });
     } catch (e) {
-      console.warn('Erro ao salvar tablets no Firestore:', e);
+      console.warn(`Erro ao salvar ocorrências (${docId}) no Firestore:`, e);
+    }
+  },
+
+  // === TABLETS & AGENDAMENTOS (Nuvem compartilhada e isolada por escola) ===
+  async getTablets(schoolId?: string): Promise<any | null> {
+    const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `tablets_${sanitizeDocId(schoolId)}` : 'tablets';
+    try {
+      const snap = await getDoc(doc(db, 'system_data', docId));
+      if (snap.exists()) {
+        return snap.data();
+      }
+      if (schoolId === DEFAULT_SCHOOL_ID) {
+        const legacySnap = await getDoc(doc(db, 'system_data', 'tablets'));
+        if (legacySnap.exists()) return legacySnap.data();
+      }
+      return null;
+    } catch (e) {
+      console.warn(`Erro ao carregar tablets (${docId}) do Firestore:`, e);
+      return null;
+    }
+  },
+
+  async saveTablets(data: any, schoolId?: string): Promise<void> {
+    const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `tablets_${sanitizeDocId(schoolId)}` : 'tablets';
+    try {
+      await setDoc(doc(db, 'system_data', docId), {
+        ...data,
+        schoolId: schoolId || DEFAULT_SCHOOL_ID,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (e) {
+      console.warn(`Erro ao salvar tablets (${docId}) no Firestore:`, e);
     }
   },
 
@@ -479,7 +606,6 @@ export const firestoreService = {
   async testConnection(): Promise<{ success: boolean; latencyMs: number; error?: string; databaseId: string }> {
     const start = performance.now();
     try {
-      // getDocFromServer garante teste direto contra o servidor do Google Firestore (sem ler apenas cache local)
       await getDocFromServer(doc(db, 'system_data', 'ocorrencias'));
       const latencyMs = Math.round(performance.now() - start);
       return {
@@ -499,9 +625,10 @@ export const firestoreService = {
     }
   },
 
-  // === CARREGAMENTO TOTAL DIRETO DO FIREBASE (Ao efetuar Login ou Inicializar) ===
-  async getAllDataDirectly(): Promise<{
+  // === CARREGAMENTO TOTAL DIRETO DO FIREBASE (Ao efetuar Login, Inicializar ou Alternar Escola) ===
+  async getAllDataDirectly(schoolId?: string): Promise<{
     success: boolean;
+    schools: School[];
     classes: SchoolClass[];
     students: Student[];
     users: UserAccount[];
@@ -515,8 +642,10 @@ export const firestoreService = {
     source: 'firebase_direct';
   }> {
     const start = performance.now();
+    const targetSchoolId = schoolId || DEFAULT_SCHOOL_ID;
     try {
       const [
+        schools,
         classes,
         students,
         users,
@@ -527,20 +656,22 @@ export const firestoreService = {
         ocorrencias,
         tablets
       ] = await Promise.all([
-        firestoreService.getClasses(),
-        firestoreService.getStudents(),
+        firestoreService.getSchools(),
+        firestoreService.getClasses(targetSchoolId),
+        firestoreService.getStudents(targetSchoolId),
         firestoreService.getUsers(),
-        firestoreService.getAlerts(),
-        firestoreService.getAttendanceRecords(),
-        firestoreService.getInterventions(),
-        firestoreService.getGateRecords(),
-        firestoreService.getOcorrencias(),
-        firestoreService.getTablets()
+        firestoreService.getAlerts(targetSchoolId),
+        firestoreService.getAttendanceRecords(undefined, targetSchoolId),
+        firestoreService.getInterventions(targetSchoolId),
+        firestoreService.getGateRecords(undefined, targetSchoolId),
+        firestoreService.getOcorrencias(targetSchoolId),
+        firestoreService.getTablets(targetSchoolId)
       ]);
 
       const latencyMs = Math.round(performance.now() - start);
       return {
         success: true,
+        schools,
         classes,
         students,
         users,
@@ -558,6 +689,7 @@ export const firestoreService = {
       const latencyMs = Math.round(performance.now() - start);
       return {
         success: false,
+        schools: DEFAULT_SCHOOLS,
         classes: [],
         students: [],
         users: [],

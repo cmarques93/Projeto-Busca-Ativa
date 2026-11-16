@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Send, Smartphone, MessageSquare, Phone, AlertTriangle, Sparkles } from 'lucide-react';
 import { Student, AlertChannel, AlertTrigger } from '../types';
 import { getStudentPhones } from '../utils/phoneUtils';
+import { storageService } from '../data/storageService';
 
 interface NewAlertModalProps {
   isOpen: boolean;
@@ -43,38 +44,39 @@ export const NewAlertModal: React.FC<NewAlertModalProps> = ({
   // Generate template message based on trigger and student
   useEffect(() => {
     if (!activeStudent) return;
+    const schoolName = storageService.getActiveSchool()?.name || 'Unidade Escolar';
 
     if (triggerType === '1_falta') {
       setMessage(
-        `Aviso de Ausência - EE Prof. Arlindo Silvestre: Prezado(a) ${activeStudent.guardianName}, informamos que o(a) estudante ${activeStudent.name} (${activeStudent.className}) faltou às aulas hoje. De acordo com as diretrizes de acompanhamento preventivo da Busca Ativa (Resolução SEDUC nº 39/2023), solicitamos que a família comunique à secretaria o motivo da ausência para que possamos prestar o apoio necessário.`
+        `Aviso de Ausência - ${schoolName}: Prezado(a) ${activeStudent.guardianName}, informamos que o(a) estudante ${activeStudent.name} (${activeStudent.className}) faltou às aulas hoje. De acordo com as diretrizes de acompanhamento preventivo da Busca Ativa (Resolução SEDUC nº 39/2023), solicitamos que a família comunique à secretaria o motivo da ausência para que possamos prestar o apoio necessário.`
       );
     } else if (triggerType === '2_faltas_consecutivas') {
       setMessage(
-        `Acompanhamento Preventivo - EE Prof. Arlindo Silvestre: Prezado(a) ${activeStudent.guardianName}, o(a) estudante ${activeStudent.name} (${activeStudent.className}) registrou sua 2ª falta consecutiva hoje. Conforme a Resolução SEDUC nº 39/2023 (marco preventivo de 10% de faltas), a escola orienta sobre a importância da assiduidade e solicita a colaboração dos responsáveis para restabelecer a frequência regular.`
+        `Acompanhamento Preventivo - ${schoolName}: Prezado(a) ${activeStudent.guardianName}, o(a) estudante ${activeStudent.name} (${activeStudent.className}) registrou sua 2ª falta consecutiva hoje. Conforme a Resolução SEDUC nº 39/2023 (marco preventivo de 10% de faltas), a escola orienta sobre a importância da assiduidade e solicita a colaboração dos responsáveis para restabelecer a frequência regular.`
       );
     } else if (triggerType === '3_faltas_consecutivas') {
       setMessage(
-        `NOTIFICAÇÃO FORMAL DE INFREQUÊNCIA - EE Prof. Arlindo Silvestre: Prezado(a) ${activeStudent.guardianName}, comunicamos formalmente, com base na Resolução SEDUC nº 39/2023 e na Lei Estadual nº 13.068/2008, que o(a) estudante ${activeStudent.name} (${activeStudent.className}) atingiu o marco de infrequência com sua 3ª falta consecutiva. Solicitamos comparecimento urgente da família à coordenação pedagógica para alinhamento e justificativa legal da ausência.`
+        `NOTIFICAÇÃO FORMAL DE INFREQUÊNCIA - ${schoolName}: Prezado(a) ${activeStudent.guardianName}, comunicamos formalmente, com base na Resolução SEDUC nº 39/2023 e na Lei Estadual nº 13.068/2008, que o(a) estudante ${activeStudent.name} (${activeStudent.className}) atingiu o marco de infrequência com sua 3ª falta consecutiva. Solicitamos comparecimento urgente da família à coordenação pedagógica para alinhamento e justificativa legal da ausência.`
       );
     } else if (triggerType === 'mais_de_3_conselho_tutelar') {
       setMessage(
-        `NOTIFICAÇÃO DE ACIONAMENTO DA REDE PROTETIVA - EE Prof. Arlindo Silvestre: Prezado(a) ${activeStudent.guardianName}, o(a) estudante ${activeStudent.name} (${activeStudent.className}) acumula ${activeStudent.consecutiveAbsences} faltas consecutivas injustificadas. Conforme determina o Artigo 56 do Estatuto da Criança e do Adolescente (ECA - Lei Federal nº 8.069/1990) e a Resolução SEDUC nº 39/2023, esgotados os recursos internos da unidade escolar, a direção formalizará o encaminhamento ao Conselho Tutelar e ao programa CONVIVA SP. Solicitamos comparecimento imediato da família na escola para assegurar o direito à educação do estudante.`
+        `NOTIFICAÇÃO DE ACIONAMENTO DA REDE PROTETIVA - ${schoolName}: Prezado(a) ${activeStudent.guardianName}, o(a) estudante ${activeStudent.name} (${activeStudent.className}) acumula ${activeStudent.consecutiveAbsences} faltas consecutivas injustificadas. Conforme determina o Artigo 56 do Estatuto da Criança e do Adolescente (ECA - Lei Federal nº 8.069/1990) e a Resolução SEDUC nº 39/2023, esgotados os recursos internos da unidade escolar, a direção formalizará o encaminhamento ao Conselho Tutelar e ao programa CONVIVA SP. Solicitamos comparecimento imediato da família na escola para assegurar o direito à educação do estudante.`
       );
     } else if (triggerType === 'dias_alternados_baixa_frequencia') {
       setMessage(
-        `Acompanhamento de Infrequência Alternada - EE Prof. Arlindo Silvestre: Prezado(a) ${activeStudent.guardianName}, identificamos um padrão de faltas intermitentes do(a) estudante ${activeStudent.name} (${activeStudent.className}), resultando em taxa de frequência acumulada de ${activeStudent.attendanceRate}%. Nos termos da Resolução SEDUC nº 39/2023, solicitamos reunião com a orientação pedagógica para sanar as dificuldades de comparecimento.`
+        `Acompanhamento de Infrequência Alternada - ${schoolName}: Prezado(a) ${activeStudent.guardianName}, identificamos um padrão de faltas intermitentes do(a) estudante ${activeStudent.name} (${activeStudent.className}), resultando em taxa de frequência acumulada de ${activeStudent.attendanceRate}%. Nos termos da Resolução SEDUC nº 39/2023, solicitamos reunião com a orientação pedagógica para sanar as dificuldades de comparecimento.`
       );
     } else if (triggerType === 'frequencia_abaixo_75') {
       setMessage(
-        `COMUNICADO DE RISCO CRÍTICO DE REPROVAÇÃO - EE Prof. Arlindo Silvestre: Prezado(a) ${activeStudent.guardianName}, a frequência acumulada de ${activeStudent.name} atingiu ${activeStudent.attendanceRate}%, abaixo do limite legal obrigatório de 75% previsto na LDB e Resolução SEDUC nº 39/2023. Convocamos a família com urgência para pactuação de plano pedagógico de reposição antes da formalização junto aos órgãos da rede protetiva (Conselho Tutelar / CONVIVA SP).`
+        `COMUNICADO DE RISCO CRÍTICO DE REPROVAÇÃO - ${schoolName}: Prezado(a) ${activeStudent.guardianName}, a frequência acumulada de ${activeStudent.name} atingiu ${activeStudent.attendanceRate}%, abaixo do limite legal obrigatório de 75% previsto na LDB e Resolução SEDUC nº 39/2023. Convocamos a família com urgência para pactuação de plano pedagógico de reposição antes da formalização junto aos órgãos da rede protetiva (Conselho Tutelar / CONVIVA SP).`
       );
     } else if (triggerType === '5_faltas_mes') {
       setMessage(
-        `Aviso de Frequência Mensal - EE Prof. Arlindo Silvestre: Prezado(a) ${activeStudent.guardianName}, o(a) estudante ${activeStudent.name} acumulou 5 faltas no período letivo recente. Com fundamento na Resolução SEDUC nº 39/2023, pedimos retorno da família para que a escola possa ofertar o devido acolhimento e suporte pedagógico.`
+        `Aviso de Frequência Mensal - ${schoolName}: Prezado(a) ${activeStudent.guardianName}, o(a) estudante ${activeStudent.name} acumulou 5 faltas no período letivo recente. Com fundamento na Resolução SEDUC nº 39/2023, pedimos retorno da família para que a escola possa ofertar o devido acolhimento e suporte pedagógico.`
       );
     } else {
       setMessage(
-        `Olá ${activeStudent.guardianName}, aqui é da equipe de mediação e coordenação da EE Prof. Arlindo Silvestre. Com base nas ações de Busca Ativa da Resolução SEDUC nº 39/2023, gostaríamos de dialogar sobre a frequência e o acolhimento de ${activeStudent.name}. Solicitamos que responda a esta mensagem para definirmos o apoio escolar.`
+        `Olá ${activeStudent.guardianName}, aqui é da equipe de mediação e coordenação da ${schoolName}. Com base nas ações de Busca Ativa da Resolução SEDUC nº 39/2023, gostaríamos de dialogar sobre a frequência e o acolhimento de ${activeStudent.name}. Solicitamos que responda a esta mensagem para definirmos o apoio escolar.`
       );
     }
   }, [activeStudent, triggerType]);

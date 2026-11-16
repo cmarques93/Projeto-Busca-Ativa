@@ -26,7 +26,7 @@ import {
   CheckCircle2,
   Phone
 } from 'lucide-react';
-import { SeducContingencyReport, SchoolClass, Student, GateRecord } from '../types';
+import { SeducContingencyReport, SchoolClass, Student, GateRecord, School as SchoolType } from '../types';
 import { storageService } from '../data/storageService';
 import { lerCacheOcorrencias } from '../lib/sheetsSyncService';
 import { formatDateBR, getLocalTodayStr } from '../utils/reportCalculator';
@@ -36,6 +36,7 @@ interface SeducContingencyReportModalProps {
   onClose: () => void;
   classes: SchoolClass[];
   students?: Student[];
+  currentSchool?: SchoolType;
   currentUser?: { id?: string; name?: string; role: string } | null;
 }
 
@@ -44,6 +45,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
   onClose,
   classes,
   students: propStudents,
+  currentSchool,
   currentUser,
 }) => {
   const isProfessor = currentUser?.role === 'professor';
@@ -182,8 +184,9 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
 
   const handleCopyToWhatsApp = () => {
     if (viewMode === 'individual' && currentStudent && studentData) {
+      const activeSchool = currentSchool || storageService.getActiveSchool();
       let text = `📋 *SIGAESCOLA - RELATÓRIO OFICIAL DE ACOMPANHAMENTO DO ESTUDANTE*\n`;
-      text += `🏫 *Unidade Escolar:* ${reportData?.schoolName || 'EE Professor Arlindo Silvestre'}\n`;
+      text += `🏫 *Unidade Escolar:* ${activeSchool?.name || reportData?.schoolName || 'Unidade Escolar'}\n`;
       text += `👤 *Estudante:* ${currentStudent.name} (RA: ${currentStudent.ra || 'S/N'})\n`;
       text += `📚 *Turma:* ${currentStudent.className || currentStudent.classId} | *Emissão:* ${formatDateBR(todayStr)}\n\n`;
 
@@ -326,7 +329,9 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
     document.body.removeChild(link);
   };
 
-  const schoolNameDisplay = reportData?.schoolName || 'EE Professor Arlindo Silvestre';
+  const activeSchool = currentSchool || storageService.getActiveSchool();
+  const schoolNameDisplay = activeSchool?.name || reportData?.schoolName || 'Unidade Escolar';
+  const schoolSubtitleDisplay = `${activeSchool?.network || 'Secretaria da Educação'}${activeSchool?.city ? ` • ${activeSchool.city}` : ''}${activeSchool?.codeCie ? ` • CIE: ${activeSchool.codeCie}` : ''} • Ano Letivo 2026`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
@@ -529,7 +534,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
                       {schoolNameDisplay}
                     </h1>
                     <p className="text-xs text-slate-600 font-medium">
-                      Secretaria da Educação • Diretoria Regional de Ensino • Ano Letivo 2026
+                      {schoolSubtitleDisplay}
                     </p>
                   </div>
                 </div>

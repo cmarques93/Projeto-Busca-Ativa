@@ -7,9 +7,10 @@ import {
   LogOut,
   ArrowLeft,
   Home,
-  CheckCircle2
+  Building2,
+  Shield
 } from 'lucide-react';
-import { UserSession } from '../types';
+import { UserSession, School as SchoolType, isModuleEnabled } from '../types';
 
 export type MainTabType =
   | 'classes'
@@ -35,10 +36,13 @@ export type MainModuleType =
 interface HeaderProps {
   schoolName: string;
   currentUser: UserSession;
+  currentSchool?: SchoolType;
   activeModule?: MainModuleType;
   onOpenLoginModal: () => void;
   onLogout?: () => void;
   onOpenSeducReport?: () => void;
+  onOpenSchoolSelector?: () => void;
+  onOpenMasterPanel?: () => void;
   onSyncData: () => void;
   isSyncing: boolean;
   syncMessage?: string | null;
@@ -51,10 +55,13 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   schoolName,
   currentUser,
+  currentSchool,
   activeModule = 'inicio',
   onOpenLoginModal,
   onLogout,
   onOpenSeducReport,
+  onOpenSchoolSelector,
+  onOpenMasterPanel,
   onSyncData,
   isSyncing,
   syncMessage,
@@ -63,7 +70,8 @@ export const Header: React.FC<HeaderProps> = ({
   canGoBack = true,
   breadcrumb,
 }) => {
-  const isAdmin = currentUser.role === 'admin';
+  const isUniversalMaster = currentUser.role === 'super_admin' || currentUser.isUniversal === true;
+  const isAdmin = currentUser.role === 'admin' || currentUser.role === 'admin_escola' || isUniversalMaster;
   const isGestao = currentUser.role === 'gestao_paac';
   const isAOE = currentUser.role === 'aoe';
 
@@ -86,6 +94,17 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Informações do Usuário Ativo e Ações de Sessão */}
         <div className="flex items-center gap-2.5">
+          {isUniversalMaster && onOpenMasterPanel && (
+            <button
+              onClick={onOpenMasterPanel}
+              className="flex items-center gap-1 text-[11px] bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 py-0.5 rounded font-bold cursor-pointer transition-colors shadow-2xs"
+              title="Abrir Painel Master Global (Gerenciar Escolas e Módulos)"
+            >
+              <Shield className="w-3 h-3" />
+              <span>Central Master</span>
+            </button>
+          )}
+
           <div className="flex items-center gap-1.5">
             <span className="text-slate-400 text-[11px] hidden md:inline">Operador:</span>
             <span className="text-[11px] font-bold text-white bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
@@ -93,7 +112,9 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
             <span
               className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${
-                isAdmin
+                isUniversalMaster
+                  ? 'bg-amber-900/90 text-amber-200 border-amber-400/60'
+                  : isAdmin
                   ? 'bg-purple-900/90 text-purple-200 border-purple-400/60'
                   : isGestao
                   ? 'bg-indigo-900/80 text-indigo-200 border-indigo-500/50'
@@ -128,14 +149,14 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* 2. Barra Principal: Identificação da Escola + Ações Funcionais (Sem poluição de métricas duplicadas) */}
+      {/* 2. Barra Principal: Identificação da Escola + Ações Funcionais */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
             <School className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-base sm:text-lg font-black text-indigo-700 leading-tight">
                 SigaEscola
               </span>
@@ -143,6 +164,17 @@ export const Header: React.FC<HeaderProps> = ({
               <h1 className="text-sm sm:text-base font-bold text-slate-900 leading-tight">
                 {schoolName || 'EE Professor Arlindo Silvestre'}
               </h1>
+              {/* Seletor rápido de escola visível para o Painel Master em modo de auxílio */}
+              {isUniversalMaster && onOpenSchoolSelector && (
+                <button
+                  onClick={onOpenSchoolSelector}
+                  className="flex items-center gap-1 text-[10px] font-extrabold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 px-2.5 py-0.5 rounded-lg cursor-pointer transition-colors shadow-2xs"
+                  title="Alternar para outra unidade escolar cadastrada (Modo Auxílio Master)"
+                >
+                  <Building2 className="w-3 h-3 text-indigo-600" />
+                  <span>Auxiliando Unidade • Trocar Escola</span>
+                </button>
+              )}
               <span className="bg-indigo-50 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded-md border border-indigo-200/60">
                 2026
               </span>
@@ -153,10 +185,10 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Ações Funcionais Permitidas no Topo: Relatório SEDUC e Sincronizar Único */}
+        {/* Ações Funcionais Permitidas no Topo: Relatório de Acompanhamento e Sincronizar Único */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
           {/* Relatório Oficial de Acompanhamento (Gestão / Admin) */}
-          {(isGestao || isAdmin) && onOpenSeducReport && (
+          {(isGestao || isAdmin) && onOpenSeducReport && isModuleEnabled(currentSchool, 'relatorios') && (
             <button
               onClick={onOpenSeducReport}
               className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
@@ -204,10 +236,10 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 onClick={onGoHome}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs cursor-pointer transition-colors shadow-2xs"
-                title="Ir para a Tela Inicial"
+                title="Ir para a Tela Inicial da Unidade Escolar"
               >
                 <Home className="w-3.5 h-3.5" />
-                <span>Tela de Início</span>
+                <span>{isUniversalMaster ? 'Ver Painel da Escola' : 'Tela de Início'}</span>
               </button>
             )}
 

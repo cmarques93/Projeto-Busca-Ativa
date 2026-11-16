@@ -156,7 +156,8 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
       console.warn('API backend indisponível, salvando estudante localmente:', err);
     }
 
-    storageService.createStudent(createdStudent || newStudentData);
+    const savedStudent = storageService.createStudent(createdStudent || newStudentData);
+    await firestoreService.saveStudent(savedStudent);
     await onStudentRegistered();
     setSuccessMessage(`Estudante "${cleanName}" cadastrado(a) com sucesso no banco de dados!`);
     setName('');
@@ -342,6 +343,7 @@ Juliana Cristina Vieira;2024-7755;19 95432-1098`;
     }
 
     storageService.createClass(classData);
+    await firestoreService.saveClass(classData);
     setClassList(prev => [...prev.filter(c => c.id.toLowerCase() !== cleanId.toLowerCase()), classData]);
     await onStudentRegistered();
     setSuccessMessage(`Turma "${cleanName}" (${cleanId}) salva com sucesso no banco de dados!`);
@@ -372,6 +374,7 @@ Juliana Cristina Vieira;2024-7755;19 95432-1098`;
     }
 
     storageService.deleteClass(clsId);
+    await firestoreService.deleteClass(clsId);
     setClassList(prev => prev.filter(c => c.id.toLowerCase() !== clsId.toLowerCase()));
 
     // Adjust selected class if it was the deleted one

@@ -1433,9 +1433,10 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     const responsavelNome = stObj?.guardianName || 'Responsável Legal';
     const parentesco = stObj?.guardianRelationship || 'Família';
     const dataFmt = formatarDataBR(reg.data);
+    const activeSchoolName = storageService.getActiveSchool()?.name || 'Unidade Escolar';
 
     let msg = `Olá, ${responsavelNome} (${parentesco}).\n`;
-    msg += `Aqui é da Gestão Escolar da *EE Professor Arlindo Silvestre*.\n\n`;
+    msg += `Aqui é da Gestão Escolar da *${activeSchoolName}*.\n\n`;
     msg += `Informamos que no dia *${dataFmt}* (${reg.aula}), foi registrado um comunicado escolar referente ao(à) estudante *${reg.estudante}* (${reg.turma}):\n\n`;
     msg += `📌 *Ocorrência:* ${reg.ocorrencia}\n`;
     msg += `👤 *Professor(a) responsável:* ${reg.professor}\n`;

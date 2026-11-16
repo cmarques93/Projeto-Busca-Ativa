@@ -23,6 +23,7 @@ import { OcorrenciasManager } from './components/OcorrenciasManager';
 import { TabletsManager } from './components/TabletsManager';
 import { FirebaseStatusModal } from './components/FirebaseStatusModal';
 import { DashboardHome } from './components/DashboardHome';
+import { SchoolSelectorModal } from './components/SchoolSelectorModal';
 import {
   RotateCcw,
   ShieldCheck,
@@ -58,7 +59,8 @@ import {
   AlertTrigger,
   InterventionStage,
   UserRole,
-  UserSession
+  UserSession,
+  School as SchoolType
 } from './types';
 
 export default function App() {
@@ -83,14 +85,22 @@ export default function App() {
     details?: string;
   } | null>(null);
 
+  // Escolas cadastradas e escola ativa (Multi-Tenant SaaS)
+  const [schools, setSchools] = useState<SchoolType[]>(() => storageService.getSchools());
+  const [currentSchool, setCurrentSchool] = useState<SchoolType>(() => storageService.getActiveSchool());
+  const [isSchoolSelectorOpen, setIsSchoolSelectorOpen] = useState(false);
+
   // Core data states
-  const [schoolInfo, setSchoolInfo] = useState({
-    schoolName: 'EE Professor Arlindo Silvestre',
-    lastUpdated: new Date().toISOString(),
-    totalStudents: 0,
-    totalClasses: 0,
-    activeAlertsCount: 0,
-    activeCasesCount: 0,
+  const [schoolInfo, setSchoolInfo] = useState(() => {
+    const act = storageService.getActiveSchool();
+    return {
+      schoolName: act.name,
+      lastUpdated: new Date().toISOString(),
+      totalStudents: 0,
+      totalClasses: 0,
+      activeAlertsCount: 0,
+      activeCasesCount: 0,
+    };
   });
 
   const [classes, setClasses] = useState<SchoolClass[]>([]);
@@ -102,36 +112,57 @@ export default function App() {
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number>(9);
 
   // Carregamento direto, completo e em tempo real da base de dados do Firebase Firestore
-  const loadAllFromFirebaseDirectly = useCallback(async (isExplicitLogin = false): Promise<boolean> => {
+  const loadAllFromFirebaseDirectly = useCallback(async (isExplicitLogin = false, targetSchoolId?: string): Promise<boolean> => {
     setIsRefreshing(true);
     if (isExplicitLogin) {
       setFirebaseLoginSyncing(true);
     }
+    const sId = targetSchoolId || storageService.getActiveSchoolId();
     try {
-      const res = await firestoreService.getAllDataDirectly();
+      const res = await firestoreService.getAllDataDirectly(sId);
       if (res.success) {
+        if (res.schools && res.schools.length > 0) {
+          setSchools(res.schools);
+          storageService.setSchools(res.schools);
+          const found = res.schools.find((s: SchoolType) => s.id === sId);
+          if (found) {
+            setCurrentSchool(found);
+            setSchoolInfo(prev => ({ ...prev, schoolName: found.name }));
+          }
+        }
         if (res.classes && res.classes.length > 0) {
           setClasses(res.classes);
           storageService.setClasses(res.classes);
           if (!selectedClassId || !res.classes.some((c: any) => c.id === selectedClassId)) {
             setSelectedClassId(res.classes[0].id);
           }
+        } else {
+          const localClasses = storageService.getClasses(sId);
+          setClasses(localClasses);
+          if (localClasses.length > 0 && (!selectedClassId || !localClasses.some((c: any) => c.id === selectedClassId))) {
+            setSelectedClassId(localClasses[0].id);
+          } else if (localClasses.length === 0) {
+            setSelectedClassId('');
+          }
         }
-        if (res.students && res.students.length > 0) {
-          setStudents(res.students);
-          storageService.setStudents(res.students);
+        if (res.students) {
+          const stList = res.students.length > 0 ? res.students : storageService.getStudents(undefined, sId);
+          setStudents(stList);
+          if (res.students.length > 0) {
+            storageService.setStudents(res.students);
+          }
         }
         if (res.users && res.users.length > 0) {
           storageService.setUsers(res.users);
         }
-        if (res.alerts && res.alerts.length > 0) {
+        if (res.alerts) {
           setAlerts(res.alerts);
           storageService.setAlerts(res.alerts);
         }
         if (res.attendance !== undefined) {
           storageService.setAttendanceRecords(res.attendance);
         }
-        if (res.interventions && res.interventions.length > 0) {
+        if (res.interventions) {
           setInterventions(res.interventions);
           storageService.setInterventions(res.interventions);
         }
@@ -147,8 +178,8 @@ export default function App() {
 
         setSchoolInfo(prev => ({
           ...prev,
-          totalStudents: res.students.length || prev.totalStudents,
-          totalClasses: res.classes.length || prev.totalClasses,
+          totalStudents: res.students?.length || prev.totalStudents,
+          totalClasses: res.classes?.length || prev.totalClasses,
           lastUpdated: new Date().toISOString()
         }));
 
@@ -156,7 +187,7 @@ export default function App() {
           setSyncNotification({
             type: 'success',
             message: 'Base de dados do Firebase carregada diretamente com sucesso!',
-            details: `${res.classes.length} turmas, ${res.students.length} estudantes e registros de ocorrências/tablets sincronizados em tempo real (${res.latencyMs}ms).`
+            details: `${res.classes?.length || 0} turmas, ${res.students?.length || 0} estudantes e registros de ocorrências/tablets sincronizados em tempo real (${res.latencyMs}ms).`
           });
           setTimeout(() => setSyncNotification(null), 7000);
         }
@@ -164,6 +195,17 @@ export default function App() {
       }
     } catch (err) {
       console.warn('Erro ao carregar dados diretamente do Firebase:', err);
+      const localClasses = storageService.getClasses(sId);
+      const localStudents = storageService.getStudents(undefined, sId);
+      setClasses(localClasses);
+      setStudents(localStudents);
+      setAlerts(storageService.getAlerts(sId));
+      setInterventions(storageService.getInterventions(sId));
+      if (localClasses.length > 0) {
+        setSelectedClassId(localClasses[0].id);
+      } else {
+        setSelectedClassId('');
+      }
       if (isExplicitLogin) {
         setSyncNotification({
           type: 'warning',
@@ -283,14 +325,15 @@ export default function App() {
     }
 
     // Busca dados em tempo real da Nuvem central (Firestore) compartilhada entre todos os navegadores
+    const sId = storageService.getActiveSchoolId();
     try {
       const [cloudClasses, cloudStudents, cloudAlerts, cloudAttendance, cloudInterventions, cloudGate] = await Promise.all([
-        firestoreService.getClasses(),
-        firestoreService.getStudents(),
-        firestoreService.getAlerts(),
-        firestoreService.getAttendanceRecords(),
-        firestoreService.getInterventions(),
-        firestoreService.getGateRecords(),
+        firestoreService.getClasses(sId),
+        firestoreService.getStudents(sId),
+        firestoreService.getAlerts(sId),
+        firestoreService.getAttendanceRecords(undefined, sId),
+        firestoreService.getInterventions(sId),
+        firestoreService.getGateRecords(undefined, sId),
       ]);
 
       if (cloudClasses && cloudClasses.length > 0) {
@@ -426,15 +469,44 @@ export default function App() {
     });
   }, [loadAllFromFirebaseDirectly, fetchData]);
 
-  // Role selection & Login success handlers (direciona para a Tela Inicial personalizada)
+  // Troca de Escola Ativa no Sistema (Multi-Tenant)
+  const handleSwitchSchool = async (schoolId: string) => {
+    storageService.setActiveSchoolId(schoolId);
+    const active = storageService.getActiveSchool();
+    setCurrentSchool(active);
+    setSchoolInfo(prev => ({
+      ...prev,
+      schoolName: active.name,
+    }));
+    if (currentUser) {
+      setCurrentUser(prev => prev ? { ...prev, schoolId: active.id, schoolName: active.name } : null);
+    }
+    await loadAllFromFirebaseDirectly(false, schoolId);
+  };
+
+  // Role selection & Login success handlers (direciona Painel Master para Central Global e usuários escolares para Tela Inicial)
   const handleLoginSuccess = (session: UserSession) => {
     setCurrentUser(session);
+    if (session.schoolId) {
+      storageService.setActiveSchoolId(session.schoolId);
+      const active = storageService.getActiveSchool();
+      setCurrentSchool(active);
+      setSchoolInfo(prev => ({
+        ...prev,
+        schoolName: active.name,
+      }));
+    }
 
     // Carrega dados diretamente do Firebase no exato momento que o usuário loga
-    loadAllFromFirebaseDirectly(true);
+    loadAllFromFirebaseDirectly(true, session.schoolId);
 
-    // Redireciona sempre para a Tela Inicial com botões contextuais por perfil
-    setActiveModule('inicio');
+    // Se for o Painel Master Global, abre diretamente a Central Global de Unidades Escolares
+    if (session.role === 'super_admin' || session.isUniversal) {
+      setActiveModule('system_manager');
+    } else {
+      // Redireciona os operadores escolares para a Tela Inicial da sua escola
+      setActiveModule('inicio');
+    }
 
     // Prepara sub-abas ideais caso o usuário navegue para os módulos
     setSubTabDiario('hub');
@@ -505,24 +577,31 @@ export default function App() {
 
   const handleSelectRole = (role: UserRole, customName?: string) => {
     const roleLabels: Record<UserRole, string> = {
-      admin: 'Administrador (Master)',
+      super_admin: 'Proprietário / Admin Universal (SaaS)',
+      admin_escola: 'Administrador da Unidade Escolar',
+      admin: 'Administrador da Unidade Escolar',
       gestao_paac: 'Gestão / PAAC',
       aoe: 'AOE - Secretaria & Portaria',
       professor: 'Professor Regente',
     };
 
     const defaultNames: Record<UserRole, string> = {
+      super_admin: 'Proprietário (Acesso Universal)',
+      admin_escola: 'Admin da Escola',
       admin: 'Administrador Geral',
       gestao_paac: 'Profª. Silvana Rocha',
       aoe: 'Carlos Eduardo Mendes',
       professor: 'Prof. Rogério Silva',
     };
 
+    const activeSc = storageService.getActiveSchool();
     const session: UserSession = {
       username: role,
       name: customName || defaultNames[role],
       role,
       roleLabel: roleLabels[role],
+      schoolId: activeSc.id,
+      schoolName: activeSc.name,
     };
 
     handleLoginSuccess(session);
@@ -774,7 +853,7 @@ export default function App() {
     setIsResetting(true);
     try {
       await fetch('/api/wipe-all', { method: 'POST' }).catch(() => null);
-      storageService.wipeAllData(currentUser?.role === 'admin' ? currentUser : undefined);
+      storageService.wipeAllData((currentUser?.role === 'admin' || currentUser?.role === 'admin_escola' || currentUser?.role === 'super_admin') ? currentUser : undefined);
       setClasses([]);
       setStudents([]);
       setAlerts([]);
@@ -960,10 +1039,13 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
       {/* Top Application Header with SigaEscola brand & clean action bar */}
       <Header
-        schoolName={schoolInfo.schoolName}
+        schoolName={currentSchool.name}
         currentUser={currentUser}
+        currentSchool={currentSchool}
         activeModule={activeModule}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
+        onOpenSchoolSelector={() => setIsSchoolSelectorOpen(true)}
+        onOpenMasterPanel={() => setActiveModule('system_manager')}
         onLogout={handleLogout}
         onOpenSeducReport={() => setIsSeducReportModalOpen(true)}
         onSyncData={handleSyncData}
@@ -1034,6 +1116,8 @@ export default function App() {
         {activeModule === 'inicio' && (
           <DashboardHome
             currentUser={currentUser}
+            currentSchool={currentSchool}
+            onOpenSchoolSelector={() => setIsSchoolSelectorOpen(true)}
             classes={classes}
             students={visibleStudents}
             alerts={alerts}
@@ -1042,6 +1126,7 @@ export default function App() {
             criticalStudentsCount={criticalStudentsTotal}
             onNavigate={handleNavigateFromHome}
             onSelectStudent={(student) => setSelectedStudentDetailId(student.id)}
+            onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
             onOpenSeducReport={() => setIsSeducReportModalOpen(true)}
             onOpenFirebaseStatus={() => setIsFirebaseStatusModalOpen(true)}
           />
@@ -1403,7 +1488,7 @@ export default function App() {
               />
             )}
 
-            {subTabBuscaAtiva === 'alertas' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin') && (
+            {subTabBuscaAtiva === 'alertas' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin' || currentUser.role === 'admin_escola' || currentUser.role === 'super_admin') && (
               <AlertsManager
                 alerts={alerts}
                 onUpdateAlertStatus={handleUpdateAlertStatus}
@@ -1422,7 +1507,7 @@ export default function App() {
               />
             )}
 
-            {subTabBuscaAtiva === 'casos' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin') && (
+            {subTabBuscaAtiva === 'casos' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin' || currentUser.role === 'admin_escola' || currentUser.role === 'super_admin') && (
               <InterventionsManager
                 cases={interventions}
                 students={students}
@@ -1469,13 +1554,17 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* MÓDULO 5: GERENCIADOR DO SISTEMA (ADMINISTRADOR MASTER)                  */}
+        {/* MÓDULO 5: GERENCIADOR DO SISTEMA (ADMINISTRADOR MASTER / ESCOLA)         */}
         {/* ========================================================================= */}
-        {activeModule === 'system_manager' && currentUser.role === 'admin' && (
+        {activeModule === 'system_manager' && (currentUser.role === 'admin' || currentUser.role === 'admin_escola' || currentUser.role === 'super_admin' || currentUser.isUniversal) && (
           <SystemConfigManager
             currentUser={currentUser}
             classes={classes}
             students={students}
+            currentSchool={currentSchool}
+            schools={schools}
+            onSelectSchool={handleSwitchSchool}
+            onOpenSchoolOperationalPanel={() => setActiveModule('inicio')}
             onRefresh={fetchData}
             onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
             onOpenWhatsAppIntegration={() => setIsWhatsAppModalOpen(true)}
@@ -1504,6 +1593,7 @@ export default function App() {
         onClose={() => setIsSeducReportModalOpen(false)}
         classes={classes}
         students={students}
+        currentSchool={currentSchool}
         currentUser={currentUser}
       />
 
@@ -1527,6 +1617,7 @@ export default function App() {
         studentId={selectedStudentDetailId}
         onClose={() => setSelectedStudentDetailId(null)}
         onOpenManualAlert={handleOpenAlertForStudent}
+        onStudentDeleted={fetchData}
         currentUser={currentUser}
       />
 
@@ -1710,16 +1801,36 @@ export default function App() {
         }}
       />
 
+      {/* Modal de Seleção e Alternância de Unidade Escolar (Multi-Tenant) */}
+      <SchoolSelectorModal
+        isOpen={isSchoolSelectorOpen}
+        onClose={() => setIsSchoolSelectorOpen(false)}
+        activeSchoolId={currentSchool.id}
+        onSelectSchool={handleSwitchSchool}
+        schools={schools}
+        canManageSchools={currentUser.role === 'super_admin' || currentUser.isUniversal === true || currentUser.role === 'admin' || currentUser.role === 'admin_escola'}
+        onOpenSystemManager={() => {
+          setIsSchoolSelectorOpen(false);
+          setActiveModule('system_manager');
+        }}
+      />
+
       {/* Institutional Footer */}
       <footer className="bg-white border-t border-slate-200 mt-12 py-6 text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-700">EE Professor Arlindo Silvestre</span>
+            <span className="font-bold text-slate-700">{currentSchool.name}</span>
             <span>•</span>
             <span className="font-semibold text-slate-600">Busca Ativa Escolar & Diário Oficial</span>
+            {currentSchool.city && (
+              <>
+                <span>•</span>
+                <span className="text-slate-500">{currentSchool.city}</span>
+              </>
+            )}
           </div>
           <div>
-            Em conformidade com a Lei de Diretrizes e Bases da Educação Nacional (LDB - Lei 9.394/96) e Diretrizes SEDUC-SP.
+            Em conformidade com a Lei de Diretrizes e Bases da Educação Nacional (LDB - Lei 9.394/96) e Diretrizes Educacionais.
           </div>
         </div>
       </footer>

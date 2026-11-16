@@ -386,12 +386,13 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
   // Generate WhatsApp message text for a specific absentee (exclusivo para falta injustificada)
   const generateWhatsAppMessage = (item: DailyAbsenteeItem): string => {
     const formattedDate = new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR');
+    const schoolName = storageService.getActiveSchool()?.name || 'Unidade Escolar';
 
     if (item.consecutiveAbsences >= 3) {
-      return `Prezado(a) ${item.guardianName}, a EE Professor Arlindo Silvestre comunica com URGÊNCIA que o(a) estudante ${item.studentName} (${item.className}) não compareceu à escola no dia ${formattedDate}, acumulando ${item.consecutiveAbsences} ausências consecutivas (índice atual de ${item.attendanceRate}%). Solicitamos entrar em contato imediatamente com a Coordenação/Direção Escolar para justificar a ausência e evitar o acionamento do Conselho Tutelar via Sistema de Busca Ativa SEDUC-SP.`;
+      return `Prezado(a) ${item.guardianName}, a ${schoolName} comunica com URGÊNCIA que o(a) estudante ${item.studentName} (${item.className}) não compareceu à escola no dia ${formattedDate}, acumulando ${item.consecutiveAbsences} ausências consecutivas (índice atual de ${item.attendanceRate}%). Solicitamos entrar em contato imediatamente com a Coordenação/Direção Escolar para justificar a ausência e evitar o acionamento do Conselho Tutelar via Sistema de Busca Ativa.`;
     }
 
-    return `Prezado(a) ${item.guardianName}, informamos que o(a) estudante ${item.studentName} (${item.className}) registrou ausência injustificada às aulas no dia ${formattedDate}. Solicitamos que entre em contato com a escola ou envie a devida justificativa. A frequência escolar diária é essencial para o desenvolvimento pedagógico. EE Professor Arlindo Silvestre.`;
+    return `Prezado(a) ${item.guardianName}, informamos que o(a) estudante ${item.studentName} (${item.className}) registrou ausência injustificada às aulas no dia ${formattedDate}. Solicitamos que entre em contato com a escola ou envie a devida justificativa. A frequência escolar diária é essencial para o desenvolvimento pedagógico. ${schoolName}.`;
   };
 
   // Direct WhatsApp single dispatch (restrito estritamente a faltas injustificadas)

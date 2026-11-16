@@ -425,7 +425,8 @@ async function startServer() {
 
   app.get('/api/users/public', (req, res) => {
     try {
-      res.json(db.getPublicUsers());
+      const schoolId = req.query.schoolId ? String(req.query.schoolId) : undefined;
+      res.json(db.getPublicUsers(schoolId));
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

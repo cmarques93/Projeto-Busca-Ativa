@@ -359,7 +359,7 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
 
   // Stats calculation
   const totalCount = users.length;
-  const adminCount = users.filter(u => u.role === 'admin').length;
+  const adminCount = users.filter(u => u.role === 'admin' || u.role === 'admin_escola' || u.role === 'super_admin').length;
   const gestaoCount = users.filter(u => u.role === 'gestao_paac').length;
   const aoeCount = users.filter(u => u.role === 'aoe').length;
   const profCount = users.filter(u => u.role === 'professor').length;
@@ -575,9 +575,9 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                           >
                             {user.name}
                           </button>
-                          {user.id === 'usr-admin' && (
+                          {(user.id === 'usr-admin' || user.id === 'usr-master' || user.role === 'super_admin' || user.isUniversal) && (
                             <span className="bg-purple-100 text-purple-800 text-[9px] px-1.5 py-0.2 rounded font-black border border-purple-300">
-                              PRINCIPAL
+                              {user.role === 'super_admin' || user.isUniversal ? 'UNIVERSAL' : 'PRINCIPAL'}
                             </span>
                           )}
                         </div>
@@ -592,9 +592,11 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                           <select
                             value={user.role}
                             onChange={e => handleRoleChange(user, e.target.value as UserRole)}
-                            disabled={user.id === 'usr-admin'}
+                            disabled={user.id === 'usr-admin' || user.id === 'usr-master' || user.role === 'super_admin' || user.isUniversal}
                             className={`text-xs font-bold px-2 py-1 rounded-lg border cursor-pointer focus:outline-hidden focus:ring-2 ${
-                              user.role === 'admin'
+                              user.role === 'super_admin'
+                                ? 'bg-amber-50 text-amber-900 border-amber-300 focus:ring-amber-400'
+                                : user.role === 'admin' || user.role === 'admin_escola'
                                 ? 'bg-purple-50 text-purple-900 border-purple-300 focus:ring-purple-400'
                                 : user.role === 'gestao_paac'
                                 ? 'bg-indigo-50 text-indigo-900 border-indigo-300 focus:ring-indigo-400'
@@ -604,7 +606,10 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                             }`}
                             title="Alterar perfil deste usuário"
                           >
-                            <option value="admin">Administrador (Master)</option>
+                            {user.role === 'super_admin' && (
+                              <option value="super_admin">Proprietário (Acesso Universal)</option>
+                            )}
+                            <option value="admin_escola">Administrador da Unidade Escolar</option>
                             <option value="gestao_paac">Gestão / PAAC</option>
                             <option value="aoe">AOE - Secretaria & Portaria</option>
                             <option value="professor">Professor Regente</option>
@@ -683,7 +688,7 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                             <span>Editar</span>
                           </button>
 
-                          {user.id !== 'usr-admin' && (
+                          {user.id !== 'usr-admin' && user.id !== 'usr-master' && user.role !== 'super_admin' && !user.isUniversal && (
                             <button
                               type="button"
                               onClick={() => handleDeleteUser(user)}
@@ -784,7 +789,7 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                   <option value="professor">Professor Regente (Consulta Restrita)</option>
                   <option value="aoe">AOE - Agente de Organização Escolar (Frequência & Portaria)</option>
                   <option value="gestao_paac">Gestão / PAAC (Acesso Total & Planilhas)</option>
-                  <option value="admin">Administrador (Master - Controle Geral)</option>
+                  <option value="admin_escola">Administrador da Unidade Escolar (Gestão Local)</option>
                 </select>
               </div>
 
@@ -1003,15 +1008,18 @@ export const AccessManagement: React.FC<AccessManagementProps> = ({
                 <select
                   value={editRoleValue}
                   onChange={e => setEditRoleValue(e.target.value as UserRole)}
-                  disabled={selectedUserForEdit.id === 'usr-admin'}
+                  disabled={selectedUserForEdit.id === 'usr-admin' || selectedUserForEdit.id === 'usr-master' || selectedUserForEdit.role === 'super_admin' || selectedUserForEdit.isUniversal}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-purple-500 cursor-pointer text-slate-900 font-medium"
                 >
-                  <option value="professor">Professor Regente (Consulta Restrita)</option>
-                  <option value="aoe">AOE - Agente de Organização Escolar (Frequência & Portaria)</option>
+                  {selectedUserForEdit.role === 'super_admin' && (
+                    <option value="super_admin">Proprietário (Acesso Universal SaaS)</option>
+                  )}
+                  <option value="admin_escola">Administrador da Unidade Escolar (Gestão Local)</option>
                   <option value="gestao_paac">Gestão / PAAC (Acesso Total & Planilhas)</option>
-                  <option value="admin">Administrador (Master - Controle Geral)</option>
+                  <option value="aoe">AOE - Agente de Organização Escolar (Frequência & Portaria)</option>
+                  <option value="professor">Professor Regente (Consulta Restrita)</option>
                 </select>
-                {selectedUserForEdit.id === 'usr-admin' && (
+                {(selectedUserForEdit.id === 'usr-admin' || selectedUserForEdit.id === 'usr-master' || selectedUserForEdit.role === 'super_admin' || selectedUserForEdit.isUniversal) && (
                   <span className="text-[10px] text-purple-600 font-medium mt-1 block">
                     O perfil do Administrador Master Principal não pode ser alterado.
                   </span>

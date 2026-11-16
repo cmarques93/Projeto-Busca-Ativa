@@ -654,14 +654,27 @@ function generateSeedData(): DatabaseSchema {
 export function generateDefaultUsers(): UserAccount[] {
   return [
     {
+      id: 'usr-master',
+      name: 'Proprietário (Acesso Universal)',
+      username: 'admin.universal',
+      role: 'super_admin',
+      roleLabel: 'Proprietário / Admin Universal (SaaS)',
+      pin: '1234',
+      createdAt: '2026-01-01T08:00:00.000Z',
+      active: true,
+      isUniversal: true,
+      notes: 'Proprietário do Sistema SigaEscola com acesso universal multi-escolas.',
+    },
+    {
       id: 'usr-admin',
       name: 'Administrador Geral',
       username: 'admin',
       role: 'admin',
-      roleLabel: 'Administrador (Master)',
+      roleLabel: 'Administrador da Unidade Escolar',
       pin: '1234',
       createdAt: '2026-01-15T08:00:00.000Z',
       active: true,
+      schoolId: 'ee-arlindo-silvestre',
       notes: 'Perfil Master exclusivo com autoridade para determinar o perfil de cada usuário e gerenciar o banco de acessos.',
     },
     {
@@ -673,6 +686,7 @@ export function generateDefaultUsers(): UserAccount[] {
       pin: '2026',
       createdAt: '2026-02-01T08:00:00.000Z',
       active: true,
+      schoolId: 'ee-arlindo-silvestre',
       notes: 'Coordenação Pedagógica e PAAC. Acesso total a chamadas, relatórios pedagógicos, intervenções e Planilhas Google.',
     },
     {
@@ -684,6 +698,7 @@ export function generateDefaultUsers(): UserAccount[] {
       pin: '1010',
       createdAt: '2026-02-10T08:00:00.000Z',
       active: true,
+      schoolId: 'ee-arlindo-silvestre',
       notes: 'Agente de Organização Escolar. Apenas lançamento de frequências e controle de portaria.',
     },
     {
@@ -695,7 +710,44 @@ export function generateDefaultUsers(): UserAccount[] {
       pin: '3344',
       createdAt: '2026-02-15T08:00:00.000Z',
       active: true,
+      schoolId: 'ee-arlindo-silvestre',
       notes: 'Docente em sala de aula. Acesso estritamente restrito ao motivo das ausências e atestados da turma.',
+    },
+    {
+      id: 'usr-admin-cecilia',
+      name: 'Admin Escolar (Cecília)',
+      username: 'admin.cecilia',
+      role: 'admin_escola',
+      roleLabel: 'Administrador da Unidade Escolar',
+      pin: '1234',
+      createdAt: '2026-02-01T08:00:00.000Z',
+      active: true,
+      schoolId: 'emeb-cecilia-meireles',
+      notes: 'Administrador escolar da EMEB Cecília Meireles.',
+    },
+    {
+      id: 'usr-cec-gestor',
+      name: 'Prof. Marcos Aurélio Santos',
+      username: 'marcos.santos',
+      role: 'gestao_paac',
+      roleLabel: 'Direção / Coordenação',
+      pin: '5566',
+      createdAt: '2026-02-01T08:00:00.000Z',
+      active: true,
+      schoolId: 'emeb-cecilia-meireles',
+      notes: 'Gestão da EMEB Cecília Meireles.',
+    },
+    {
+      id: 'usr-cec-prof',
+      name: 'Prof. Fernando Alves',
+      username: 'fernando.alves',
+      role: 'professor',
+      roleLabel: 'Professor(a) Regente',
+      pin: '7788',
+      createdAt: '2026-02-05T08:00:00.000Z',
+      active: true,
+      schoolId: 'emeb-cecilia-meireles',
+      notes: 'Docente na EMEB Cecília Meireles.',
     },
   ];
 }
@@ -771,34 +823,77 @@ export class SchoolDatabase {
   }
 
   // --- Gestão de Usuários & Perfis (Master Administrador) ---
-  public getUsers(): UserAccount[] {
+  public getUsers(schoolId?: string): UserAccount[] {
     if (!this.data.users || this.data.users.length === 0) {
       this.data.users = generateDefaultUsers();
       this.saveToDisk();
     }
-    // Garantir que os nomes não contenham parênteses com perfis antigos
+
     let changed = false;
+
+    // Garante que o usuário universal master exista
+    if (!this.data.users.some(u => u.id === 'usr-master' || u.role === 'super_admin')) {
+      this.data.users.unshift({
+        id: 'usr-master',
+        name: 'Proprietário (Acesso Universal)',
+        username: 'admin.universal',
+        role: 'super_admin',
+        roleLabel: 'Proprietário / Admin Universal (SaaS)',
+        pin: '1234',
+        createdAt: '2026-01-01T08:00:00.000Z',
+        active: true,
+        isUniversal: true,
+        notes: 'Proprietário do Sistema SigaEscola com acesso universal multi-escolas.'
+      });
+      changed = true;
+    }
+
+    // Preserva e migra operadores legados sem schoolId para a escola já existente
     this.data.users.forEach(u => {
+      if (u.id === 'usr-master' || u.role === 'super_admin') {
+        if (!u.isUniversal) {
+          u.isUniversal = true;
+          changed = true;
+        }
+      } else if (!u.schoolId) {
+        u.schoolId = 'ee-arlindo-silvestre';
+        changed = true;
+      }
+
       const clean = u.name.replace(/\s*\([^)]*\)/g, '').trim();
       if (clean !== u.name) {
         u.name = clean;
         changed = true;
       }
     });
+
     if (changed) {
       this.saveToDisk();
     }
+
+    if (schoolId) {
+      return this.data.users.filter(u =>
+        !u.isUniversal &&
+        u.role !== 'super_admin' &&
+        u.id !== 'usr-master' &&
+        (u.schoolId || 'ee-arlindo-silvestre') === schoolId
+      );
+    }
+
     return this.data.users;
   }
 
-  public getPublicUsers() {
-    return this.getUsers().map(u => ({
+  public getPublicUsers(schoolId?: string) {
+    const list = this.getUsers(schoolId);
+    return list.map(u => ({
       id: u.id,
       name: u.name,
       username: u.username,
       role: u.role,
       roleLabel: u.roleLabel,
-      active: u.active
+      active: u.active,
+      schoolId: u.schoolId || (u.isUniversal ? undefined : 'ee-arlindo-silvestre'),
+      isUniversal: u.isUniversal ?? (u.role === 'super_admin' || u.id === 'usr-master')
     }));
   }
 
@@ -824,6 +919,8 @@ export class SchoolDatabase {
     }
 
     const roleLabels: Record<UserRole, string> = {
+      super_admin: 'Proprietário (Acesso Universal)',
+      admin_escola: 'Administrador da Unidade Escolar',
       admin: 'Administrador (Master)',
       gestao_paac: 'Gestão / PAAC',
       aoe: 'AOE - Secretaria & Portaria',
@@ -877,6 +974,8 @@ export class SchoolDatabase {
 
     if (updates.role !== undefined) {
       const roleLabels: Record<UserRole, string> = {
+        super_admin: 'Proprietário (Acesso Universal)',
+        admin_escola: 'Administrador da Unidade Escolar',
         admin: 'Administrador (Master)',
         gestao_paac: 'Gestão / PAAC',
         aoe: 'AOE - Secretaria & Portaria',

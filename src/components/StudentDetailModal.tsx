@@ -18,10 +18,12 @@ import {
   Shield,
   Users,
   ExternalLink,
-  MessageSquare
+  MessageSquare,
+  Trash2
 } from 'lucide-react';
 import { Student, AttendanceRecord, ParentAlert, InterventionCase } from '../types';
 import { storageService } from '../data/storageService';
+import { firestoreService } from '../lib/firestoreService';
 import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
 import { carregarOcorrenciasSeguro } from '../lib/sheetsSyncService';
 import { ordenarOcorrenciasPorMaisRecentes, parseDataOcorrenciaToTimestamp, obterInfoPreenchimento } from './OcorrenciasManager';
@@ -53,6 +55,7 @@ interface StudentDetailModalProps {
   studentId: string | null;
   onClose: () => void;
   onOpenManualAlert: (student: Student) => void;
+  onStudentDeleted?: () => void;
   currentUser?: { id?: string; name?: string; role: string } | null;
 }
 
@@ -60,10 +63,11 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   studentId,
   onClose,
   onOpenManualAlert,
+  onStudentDeleted,
   currentUser,
 }) => {
   const isProfessor = currentUser?.role === 'professor';
-  const isGestaoOrAdmin = currentUser?.role === 'gestao_paac' || currentUser?.role === 'admin';
+  const isGestaoOrAdmin = currentUser?.role === 'gestao_paac' || currentUser?.role === 'admin' || currentUser?.role === 'admin_escola' || currentUser?.role === 'super_admin';
   const [data, setData] = useState<{
     student: Student;
     attendanceHistory: AttendanceRecord[];
@@ -74,6 +78,27 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deletingStudent, setDeletingStudent] = useState(false);
+
+  const handleDeleteCurrentStudent = async () => {
+    if (!data?.student) return;
+    setDeletingStudent(true);
+    try {
+      await fetch(`/api/students/${encodeURIComponent(data.student.id)}`, {
+        method: 'DELETE',
+      }).catch(() => null);
+      storageService.deleteStudent(data.student.id);
+      await firestoreService.deleteStudent(data.student.id);
+      setConfirmingDelete(false);
+      if (onStudentDeleted) onStudentDeleted();
+      onClose();
+    } catch (e) {
+      console.error('Erro ao excluir estudante:', e);
+    } finally {
+      setDeletingStudent(false);
+    }
+  };
 
   // Helper para formatar data BR
   const formatarDataBR = (dataStr: string) => {
@@ -748,9 +773,48 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex justify-end">
+        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            {isGestaoOrAdmin && data?.student && !confirmingDelete && (
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(true)}
+                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-lg cursor-pointer transition-colors flex items-center gap-1.5"
+                title="Excluir estudante do sistema"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Excluir Estudante</span>
+              </button>
+            )}
+            {isGestaoOrAdmin && data?.student && confirmingDelete && (
+              <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-lg">
+                <span className="text-xs font-bold text-rose-800">
+                  Confirmar exclusão de {data.student.name}?
+                </span>
+                <button
+                  type="button"
+                  disabled={deletingStudent}
+                  onClick={handleDeleteCurrentStudent}
+                  className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded cursor-pointer disabled:opacity-50"
+                >
+                  {deletingStudent ? 'Excluindo...' : 'Sim, Excluir'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                  className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold rounded cursor-pointer"
+                >
+                  Cancelar
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
-            onClick={onClose}
+            onClick={() => {
+              setConfirmingDelete(false);
+              onClose();
+            }}
             className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold rounded-lg cursor-pointer transition-colors"
           >
             Fechar Dossiê
