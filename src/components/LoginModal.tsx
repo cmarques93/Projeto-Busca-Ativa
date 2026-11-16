@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { KeyRound, User, Lock, X, AlertCircle, Eye, EyeOff, Shield, ArrowLeft } from 'lucide-react';
 import { UserRole, UserSession } from '../types';
-import { storageService } from '../data/storageService';
+import { storageService, validateMasterPassword } from '../data/storageService';
 import { firestoreService } from '../lib/firestoreService';
 import { DEFAULT_SCHOOL_ID } from '../data/fallbackData';
 
@@ -39,6 +39,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
   const [authenticating, setAuthenticating] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isMasterMode, setIsMasterMode] = useState<boolean>(false);
+
+  const masterValidation = useMemo(() => validateMasterPassword(pin), [pin]);
 
   const filterSchoolOperators = (list: PublicUserItem[], targetSchoolId: string): PublicUserItem[] => {
     return list.filter(
@@ -139,7 +141,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       return;
     }
 
-    if (!pin.trim() || pin.trim().length !== 4) {
+    if (isMasterMode) {
+      if (!masterValidation.isValid) {
+        setErrorMessage('A senha do perfil Master deve ter entre 8 e 16 caracteres, contendo Maiúscula, Minúscula, Número e Caractere Especial.');
+        return;
+      }
+    } else if (!pin.trim() || pin.trim().length !== 4) {
       setErrorMessage('Por favor, digite sua senha de 4 dígitos numéricos.');
       return;
     }
@@ -213,7 +220,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       }
       onClose();
     } else {
-      setErrorMessage(verification.error || 'Senha de 4 dígitos incorreta.');
+      setErrorMessage(verification.error || (isMasterMode ? 'Senha Master incorreta.' : 'Senha de 4 dígitos incorreta.'));
     }
     setAuthenticating(false);
   };
@@ -234,7 +241,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <span>{isMasterMode ? 'Painel Master Global' : 'Alternar Usuário'}</span>
               </h2>
               <p className="text-xs text-slate-300">
-                {isMasterMode ? 'Gerenciamento Central Multi-Unidades' : (currentUser.schoolName || storageService.getActiveSchool().name)}
+                {isMasterMode ? 'Liberação de Módulos e Auxílio de Cadastros' : (currentUser.schoolName || storageService.getActiveSchool().name)}
               </p>
             </div>
           </div>
@@ -255,9 +262,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
               <div>
                 <p className="font-bold text-xs">{errorMessage}</p>
-                <p className="text-[11px] text-rose-600 mt-0.5">
-                  Caso não saiba sua senha, solicite a redefinição com o Administrador da escola.
-                </p>
+                {!isMasterMode && (
+                  <p className="text-[11px] text-rose-600 mt-0.5">
+                    Caso não saiba sua senha, solicite a redefinição com o Administrador da escola.
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -302,34 +311,40 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <span>Acesso ao Painel Master Global</span>
               </p>
               <p className="text-[11px] text-indigo-800 leading-relaxed">
-                Insira a senha de 4 dígitos do Painel Master para gerenciar escolas, liberar sistemas e prestar auxílio técnico.
+                Insira a senha forte (8 a 16 caracteres) do Painel Master para liberar sistemas e realizar ajustes de cadastros como auxílio.
               </p>
             </div>
           )}
 
-          {/* 2. Senha de 4 Dígitos Numéricos */}
+          {/* 2. Senha (4 Dígitos para Operadores | Senha Forte 8-16 para Master) */}
           <div>
             <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block mb-1.5 flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5 text-purple-600" />
-                <span>{isMasterMode ? 'Senha do Painel Master:' : 'Senha de 4 Dígitos:'}</span>
+                <span>{isMasterMode ? 'Senha Forte do Painel Master:' : 'Senha de 4 Dígitos:'}</span>
               </span>
-              <span className="text-[10px] font-normal text-slate-500 lowercase">4 números</span>
+              <span className="text-[10px] font-normal text-slate-500 lowercase">
+                {isMasterMode ? '8 a 16 caracteres' : '4 números'}
+              </span>
             </label>
 
             <div className="relative">
               <input
                 type={showPin ? 'text' : 'password'}
-                inputMode="numeric"
-                pattern="[0-9]{4}"
-                maxLength={4}
+                inputMode={isMasterMode ? 'text' : 'numeric'}
+                maxLength={isMasterMode ? 16 : 4}
                 value={pin}
                 onChange={e => {
-                  setPin(e.target.value.replace(/\D/g, '').slice(0, 4));
+                  const val = isMasterMode
+                    ? e.target.value.slice(0, 16)
+                    : e.target.value.replace(/\D/g, '').slice(0, 4);
+                  setPin(val);
                   setErrorMessage(null);
                 }}
-                placeholder="••••"
-                className="w-full py-3 px-4 text-center text-xl font-mono font-bold tracking-widest rounded-xl border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-purple-500 focus:outline-hidden shadow-xs"
+                placeholder={isMasterMode ? 'Ex: Master@2026' : '••••'}
+                className={`w-full py-3 px-4 text-center font-mono font-bold rounded-xl border border-slate-300 bg-white text-slate-900 focus:ring-2 focus:ring-purple-500 focus:outline-hidden shadow-xs ${
+                  isMasterMode ? 'text-base tracking-wider' : 'text-xl tracking-widest'
+                }`}
                 required
                 autoFocus
               />
@@ -337,7 +352,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 type="button"
                 onClick={() => setShowPin(!showPin)}
                 className="absolute right-3 top-3.5 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
-                title={showPin ? 'Ocultar dígitos' : 'Mostrar dígitos'}
+                title={showPin ? 'Ocultar senha' : 'Mostrar senha'}
               >
                 {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -378,9 +393,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={authenticating || (!isMasterMode && !selectedUserId) || pin.length !== 4}
+                disabled={
+                  authenticating ||
+                  (isMasterMode ? !masterValidation.isValid : (!selectedUserId || pin.length !== 4))
+                }
                 className={`px-5 py-2.5 text-xs font-bold text-white rounded-xl shadow-sm transition-all flex items-center gap-2 cursor-pointer ${
-                  pin.length === 4
+                  (isMasterMode ? masterValidation.isValid : pin.length === 4)
                     ? isMasterMode
                       ? 'bg-indigo-600 hover:bg-indigo-700 ring-2 ring-indigo-400/30'
                       : 'bg-purple-600 hover:bg-purple-700 ring-2 ring-purple-400/30'

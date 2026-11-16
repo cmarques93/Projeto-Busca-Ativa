@@ -98,13 +98,86 @@ function setStoredSchool<T>(baseKey: string, data: T, schoolId?: string): void {
   }
 }
 
+export interface MasterPasswordValidation {
+  isValid: boolean;
+  hasValidLength: boolean;
+  hasUppercase: boolean;
+  hasLowercase: boolean;
+  hasNumber: boolean;
+  hasSpecial: boolean;
+  errors: string[];
+}
+
+export function validateMasterPassword(password: string): MasterPasswordValidation {
+  const pwd = password || '';
+  const hasValidLength = pwd.length >= 8 && pwd.length <= 16;
+  const hasUppercase = /[A-Z]/.test(pwd);
+  const hasLowercase = /[a-z]/.test(pwd);
+  const hasNumber = /[0-9]/.test(pwd);
+  const hasSpecial = /[^A-Za-z0-9]/.test(pwd);
+
+  const errors: string[] = [];
+  if (!hasValidLength) errors.push('Deve ter entre 8 e 16 caracteres.');
+  if (!hasUppercase) errors.push('Deve conter pelo menos 1 letra maiúscula (A-Z).');
+  if (!hasLowercase) errors.push('Deve conter pelo menos 1 letra minúscula (a-z).');
+  if (!hasNumber) errors.push('Deve conter pelo menos 1 número (0-9).');
+  if (!hasSpecial) errors.push('Deve conter pelo menos 1 caractere especial (ex: @, #, $, %, !, &).');
+
+  return {
+    isValid: hasValidLength && hasUppercase && hasLowercase && hasNumber && hasSpecial,
+    hasValidLength,
+    hasUppercase,
+    hasLowercase,
+    hasNumber,
+    hasSpecial,
+    errors,
+  };
+}
+
+function resolveMasterPin(candidatePin?: string, fallbackPin?: string): string {
+  // 1. Se candidatePin é uma senha forte personalizada (diferente da padrão inicial), preserva e salva
+  if (candidatePin && candidatePin !== 'Master@2026' && validateMasterPassword(candidatePin).isValid) {
+    try {
+      localStorage.setItem('sigaescola_master_password', candidatePin);
+    } catch {}
+    return candidatePin;
+  }
+  // 2. Se fallbackPin é uma senha forte personalizada, preserva
+  if (fallbackPin && fallbackPin !== 'Master@2026' && validateMasterPassword(fallbackPin).isValid) {
+    try {
+      localStorage.setItem('sigaescola_master_password', fallbackPin);
+    } catch {}
+    return fallbackPin;
+  }
+  // 3. Verifica se já existe senha forte personalizada salva dedicada no navegador
+  try {
+    const savedCustom = localStorage.getItem('sigaescola_master_password');
+    if (savedCustom && validateMasterPassword(savedCustom).isValid) {
+      return savedCustom;
+    }
+  } catch {}
+  // 4. Caso contrário, utiliza candidatePin/fallbackPin válido ou a padrão Master@2026
+  if (candidatePin && validateMasterPassword(candidatePin).isValid) {
+    return candidatePin;
+  }
+  if (fallbackPin && validateMasterPassword(fallbackPin).isValid) {
+    return fallbackPin;
+  }
+  return 'Master@2026';
+}
+
 // Ensure default users have their default PIN attached
 function initializeDefaultUsers(): UserAccount[] {
-  return DEFAULT_USERS.map(u => ({
-    ...u,
-    pin: DEFAULT_PINS[u.id]?.pin || '1234',
-    createdAt: new Date().toISOString()
-  }));
+  return DEFAULT_USERS.map(u => {
+    const isMaster = u.id === 'usr-master' || u.role === 'super_admin' || u.isUniversal === true;
+    return {
+      ...u,
+      pin: isMaster
+        ? resolveMasterPin(u.pin, DEFAULT_PINS[u.id]?.pin)
+        : (DEFAULT_PINS[u.id]?.pin || '1234'),
+      createdAt: new Date().toISOString()
+    };
+  });
 }
 
 export const storageService = {
@@ -186,17 +259,24 @@ export const storageService = {
     }
     for (const u of existing) {
       if (u && u.id && !u.id.includes('cecilia') && !u.id.includes('usr-cec') && u.id !== 'usr-admin-arlindo') {
-        byId.set(u.id, u);
+        const isMaster = u.id === 'usr-master' || u.role === 'super_admin' || u.isUniversal === true;
+        byId.set(u.id, {
+          ...u,
+          pin: isMaster ? resolveMasterPin(u.pin, byId.get(u.id)?.pin) : u.pin,
+        });
       }
     }
     for (const u of incomingUsers) {
       if (u && u.id && !u.id.includes('cecilia') && !u.id.includes('usr-cec') && u.id !== 'usr-admin-arlindo') {
         const prev = byId.get(u.id);
+        const isMaster = u.id === 'usr-master' || u.role === 'super_admin' || u.isUniversal === true;
         byId.set(u.id, {
           ...prev,
           ...u,
-          pin: u.pin || prev?.pin || DEFAULT_PINS[u.id]?.pin || '1234',
-          schoolId: (u.isUniversal || u.role === 'super_admin' || u.id === 'usr-master')
+          pin: isMaster
+            ? resolveMasterPin(u.pin, prev?.pin)
+            : (u.pin || prev?.pin || DEFAULT_PINS[u.id]?.pin || '1234'),
+          schoolId: isMaster
             ? undefined
             : (u.schoolId || prev?.schoolId || DEFAULT_SCHOOL_ID),
         });
@@ -243,7 +323,9 @@ export const storageService = {
       byId.set(u.id, {
         ...byId.get(u.id),
         ...u,
-        pin: u.pin || byId.get(u.id)?.pin || DEFAULT_PINS[u.id]?.pin || '1234',
+        pin: isMaster
+          ? resolveMasterPin(u.pin, byId.get(u.id)?.pin)
+          : (u.pin || byId.get(u.id)?.pin || DEFAULT_PINS[u.id]?.pin || '1234'),
         isUniversal: isMaster ? true : undefined,
         schoolId: isMaster ? undefined : (u.schoolId || DEFAULT_SCHOOL_ID),
       });
@@ -267,14 +349,19 @@ export const storageService = {
   getMasterUser: (): UserAccount => {
     const allUsers = storageService.getUsers();
     const found = allUsers.find(u => u.id === 'usr-master' || u.role === 'super_admin' || u.isUniversal === true);
-    if (found) return found;
+    if (found) {
+      return {
+        ...found,
+        pin: resolveMasterPin(found.pin),
+      };
+    }
     return {
       id: 'usr-master',
       name: 'Proprietário (Painel Master Global)',
       username: 'proprietario.master',
       role: 'super_admin',
       roleLabel: 'Proprietário / Admin Universal (SaaS)',
-      pin: '1234',
+      pin: 'Master@2026',
       createdAt: new Date().toISOString(),
       active: true,
       isUniversal: true,
@@ -330,6 +417,12 @@ export const storageService = {
     const idx = users.findIndex(u => u.id === id);
     if (idx === -1) return null;
 
+    if ((id === 'usr-master' || users[idx].role === 'super_admin' || users[idx].isUniversal) && updates.pin) {
+      try {
+        localStorage.setItem('sigaescola_master_password', updates.pin.trim());
+      } catch {}
+    }
+
     users[idx] = {
       ...users[idx],
       ...updates,
@@ -344,7 +437,17 @@ export const storageService = {
   },
 
   updateUserPin: (id: string, pin: string): void => {
-    storageService.updateUser(id, { pin: pin.trim() });
+    const cleanPin = pin.trim();
+    if (id === 'usr-master') {
+      const validation = validateMasterPassword(cleanPin);
+      if (!validation.isValid) {
+        throw new Error(validation.errors.join(' '));
+      }
+      try {
+        localStorage.setItem('sigaescola_master_password', cleanPin);
+      } catch {}
+    }
+    storageService.updateUser(id, { pin: cleanPin });
   },
 
   deleteUser: (userId: string): boolean => {
@@ -376,6 +479,17 @@ export const storageService = {
     const users = storageService.getUsers();
     const cleanPin = pin.trim();
     const user = users.find(u => u.id === userId);
+    const isMaster = userId === 'usr-master' || user?.role === 'super_admin' || user?.isUniversal === true;
+
+    if (isMaster) {
+      const validation = validateMasterPassword(cleanPin);
+      if (!validation.isValid) {
+        return {
+          success: false,
+          error: 'A senha do perfil Master deve ter entre 8 e 16 caracteres, contendo pelo menos 1 letra maiúscula, 1 minúscula, 1 número e 1 caractere especial.'
+        };
+      }
+    }
 
     if (!user) {
       const defaultPinObj = DEFAULT_PINS[userId];
@@ -389,7 +503,17 @@ export const storageService = {
       return { success: false, error: 'Este usuário está inativo no sistema.' };
     }
 
-    if (user.pin === cleanPin || (DEFAULT_PINS[userId] && DEFAULT_PINS[userId].pin === cleanPin)) {
+    const savedCustomMaster = isMaster ? (() => {
+      try { return localStorage.getItem('sigaescola_master_password'); } catch { return null; }
+    })() : null;
+
+    const masterMatches = isMaster && (
+      user.pin === cleanPin ||
+      (savedCustomMaster && savedCustomMaster === cleanPin) ||
+      (!savedCustomMaster && cleanPin === 'Master@2026')
+    );
+
+    if (masterMatches || (!isMaster && (user.pin === cleanPin || (DEFAULT_PINS[userId] && DEFAULT_PINS[userId].pin === cleanPin)))) {
       // Registra e sincroniza último acesso imediatamente
       const now = new Date().toISOString();
       user.lastLogin = now;
@@ -409,7 +533,12 @@ export const storageService = {
       };
     }
 
-    return { success: false, error: 'Senha de 4 dígitos incorreta.' };
+    return {
+      success: false,
+      error: isMaster
+        ? 'Senha Master incorreta.'
+        : 'Senha de 4 dígitos incorreta.'
+    };
   },
 
   // === TURMAS ===

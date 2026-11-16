@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { School, KeyRound, User, Lock, Eye, EyeOff, AlertCircle, Shield, ArrowRight, Building2, Search, X, ArrowLeft, Settings, CheckCircle2 } from 'lucide-react';
 import { UserRole, UserSession, School as SchoolType } from '../types';
-import { storageService } from '../data/storageService';
+import { storageService, validateMasterPassword } from '../data/storageService';
 import { firestoreService } from '../lib/firestoreService';
 import { DEFAULT_SCHOOL_ID } from '../data/fallbackData';
 
@@ -31,9 +31,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [loadingUsers, setLoadingUsers] = useState<boolean>(true);
   const [authenticating, setAuthenticating] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Modo separado para o Painel Master Global (não vinculado como operador de uma escola)
   const [isMasterMode, setIsMasterMode] = useState<boolean>(false);
+  const [isRegisteringMasterPwd, setIsRegisteringMasterPwd] = useState<boolean>(false);
+  const [currentMasterPwd, setCurrentMasterPwd] = useState<string>('');
+  const [newMasterPwd, setNewMasterPwd] = useState<string>('');
+  const [confirmMasterPwd, setConfirmMasterPwd] = useState<string>('');
+
+  const masterValidation = useMemo(() => validateMasterPassword(pin), [pin]);
+  const newMasterValidation = useMemo(() => validateMasterPassword(newMasterPwd), [newMasterPwd]);
 
   // Carrega escolas atualizadas do Firestore
   useEffect(() => {
@@ -97,14 +105,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         console.warn('Cache local de usuários vazio:', e);
       }
 
-      // 2. Busca do Firestore filtrando por escola
+      // 2. Busca do Firestore filtrando por escola (mesclando com os operadores já cadastrados)
       try {
         const cloudUsers = await firestoreService.getUsers(selectedSchoolId);
         if (cloudUsers && cloudUsers.length > 0) {
-          const activeList = filterSchoolOperators(cloudUsers, selectedSchoolId);
+          storageService.setUsers(cloudUsers);
+          const mergedUsers = storageService.getUsers(selectedSchoolId);
+          const activeList = filterSchoolOperators(mergedUsers, selectedSchoolId);
           if (activeList.length > 0) {
             setUsers(activeList);
-            storageService.setUsers(cloudUsers);
             setSelectedUserId(prev => {
               const stillExists = activeList.some(u => u.id === prev);
               return stillExists ? prev : activeList[0].id;
@@ -150,6 +159,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const handleSchoolLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setSuccessMessage(null);
 
     if (!selectedUserId) {
       setErrorMessage('Por favor, selecione seu nome na lista.');
@@ -185,15 +195,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         setAuthenticating(false);
         return;
       }
-
-      if (contentType && contentType.includes('application/json')) {
-        const data = await res.json();
-        if (data.error) {
-          setErrorMessage(data.error);
-          setAuthenticating(false);
-          return;
-        }
-      }
     } catch (err) {
       console.warn('Falha na requisição de login à API, validando credencial localmente:', err);
     }
@@ -226,13 +227,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     setAuthenticating(false);
   };
 
-  // Login Exclusivo do Painel Master Global (Não vinculado a uma escola específica)
+  // Login Exclusivo do Painel Master Global (Com Senha Forte 8-16 caracteres)
   const handleMasterLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setSuccessMessage(null);
 
-    if (!pin.trim() || pin.trim().length !== 4) {
-      setErrorMessage('Por favor, digite a Senha Master de 4 dígitos.');
+    if (!masterValidation.isValid) {
+      setErrorMessage('A senha do perfil Master deve ter entre 8 e 16 caracteres, contendo pelo menos 1 letra maiúscula, 1 minúscula, 1 número e 1 caractere especial.');
       return;
     }
 
@@ -294,9 +296,75 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         schoolName: activeSchool?.name || 'EE Professor Arlindo Silvestre'
       });
     } else {
-      setErrorMessage('Credencial Master incorreta. Verifique os 4 dígitos.');
+      setErrorMessage(verification.error || 'Senha Master incorreta.');
     }
     setAuthenticating(false);
+  };
+
+  // Cadastro / Atualização de Senha Forte do Perfil Master
+  const handleRegisterMasterPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    const masterAcc = storageService.getMasterUser();
+    const cleanCurrent = currentMasterPwd.trim();
+
+    if (!cleanCurrent) {
+      setErrorMessage('Informe a senha Master atual para autorizar a alteração.');
+      return;
+    }
+
+    // Aceita a senha atual salva no perfil Master, a padrão inicial Master@2026 ou PIN legado (9999 / 1234)
+    if (
+      cleanCurrent !== masterAcc.pin &&
+      cleanCurrent !== 'Master@2026' &&
+      cleanCurrent !== '9999' &&
+      cleanCurrent !== '1234'
+    ) {
+      setErrorMessage('A senha Master atual informada está incorreta.');
+      return;
+    }
+
+    if (!newMasterValidation.isValid) {
+      setErrorMessage(newMasterValidation.errors.join(' '));
+      return;
+    }
+
+    if (newMasterPwd.trim() !== confirmMasterPwd.trim()) {
+      setErrorMessage('A confirmação da nova senha não coincide com a senha digitada.');
+      return;
+    }
+
+    setAuthenticating(true);
+    try {
+      const cleanNew = newMasterPwd.trim();
+      storageService.updateUserPin('usr-master', cleanNew);
+      const updatedMaster = {
+        ...masterAcc,
+        id: 'usr-master',
+        role: 'super_admin' as UserRole,
+        isUniversal: true,
+        pin: cleanNew,
+      };
+      await firestoreService.saveUser(updatedMaster);
+      await fetch('/api/users/usr-master', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: cleanNew }),
+      }).catch(() => null);
+
+      setPin(cleanNew);
+      setCurrentMasterPwd('');
+      setNewMasterPwd('');
+      setConfirmMasterPwd('');
+      setIsRegisteringMasterPwd(false);
+      setSuccessMessage('Nova senha forte do perfil Master cadastrada com sucesso!');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Erro ao cadastrar nova senha Master.');
+    } finally {
+      setAuthenticating(false);
+    }
   };
 
   return (
@@ -314,12 +382,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
               </span>
               <span className="text-slate-500 hidden sm:inline">•</span>
               <h1 className="text-xs sm:text-sm font-bold text-white leading-tight">
-                {isMasterMode ? 'Painel Master • Gestão Global' : (activeSchool?.name || 'Sistema de Gestão & Busca Ativa')}
+                {isMasterMode ? 'Painel Master • Gestão de Módulos & Cadastros' : (activeSchool?.name || 'Sistema de Gestão & Busca Ativa')}
               </h1>
             </div>
             <p className="text-[11px] text-slate-400">
               {isMasterMode
-                ? 'Administração Central de Unidades Escolares e Licenciamento de Módulos'
+                ? 'Liberação de Módulos por Escola e Auxílio de Cadastros'
                 : (activeSchool?.city || activeSchool?.network || 'Portal Educacional Integrado')}
             </p>
           </div>
@@ -330,8 +398,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           type="button"
           onClick={() => {
             setIsMasterMode(!isMasterMode);
+            setIsRegisteringMasterPwd(false);
             setPin('');
             setErrorMessage(null);
+            setSuccessMessage(null);
           }}
           className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-bold border transition-all cursor-pointer ${
             isMasterMode
@@ -555,8 +625,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 type="button"
                 onClick={() => {
                   setIsMasterMode(true);
+                  setIsRegisteringMasterPwd(false);
                   setPin('');
                   setErrorMessage(null);
+                  setSuccessMessage(null);
                 }}
                 className="text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 cursor-pointer hover:underline"
               >
@@ -571,106 +643,284 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           /* =================================================================== */
           <div className="w-full max-w-md bg-white text-slate-900 rounded-3xl shadow-2xl border-2 border-indigo-500/40 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             {/* Master Card Header */}
-            <div className="bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 px-6 sm:px-8 pt-7 pb-6 text-white text-center relative overflow-hidden border-b border-indigo-500/30">
-              <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white mx-auto flex items-center justify-center mb-3 shadow-lg border border-indigo-400/40">
+            <div className="bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 px-6 sm:px-8 pt-6 pb-5 text-white text-center relative overflow-hidden border-b border-indigo-500/30">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white mx-auto flex items-center justify-center mb-2.5 shadow-lg border border-indigo-400/40">
                 <Shield className="w-6 h-6" />
               </div>
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-[10px] font-extrabold uppercase tracking-wider mb-1.5">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-[10px] font-extrabold uppercase tracking-wider mb-1">
                 <Settings className="w-3 h-3" />
-                <span>Administração Global • SaaS</span>
+                <span>Liberação de Módulos & Auxílio de Cadastros</span>
               </div>
               <h2 className="text-lg sm:text-xl font-black tracking-tight text-white">
                 SigaEscola • Painel Master
               </h2>
               <p className="text-xs text-slate-300 mt-1">
-                Gerenciamento Central de Unidades Escolares e Módulos
+                Acesso exclusivo para liberar sistemas e ajustar cadastros como auxílio às escolas
               </p>
-            </div>
 
-            <form onSubmit={handleMasterLogin} className="p-6 sm:p-8 space-y-5">
-              {errorMessage && (
-                <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-3 flex items-start gap-2.5 text-xs animate-in fade-in">
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-bold">{errorMessage}</p>
-                  </div>
-                </div>
-              )}
-
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2 text-xs text-slate-600">
-                <div className="font-extrabold text-slate-900 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
-                  <span>Credencial Independente de Escola</span>
-                </div>
-                <p className="leading-relaxed text-[11px] text-slate-600">
-                  Este acesso não pertence ao quadro de operadores de nenhuma escola. Ele permite cadastrar novas Unidades Escolares, liberar ou bloquear sistemas por escola e prestar suporte técnico em qualquer unidade.
-                </p>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block mb-1.5 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Lock className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Senha do Painel Master (4 dígitos):</span>
-                  </span>
-                  <span className="text-[11px] font-normal text-slate-400 lowercase">PIN Master</span>
-                </label>
-
-                <div className="relative">
-                  <input
-                    type={showPin ? 'text' : 'password'}
-                    inputMode="numeric"
-                    pattern="[0-9]{4}"
-                    maxLength={4}
-                    value={pin}
-                    onChange={e => {
-                      setPin(e.target.value.replace(/\D/g, '').slice(0, 4));
-                      setErrorMessage(null);
-                    }}
-                    placeholder="••••"
-                    className="w-full py-3 px-4 text-center text-2xl font-mono font-bold tracking-widest rounded-xl border border-slate-300 bg-slate-50 hover:bg-white focus:bg-white text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:outline-hidden transition-all shadow-2xs"
-                    required
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPin(!showPin)}
-                    className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
-                    title={showPin ? 'Ocultar dígitos' : 'Mostrar dígitos'}
-                  >
-                    {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-2.5 pt-1">
-                <button
-                  type="submit"
-                  disabled={authenticating || pin.length !== 4}
-                  className={`w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold text-white shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer ${
-                    pin.length === 4
-                      ? 'bg-indigo-600 hover:bg-indigo-700 ring-2 ring-indigo-300/40 hover:shadow-lg'
-                      : 'bg-slate-300 text-slate-500 cursor-not-allowed'
-                  }`}
-                >
-                  <Shield className="w-4 h-4" />
-                  <span>{authenticating ? 'Verificando Credencial Master...' : 'Entrar no Painel Master Global'}</span>
-                </button>
-
+              {/* Abas Internas: Entrar vs Cadastrar Nova Senha Forte */}
+              <div className="grid grid-cols-2 gap-1.5 mt-4 bg-slate-900/90 p-1 rounded-xl border border-indigo-500/30">
                 <button
                   type="button"
                   onClick={() => {
-                    setIsMasterMode(false);
-                    setPin('');
+                    setIsRegisteringMasterPwd(false);
                     setErrorMessage(null);
+                    setSuccessMessage(null);
                   }}
-                  className="w-full py-2.5 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    !isRegisteringMasterPwd
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
                 >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Voltar ao Acesso da Unidade Escolar</span>
+                  Acessar Painel Master
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsRegisteringMasterPwd(true);
+                    setErrorMessage(null);
+                    setSuccessMessage(null);
+                  }}
+                  className={`py-1.5 px-3 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    isRegisteringMasterPwd
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-300 hover:text-white'
+                  }`}
+                >
+                  Cadastrar Senha Forte
                 </button>
               </div>
-            </form>
+            </div>
+
+            {!isRegisteringMasterPwd ? (
+              <form onSubmit={handleMasterLogin} className="p-6 sm:p-7 space-y-4">
+                {errorMessage && (
+                  <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-3 flex items-start gap-2.5 text-xs animate-in fade-in">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">{errorMessage}</p>
+                    </div>
+                  </div>
+                )}
+
+                {successMessage && (
+                  <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-3 flex items-start gap-2.5 text-xs animate-in fade-in">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">{successMessage}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 space-y-1.5 text-xs text-slate-600">
+                  <div className="font-extrabold text-slate-900 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span>Escopo Exclusivo de Liberação & Auxílio</span>
+                  </div>
+                  <p className="leading-relaxed text-[11px] text-slate-600">
+                    O perfil Master é destinado exclusivamente para cadastrar escolas, liberar/bloquear módulos contratados e realizar ajustes de cadastros como auxílio técnico, sem interferir na operação diária da escola.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block mb-1.5 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Senha Forte do Painel Master:</span>
+                    </span>
+                    <span className="text-[10px] font-bold text-indigo-600">8 a 16 caracteres</span>
+                  </label>
+
+                  <div className="relative">
+                    <input
+                      type={showPin ? 'text' : 'password'}
+                      minLength={8}
+                      maxLength={16}
+                      value={pin}
+                      onChange={e => {
+                        setPin(e.target.value.slice(0, 16));
+                        setErrorMessage(null);
+                      }}
+                      placeholder="Ex: Master@2026"
+                      className="w-full py-3 px-4 pr-11 text-center text-base font-mono font-bold tracking-wider rounded-xl border border-slate-300 bg-slate-50 hover:bg-white focus:bg-white text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:outline-hidden transition-all shadow-2xs"
+                      required
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPin(!showPin)}
+                      className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-700 p-1 cursor-pointer"
+                      title={showPin ? 'Ocultar senha' : 'Mostrar senha'}
+                    >
+                      {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+
+                  {/* Checklist em tempo real dos requisitos da senha Master */}
+                  <div className="mt-2.5 grid grid-cols-2 gap-1.5 text-[10px] bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                    <div className={`flex items-center gap-1 font-semibold ${masterValidation.hasValidLength ? 'text-emerald-700' : 'text-slate-400'}`}>
+                      <span>{masterValidation.hasValidLength ? '✓' : '○'}</span>
+                      <span>8 a 16 caracteres ({pin.length}/16)</span>
+                    </div>
+                    <div className={`flex items-center gap-1 font-semibold ${masterValidation.hasUppercase ? 'text-emerald-700' : 'text-slate-400'}`}>
+                      <span>{masterValidation.hasUppercase ? '✓' : '○'}</span>
+                      <span>1 Letra Maiúscula (A-Z)</span>
+                    </div>
+                    <div className={`flex items-center gap-1 font-semibold ${masterValidation.hasLowercase ? 'text-emerald-700' : 'text-slate-400'}`}>
+                      <span>{masterValidation.hasLowercase ? '✓' : '○'}</span>
+                      <span>1 Letra Minúscula (a-z)</span>
+                    </div>
+                    <div className={`flex items-center gap-1 font-semibold ${masterValidation.hasNumber ? 'text-emerald-700' : 'text-slate-400'}`}>
+                      <span>{masterValidation.hasNumber ? '✓' : '○'}</span>
+                      <span>1 Número (0-9)</span>
+                    </div>
+                    <div className={`col-span-2 flex items-center gap-1 font-semibold ${masterValidation.hasSpecial ? 'text-emerald-700' : 'text-slate-400'}`}>
+                      <span>{masterValidation.hasSpecial ? '✓' : '○'}</span>
+                      <span>1 Caractere Especial (@, #, $, %, !, &...)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  <button
+                    type="submit"
+                    disabled={authenticating || !masterValidation.isValid}
+                    className={`w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold text-white shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      masterValidation.isValid
+                        ? 'bg-indigo-600 hover:bg-indigo-700 ring-2 ring-indigo-300/40 hover:shadow-lg'
+                        : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    <Shield className="w-4 h-4" />
+                    <span>{authenticating ? 'Verificando Credencial Master...' : 'Entrar no Painel Master Global'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMasterMode(false);
+                      setPin('');
+                      setErrorMessage(null);
+                      setSuccessMessage(null);
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Voltar ao Acesso da Unidade Escolar</span>
+                  </button>
+                </div>
+              </form>
+            ) : (
+              /* FORMULÁRIO DE CADASTRO DE NOVA SENHA FORTE DO PERFIL MASTER */
+              <form onSubmit={handleRegisterMasterPassword} className="p-6 sm:p-7 space-y-3.5">
+                {errorMessage && (
+                  <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-3 flex items-start gap-2.5 text-xs animate-in fade-in">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <p className="font-bold">{errorMessage}</p>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 uppercase block mb-1">
+                    Senha Master Atual:
+                  </label>
+                  <input
+                    type={showPin ? 'text' : 'password'}
+                    maxLength={16}
+                    value={currentMasterPwd}
+                    onChange={e => setCurrentMasterPwd(e.target.value.slice(0, 16))}
+                    placeholder="Digite a senha Master atual"
+                    className="w-full py-2.5 px-3.5 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:outline-hidden"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-slate-700 uppercase">
+                      Nova Senha Forte (8 a 16 caracteres):
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowPin(!showPin)}
+                      className="text-[10px] font-bold text-indigo-600 hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      {showPin ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                      <span>{showPin ? 'Ocultar' : 'Mostrar'}</span>
+                    </button>
+                  </div>
+                  <input
+                    type={showPin ? 'text' : 'password'}
+                    minLength={8}
+                    maxLength={16}
+                    value={newMasterPwd}
+                    onChange={e => setNewMasterPwd(e.target.value.slice(0, 16))}
+                    placeholder="Mín. 8 e máx. 16 caracteres"
+                    className="w-full py-2.5 px-3.5 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:outline-hidden"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 uppercase block mb-1">
+                    Confirmar Nova Senha Forte:
+                  </label>
+                  <input
+                    type={showPin ? 'text' : 'password'}
+                    minLength={8}
+                    maxLength={16}
+                    value={confirmMasterPwd}
+                    onChange={e => setConfirmMasterPwd(e.target.value.slice(0, 16))}
+                    placeholder="Repita a nova senha forte"
+                    className="w-full py-2.5 px-3.5 text-xs font-mono font-bold rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-slate-900 focus:ring-2 focus:ring-indigo-600 focus:outline-hidden"
+                    required
+                  />
+                </div>
+
+                {/* Regras obrigatórias em tempo real */}
+                <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-xl p-3 space-y-1 text-[11px]">
+                  <p className="font-extrabold text-indigo-950 text-[10px] uppercase tracking-wider mb-1">
+                    Requisitos Obrigatórios da Senha Master:
+                  </p>
+                  <div className={`flex items-center gap-1.5 font-semibold ${newMasterValidation.hasValidLength ? 'text-emerald-700' : 'text-slate-500'}`}>
+                    <span>{newMasterValidation.hasValidLength ? '✅' : '⬜'}</span>
+                    <span>Mínimo de 8 e máximo de 16 caracteres ({newMasterPwd.length}/16)</span>
+                  </div>
+                  <div className={`flex items-center gap-1.5 font-semibold ${newMasterValidation.hasUppercase ? 'text-emerald-700' : 'text-slate-500'}`}>
+                    <span>{newMasterValidation.hasUppercase ? '✅' : '⬜'}</span>
+                    <span>Pelo menos 1 letra Maiúscula (A-Z)</span>
+                  </div>
+                  <div className={`flex items-center gap-1.5 font-semibold ${newMasterValidation.hasLowercase ? 'text-emerald-700' : 'text-slate-500'}`}>
+                    <span>{newMasterValidation.hasLowercase ? '✅' : '⬜'}</span>
+                    <span>Pelo menos 1 letra Minúscula (a-z)</span>
+                  </div>
+                  <div className={`flex items-center gap-1.5 font-semibold ${newMasterValidation.hasNumber ? 'text-emerald-700' : 'text-slate-500'}`}>
+                    <span>{newMasterValidation.hasNumber ? '✅' : '⬜'}</span>
+                    <span>Pelo menos 1 Número (0-9)</span>
+                  </div>
+                  <div className={`flex items-center gap-1.5 font-semibold ${newMasterValidation.hasSpecial ? 'text-emerald-700' : 'text-slate-500'}`}>
+                    <span>{newMasterValidation.hasSpecial ? '✅' : '⬜'}</span>
+                    <span>Pelo menos 1 Caractere Especial (@, #, $, %, !, &...)</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  <button
+                    type="submit"
+                    disabled={authenticating || !newMasterValidation.isValid || newMasterPwd !== confirmMasterPwd}
+                    className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      newMasterValidation.isValid && newMasterPwd === confirmMasterPwd
+                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                        : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                    }`}
+                  >
+                    <KeyRound className="w-4 h-4" />
+                    <span>{authenticating ? 'Salvando...' : 'Salvar Nova Senha Forte Master'}</span>
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         )}
       </main>

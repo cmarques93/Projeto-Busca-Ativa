@@ -56,7 +56,7 @@ export const DEFAULT_USERS: {
     username: 'proprietario.master',
     role: 'super_admin',
     roleLabel: 'Proprietário / Admin Universal (SaaS)',
-    pin: '1234',
+    pin: 'Master@2026',
     active: true,
     isUniversal: true,
   },

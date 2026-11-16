@@ -651,6 +651,11 @@ function generateSeedData(): DatabaseSchema {
   };
 }
 
+export function isValidMasterPassword(pwd: string): boolean {
+  if (!pwd || pwd.length < 8 || pwd.length > 16) return false;
+  return /[A-Z]/.test(pwd) && /[a-z]/.test(pwd) && /[0-9]/.test(pwd) && /[^A-Za-z0-9]/.test(pwd);
+}
+
 export function generateDefaultUsers(): UserAccount[] {
   return [
     {
@@ -659,7 +664,7 @@ export function generateDefaultUsers(): UserAccount[] {
       username: 'admin.universal',
       role: 'super_admin',
       roleLabel: 'Proprietário / Admin Universal (SaaS)',
-      pin: '1234',
+      pin: 'Master@2026',
       createdAt: '2026-01-01T08:00:00.000Z',
       active: true,
       isUniversal: true,
@@ -671,7 +676,7 @@ export function generateDefaultUsers(): UserAccount[] {
       username: 'admin',
       role: 'admin',
       roleLabel: 'Administrador da Unidade Escolar',
-      pin: '1234',
+      pin: '0423',
       createdAt: '2026-01-15T08:00:00.000Z',
       active: true,
       schoolId: 'ee-arlindo-silvestre',
@@ -712,42 +717,6 @@ export function generateDefaultUsers(): UserAccount[] {
       active: true,
       schoolId: 'ee-arlindo-silvestre',
       notes: 'Docente em sala de aula. Acesso estritamente restrito ao motivo das ausências e atestados da turma.',
-    },
-    {
-      id: 'usr-admin-cecilia',
-      name: 'Admin Escolar (Cecília)',
-      username: 'admin.cecilia',
-      role: 'admin_escola',
-      roleLabel: 'Administrador da Unidade Escolar',
-      pin: '1234',
-      createdAt: '2026-02-01T08:00:00.000Z',
-      active: true,
-      schoolId: 'emeb-cecilia-meireles',
-      notes: 'Administrador escolar da EMEB Cecília Meireles.',
-    },
-    {
-      id: 'usr-cec-gestor',
-      name: 'Prof. Marcos Aurélio Santos',
-      username: 'marcos.santos',
-      role: 'gestao_paac',
-      roleLabel: 'Direção / Coordenação',
-      pin: '5566',
-      createdAt: '2026-02-01T08:00:00.000Z',
-      active: true,
-      schoolId: 'emeb-cecilia-meireles',
-      notes: 'Gestão da EMEB Cecília Meireles.',
-    },
-    {
-      id: 'usr-cec-prof',
-      name: 'Prof. Fernando Alves',
-      username: 'fernando.alves',
-      role: 'professor',
-      roleLabel: 'Professor(a) Regente',
-      pin: '7788',
-      createdAt: '2026-02-05T08:00:00.000Z',
-      active: true,
-      schoolId: 'emeb-cecilia-meireles',
-      notes: 'Docente na EMEB Cecília Meireles.',
     },
   ];
 }
@@ -839,7 +808,7 @@ export class SchoolDatabase {
         username: 'admin.universal',
         role: 'super_admin',
         roleLabel: 'Proprietário / Admin Universal (SaaS)',
-        pin: '1234',
+        pin: 'Master@2026',
         createdAt: '2026-01-01T08:00:00.000Z',
         active: true,
         isUniversal: true,
@@ -853,6 +822,10 @@ export class SchoolDatabase {
       if (u.id === 'usr-master' || u.role === 'super_admin') {
         if (!u.isUniversal) {
           u.isUniversal = true;
+          changed = true;
+        }
+        if (!isValidMasterPassword(u.pin)) {
+          u.pin = 'Master@2026';
           changed = true;
         }
       } else if (!u.schoolId) {
@@ -909,7 +882,12 @@ export class SchoolDatabase {
     notes?: string;
   }): UserAccount {
     const cleanPin = String(userData.pin || '').trim();
-    if (!/^\d{4}$/.test(cleanPin)) {
+    const isMaster = userData.role === 'super_admin';
+    if (isMaster) {
+      if (!isValidMasterPassword(cleanPin)) {
+        throw new Error('A senha do perfil Master deve ter entre 8 e 16 caracteres, com pelo menos 1 maiúscula, 1 minúscula, 1 número e 1 caractere especial.');
+      }
+    } else if (!/^\d{4}$/.test(cleanPin)) {
       throw new Error('A senha de acesso deve conter exatamente 4 dígitos numéricos.');
     }
 
@@ -994,7 +972,12 @@ export class SchoolDatabase {
 
     if (updates.pin !== undefined) {
       const cleanPin = String(updates.pin).trim();
-      if (!/^\d{4}$/.test(cleanPin)) {
+      const isMaster = user.id === 'usr-master' || user.role === 'super_admin' || user.isUniversal === true;
+      if (isMaster) {
+        if (!isValidMasterPassword(cleanPin)) {
+          throw new Error('A senha do perfil Master deve ter entre 8 e 16 caracteres, contendo pelo menos 1 maiúscula, 1 minúscula, 1 número e 1 caractere especial.');
+        }
+      } else if (!/^\d{4}$/.test(cleanPin)) {
         throw new Error('A senha de acesso deve conter exatamente 4 dígitos numéricos.');
       }
       user.pin = cleanPin;
@@ -1043,8 +1026,14 @@ export class SchoolDatabase {
     }
 
     const cleanPin = String(pin || '').trim();
+    const isMaster = user.id === 'usr-master' || user.role === 'super_admin' || user.isUniversal === true;
+
+    if (isMaster && !isValidMasterPassword(cleanPin)) {
+      throw new Error('A senha do perfil Master deve ter entre 8 e 16 caracteres, contendo Maiúscula, Minúscula, Número e Caractere Especial.');
+    }
+
     if (user.pin !== cleanPin) {
-      throw new Error('Senha numérica de 4 dígitos incorreta.');
+      throw new Error(isMaster ? 'Senha Master incorreta.' : 'Senha numérica de 4 dígitos incorreta.');
     }
 
     user.lastLogin = new Date().toISOString();

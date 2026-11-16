@@ -442,7 +442,7 @@
       "name": "Proprietário (Acesso Universal)",
       "active": true,
       "role": "super_admin",
-      "pin": "1234",
+      "pin": "Master@2026",
       "isUniversal": true,
       "id": "usr-master",
       "username": "proprietario.master",

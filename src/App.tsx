@@ -1111,9 +1111,9 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* TELA INICIAL (DASHBOARD PERSONALIZADO POR PERFIL)                        */}
+        {/* TELA INICIAL (DASHBOARD PERSONALIZADO POR PERFIL DA UNIDADE ESCOLAR)      */}
         {/* ========================================================================= */}
-        {activeModule === 'inicio' && (
+        {activeModule === 'inicio' && !currentUser.isUniversal && currentUser.role !== 'super_admin' && (
           <DashboardHome
             currentUser={currentUser}
             currentSchool={currentSchool}
@@ -1133,9 +1133,9 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* MÓDULO 1: DIÁRIO & PORTARIA (NAVEGAÇÃO POR CARDS)                        */}
+        {/* MÓDULO 1: DIÁRIO & PORTARIA (NAVEGAÇÃO POR CARDS - OPERADORES ESCOLARES)  */}
         {/* ========================================================================= */}
-        {activeModule === 'diario' && (
+        {activeModule === 'diario' && !currentUser.isUniversal && currentUser.role !== 'super_admin' && (
           <div className="space-y-5 animate-in fade-in duration-200">
             {/* Hub de Cards para Diário & Portaria */}
             {subTabDiario === 'hub' && (
@@ -1293,9 +1293,9 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* MÓDULO 2: BUSCA ATIVA & OCORRÊNCIAS (NAVEGAÇÃO POR CARDS)                */}
+        {/* MÓDULO 2: BUSCA ATIVA & OCORRÊNCIAS (NAVEGAÇÃO POR CARDS - OPERADORES)    */}
         {/* ========================================================================= */}
-        {activeModule === 'busca_ativa' && (
+        {activeModule === 'busca_ativa' && !currentUser.isUniversal && currentUser.role !== 'super_admin' && (
           <div className="space-y-5 animate-in fade-in duration-200">
             {/* Hub de Cards para Busca Ativa & Ocorrências */}
             {subTabBuscaAtiva === 'hub' && (
@@ -1488,7 +1488,7 @@ export default function App() {
               />
             )}
 
-            {subTabBuscaAtiva === 'alertas' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin' || currentUser.role === 'admin_escola' || currentUser.role === 'super_admin') && (
+            {subTabBuscaAtiva === 'alertas' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin' || currentUser.role === 'admin_escola') && (
               <AlertsManager
                 alerts={alerts}
                 onUpdateAlertStatus={handleUpdateAlertStatus}
@@ -1507,7 +1507,7 @@ export default function App() {
               />
             )}
 
-            {subTabBuscaAtiva === 'casos' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin' || currentUser.role === 'admin_escola' || currentUser.role === 'super_admin') && (
+            {subTabBuscaAtiva === 'casos' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin' || currentUser.role === 'admin_escola') && (
               <InterventionsManager
                 cases={interventions}
                 students={students}
@@ -1528,9 +1528,9 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* MÓDULO 3: AGENDAMENTO DE TABLETS                                         */}
+        {/* MÓDULO 3: AGENDAMENTO DE TABLETS (OPERADORES ESCOLARES)                  */}
         {/* ========================================================================= */}
-        {activeModule === 'tablets' && (
+        {activeModule === 'tablets' && !currentUser.isUniversal && currentUser.role !== 'super_admin' && (
           <TabletsManager
             currentUser={currentUser}
             classes={classes}
@@ -1538,9 +1538,9 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* MÓDULO 4: RELATÓRIOS & ESTRATÉGICO                                       */}
+        {/* MÓDULO 4: RELATÓRIOS & ESTRATÉGICO (OPERADORES ESCOLARES)                */}
         {/* ========================================================================= */}
-        {activeModule === 'relatorios' && (
+        {activeModule === 'relatorios' && !currentUser.isUniversal && currentUser.role !== 'super_admin' && (
           <MonthlyReport
             report={monthlyReport}
             classes={classes}
@@ -1554,9 +1554,9 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* MÓDULO 5: GERENCIADOR DO SISTEMA (ADMINISTRADOR MASTER / ESCOLA)         */}
+        {/* MÓDULO 5: GERENCIADOR DO SISTEMA (PERFIL MASTER OU ADMIN DA ESCOLA)      */}
         {/* ========================================================================= */}
-        {activeModule === 'system_manager' && (currentUser.role === 'admin' || currentUser.role === 'admin_escola' || currentUser.role === 'super_admin' || currentUser.isUniversal) && (
+        {(activeModule === 'system_manager' || currentUser.role === 'super_admin' || currentUser.isUniversal) && (currentUser.role === 'admin' || currentUser.role === 'admin_escola' || currentUser.role === 'super_admin' || currentUser.isUniversal) && (
           <SystemConfigManager
             currentUser={currentUser}
             classes={classes}
@@ -1564,7 +1564,6 @@ export default function App() {
             currentSchool={currentSchool}
             schools={schools}
             onSelectSchool={handleSwitchSchool}
-            onOpenSchoolOperationalPanel={() => setActiveModule('inicio')}
             onRefresh={fetchData}
             onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
             onOpenWhatsAppIntegration={() => setIsWhatsAppModalOpen(true)}

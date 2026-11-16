@@ -43,7 +43,7 @@ import {
   X
 } from 'lucide-react';
 import { SchoolClass, Student, UserAccount, UserRole, UserSession, School as SchoolType, SchoolModulesConfig, isModuleEnabled } from '../types';
-import { storageService, getRoleLabel } from '../data/storageService';
+import { storageService, getRoleLabel, validateMasterPassword } from '../data/storageService';
 import { firestoreService } from '../lib/firestoreService';
 import {
   carregarOcorrenciasSeguro,
@@ -449,6 +449,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
 
   const [selectedUserForPin, setSelectedUserForPin] = useState<UserAccount | null>(null);
   const [novoPinEdit, setNovoPinEdit] = useState('');
+  const [showMasterPinModal, setShowMasterPinModal] = useState(false);
 
   const [selectedUserForEdit, setSelectedUserForEdit] = useState<UserAccount | null>(null);
   const [userToDelete, setUserToDelete] = useState<UserAccount | null>(null);
@@ -1099,8 +1100,48 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
   };
 
   const handleSalvarPinUsuario = async () => {
-    if (!selectedUserForPin || !novoPinEdit || !/^\d{4}$/.test(novoPinEdit)) {
-      showToast('⚠️ O PIN deve conter exatamente 4 dígitos numéricos.', 'erro');
+    if (!selectedUserForPin) return;
+
+    const isMasterTarget =
+      selectedUserForPin.id === 'usr-master' ||
+      selectedUserForPin.role === 'super_admin' ||
+      selectedUserForPin.isUniversal === true;
+
+    if (isMasterTarget) {
+      const validation = validateMasterPassword(novoPinEdit);
+      if (!validation.isValid) {
+        showToast(
+          '⚠️ A Senha Master deve ter de 8 a 16 caracteres, incluindo pelo menos 1 Maiúscula, 1 Minúscula, 1 Número e 1 Caractere Especial.',
+          'erro'
+        );
+        return;
+      }
+
+      try {
+        const cleanPwd = novoPinEdit.trim();
+        const updatedUser = { ...selectedUserForPin, pin: cleanPwd };
+        storageService.updateUserPin('usr-master', cleanPwd);
+        const updatedList = usuarios.map(u => (u.id === selectedUserForPin.id ? updatedUser : u));
+        setUsuarios(updatedList);
+        await firestoreService.saveUser(updatedUser);
+        await fetch('/api/users/usr-master', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: cleanPwd }),
+        }).catch(() => null);
+
+        setSelectedUserForPin(null);
+        setNovoPinEdit('');
+        setShowMasterPinModal(false);
+        showToast('✅ Senha Forte do Painel Master Global atualizada com sucesso!');
+      } catch (err: any) {
+        showToast('Erro ao atualizar Senha Master: ' + err.message, 'erro');
+      }
+      return;
+    }
+
+    if (!novoPinEdit || !/^\d{4}$/.test(novoPinEdit)) {
+      showToast('⚠️ O PIN do operador escolar deve conter exatamente 4 dígitos numéricos.', 'erro');
       return;
     }
 
@@ -1184,13 +1225,14 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
               onClick={() => {
                 const masterAcc = storageService.getMasterUser();
                 setSelectedUserForPin(masterAcc);
-                setNovoPinEdit(masterAcc.pin || '9999');
+                setNovoPinEdit(masterAcc.pin || 'Master@2026');
+                setShowMasterPinModal(false);
               }}
               className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all cursor-pointer"
-              title="Alterar a senha de 4 dígitos do Painel Master Global"
+              title="Cadastrar ou alterar Senha Forte do Painel Master Global (8 a 16 caracteres)"
             >
               <KeyRound className="w-3.5 h-3.5 text-amber-700" />
-              <span>Senha Master</span>
+              <span>Cadastrar Senha Forte Master</span>
             </button>
           )}
           <button
@@ -1404,7 +1446,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
                   Central Global de Unidades Escolares
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-300 max-w-2xl leading-relaxed">
-                  Cadastre novas escolas, libere ou bloqueie módulos de acordo com o plano de cada instituição e clique em <strong>Auxiliar Configuração</strong> ou <strong>Painel Operacional</strong> para prestar suporte técnico em qualquer unidade.
+                  Perfil exclusivo para liberar ou bloquear módulos de acordo com o plano de cada instituição e prestar auxílio técnico nos cadastros (turmas, estudantes, grade, motivos, tablets e operadores) sem interferir na operação diária da escola.
                 </p>
               </div>
 
@@ -1523,49 +1565,36 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
                     </div>
                   </div>
 
-                  {/* Ações Master para a Escola */}
+                  {/* Ações Master para a Escola (Apenas Liberação de Módulos e Auxílio de Cadastros) */}
                   <div className="pt-4 mt-4 border-t border-slate-100 space-y-2">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openEditSchoolModal(sch)}
+                        className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+                        title="Liberar/Bloquear módulos e editar dados institucionais desta escola"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                        <span>Liberar Módulos & Dados</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => {
                           setActiveSchoolId(sch.id);
                           if (onSelectSchool) onSelectSchool(sch.id);
                           setActiveSubTab('busca_ativa');
-                          showToast(`Auxiliando configuração da unidade: ${sch.name}`);
+                          showToast(`Modo de auxílio de cadastros ativo para: ${sch.name}`);
                         }}
                         className="px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
                       >
                         <Settings className="w-3.5 h-3.5" />
-                        <span>Auxiliar Configuração</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveSchoolId(sch.id);
-                          if (onSelectSchool) onSelectSchool(sch.id);
-                          if (onOpenSchoolOperationalPanel) onOpenSchoolOperationalPanel();
-                        }}
-                        className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        <span>Painel Operacional</span>
+                        <span>Auxiliar Cadastros</span>
                       </button>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => openEditSchoolModal(sch)}
-                        className="flex-1 px-3 py-1.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
-                        title="Liberar/Bloquear módulos e editar dados institucionais desta escola"
-                      >
-                        <Edit2 className="w-3.5 h-3.5 text-slate-500" />
-                        <span>Editar Dados & Liberar Módulos</span>
-                      </button>
-
-                      {allSchools.length > 1 && sch.id !== 'ee-arlindo-silvestre' && (
+                    {allSchools.length > 1 && sch.id !== 'ee-arlindo-silvestre' && (
+                      <div className="flex items-center justify-end pt-1">
                         <button
                           type="button"
                           onClick={() => setSchoolToDelete(sch)}
@@ -1573,9 +1602,10 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
                           title="Excluir unidade escolar"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
+                          <span>Remover Unidade</span>
                         </button>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -3798,48 +3828,127 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
         </div>
       )}
 
-      {/* MODAL: ALTERAR PIN DO USUÁRIO */}
-      {selectedUserForPin && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center space-y-4 border border-purple-200">
-            <div className="w-12 h-12 rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center mx-auto">
-              <KeyRound className="w-6 h-6" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Alterar PIN de {selectedUserForPin.name}</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Digite a nova senha de 4 dígitos numéricos:</p>
-            </div>
-            <div>
-              <input
-                type="password"
-                maxLength={4}
-                value={novoPinEdit}
-                onChange={e => setNovoPinEdit(e.target.value.replace(/\D/g, ''))}
-                placeholder="1234"
-                className="w-36 mx-auto p-2.5 border border-purple-300 rounded-xl font-mono font-bold text-center text-slate-900 tracking-widest text-lg bg-purple-50/50"
-                autoFocus
-              />
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setSelectedUserForPin(null)}
-                className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                disabled={novoPinEdit.length !== 4}
-                onClick={handleSalvarPinUsuario}
-                className="flex-1 py-2 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer disabled:opacity-50"
-              >
-                Salvar PIN
-              </button>
+      {/* MODAL: ALTERAR PIN DO USUÁRIO OU SENHA FORTE DO MASTER */}
+      {selectedUserForPin && (() => {
+        const isMasterTarget =
+          selectedUserForPin.id === 'usr-master' ||
+          selectedUserForPin.role === 'super_admin' ||
+          selectedUserForPin.isUniversal === true;
+        const masterValidation = validateMasterPassword(novoPinEdit);
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+            <div className={`bg-white rounded-2xl shadow-2xl w-full p-6 space-y-4 border ${
+              isMasterTarget ? 'max-w-md border-amber-300' : 'max-w-sm text-center border-purple-200'
+            }`}>
+              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto ${
+                isMasterTarget ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-700'
+              }`}>
+                <KeyRound className="w-6 h-6" />
+              </div>
+
+              <div className="text-center">
+                <h3 className="text-base font-bold text-slate-900">
+                  {isMasterTarget
+                    ? 'Cadastrar Senha Forte • Perfil Master'
+                    : `Alterar PIN de ${selectedUserForPin.name}`}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {isMasterTarget
+                    ? 'Defina uma senha forte (8 a 16 caracteres) com letras maiúsculas, minúsculas, números e símbolos especiais:'
+                    : 'Digite a nova senha de 4 dígitos numéricos do operador escolar:'}
+                </p>
+              </div>
+
+              {isMasterTarget ? (
+                <div className="space-y-3">
+                  <div className="relative">
+                    <input
+                      type={showMasterPinModal ? 'text' : 'password'}
+                      minLength={8}
+                      maxLength={16}
+                      value={novoPinEdit}
+                      onChange={e => setNovoPinEdit(e.target.value.slice(0, 16))}
+                      placeholder="Ex: Master@2026"
+                      className="w-full px-4 py-2.5 pr-10 border border-amber-300 rounded-xl font-mono font-bold text-slate-900 text-base bg-amber-50/40 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowMasterPinModal(prev => !prev)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                    >
+                      {showMasterPinModal ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+
+                  {/* Checklist em tempo real dos requisitos da Senha Forte */}
+                  <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 space-y-1.5 text-left">
+                    <div className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">
+                      Requisitos Obrigatórios da Senha Master:
+                    </div>
+                    <div className={`flex items-center gap-1.5 text-xs font-semibold ${masterValidation.hasValidLength ? 'text-emerald-700' : 'text-slate-400'}`}>
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>Mínimo 8 e máximo 16 caracteres ({novoPinEdit.length}/16)</span>
+                    </div>
+                    <div className={`flex items-center gap-1.5 text-xs font-semibold ${masterValidation.hasUppercase ? 'text-emerald-700' : 'text-slate-400'}`}>
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>Pelo menos 1 letra Maiúscula (A-Z)</span>
+                    </div>
+                    <div className={`flex items-center gap-1.5 text-xs font-semibold ${masterValidation.hasLowercase ? 'text-emerald-700' : 'text-slate-400'}`}>
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>Pelo menos 1 letra Minúscula (a-z)</span>
+                    </div>
+                    <div className={`flex items-center gap-1.5 text-xs font-semibold ${masterValidation.hasNumber ? 'text-emerald-700' : 'text-slate-400'}`}>
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>Pelo menos 1 Número (0-9)</span>
+                    </div>
+                    <div className={`flex items-center gap-1.5 text-xs font-semibold ${masterValidation.hasSpecial ? 'text-emerald-700' : 'text-slate-400'}`}>
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>Pelo menos 1 Caractere Especial (@, #, $, %, !, &, *)</span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <input
+                    type="password"
+                    maxLength={4}
+                    value={novoPinEdit}
+                    onChange={e => setNovoPinEdit(e.target.value.replace(/\D/g, ''))}
+                    placeholder="1234"
+                    className="w-36 mx-auto p-2.5 border border-purple-300 rounded-xl font-mono font-bold text-center text-slate-900 tracking-widest text-lg bg-purple-50/50"
+                    autoFocus
+                  />
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedUserForPin(null);
+                    setShowMasterPinModal(false);
+                  }}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={isMasterTarget ? !masterValidation.isValid : novoPinEdit.length !== 4}
+                  onClick={handleSalvarPinUsuario}
+                  className={`flex-1 py-2.5 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer disabled:opacity-50 ${
+                    isMasterTarget ? 'bg-amber-600 hover:bg-amber-700' : 'bg-purple-700 hover:bg-purple-800'
+                  }`}
+                >
+                  {isMasterTarget ? 'Salvar Senha Forte' : 'Salvar PIN'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* MODAL: EXCLUIR USUÁRIO */}
       {userToDelete && (

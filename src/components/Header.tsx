@@ -185,10 +185,10 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Ações Funcionais Permitidas no Topo: Relatório de Acompanhamento e Sincronizar Único */}
+        {/* Ações Funcionais Permitidas no Topo: Relatório de Acompanhamento (apenas escola) e Sincronizar Único */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {/* Relatório Oficial de Acompanhamento (Gestão / Admin) */}
-          {(isGestao || isAdmin) && onOpenSeducReport && isModuleEnabled(currentSchool, 'relatorios') && (
+          {/* Relatório Oficial de Acompanhamento (Exclusivo para Gestão / Admin da Escola — Master não acessa a função em si) */}
+          {!isUniversalMaster && (isGestao || isAdmin) && onOpenSeducReport && isModuleEnabled(currentSchool, 'relatorios') && (
             <button
               onClick={onOpenSeducReport}
               className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
@@ -217,8 +217,8 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* 3. Barra de Navegação Contextual (Botões "Voltar à Tela Anterior" e "Tela de Início") */}
-      {isNotHome && (
+      {/* 3. Barra de Navegação Contextual (Apenas para operadores da escola — Perfil Master atua somente em módulos e cadastros de auxílio) */}
+      {!isUniversalMaster && isNotHome && (
         <div className="bg-slate-50 border-t border-slate-200 px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between gap-3 animate-in fade-in duration-200">
           <div className="flex items-center gap-2">
             {canGoBack && onGoBack && (
@@ -239,7 +239,7 @@ export const Header: React.FC<HeaderProps> = ({
                 title="Ir para a Tela Inicial da Unidade Escolar"
               >
                 <Home className="w-3.5 h-3.5" />
-                <span>{isUniversalMaster ? 'Ver Painel da Escola' : 'Tela de Início'}</span>
+                <span>Tela de Início</span>
               </button>
             )}
 
