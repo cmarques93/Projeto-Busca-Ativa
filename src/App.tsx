@@ -24,6 +24,7 @@ import { TabletsManager } from './components/TabletsManager';
 import { FirebaseStatusModal } from './components/FirebaseStatusModal';
 import { DashboardHome } from './components/DashboardHome';
 import { SchoolSelectorModal } from './components/SchoolSelectorModal';
+import { CurriculumCalendarModule } from './components/CurriculumCalendarModule';
 import {
   RotateCcw,
   ShieldCheck,
@@ -48,6 +49,7 @@ import {
 import { storageService } from './data/storageService';
 import { firestoreService } from './lib/firestoreService';
 import { salvarCacheOcorrencias, salvarCacheTablets } from './lib/sheetsSyncService';
+import { getLocalTodayStr } from './utils/reportCalculator';
 import {
   Student,
   SchoolClass,
@@ -70,8 +72,8 @@ export default function App() {
   // Módulos Consolidados de Navegação (Inicia na Tela Inicial)
   const [activeModule, setActiveModule] = useState<MainModuleType>('inicio');
   const [subTabDiario, setSubTabDiario] = useState<'hub' | 'chamada' | 'portaria' | 'ausencias' | 'turmas'>('hub');
-  const [subTabBuscaAtiva, setSubTabBuscaAtiva] = useState<'hub' | 'ocorrencias' | 'alertas' | 'casos'>('hub');
-  const [ocorrenciasSubTab, setOcorrenciasSubTab] = useState<string>('registrar');
+  const [subTabBuscaAtiva, setSubTabBuscaAtiva] = useState<'hub' | 'alertas' | 'casos'>('hub');
+  const [ocorrenciasSubTab, setOcorrenciasSubTab] = useState<string>('hub');
 
   const [activeTab, setActiveTab] = useState<MainTabType>('attendance');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -132,48 +134,64 @@ export default function App() {
         }
         if (res.classes && res.classes.length > 0) {
           setClasses(res.classes);
-          storageService.setClasses(res.classes);
-          if (!selectedClassId || !res.classes.some((c: any) => c.id === selectedClassId)) {
-            setSelectedClassId(res.classes[0].id);
-          }
+          storageService.setClasses(res.classes, sId);
+          setSelectedClassId(prev => (!prev || !res.classes.some((c: any) => c.id === prev) ? res.classes[0].id : prev));
         } else {
           const localClasses = storageService.getClasses(sId);
           setClasses(localClasses);
-          if (localClasses.length > 0 && (!selectedClassId || !localClasses.some((c: any) => c.id === selectedClassId))) {
-            setSelectedClassId(localClasses[0].id);
-          } else if (localClasses.length === 0) {
-            setSelectedClassId('');
-          }
+          setSelectedClassId(prev => {
+            if (localClasses.length === 0) return '';
+            return !prev || !localClasses.some((c: any) => c.id === prev) ? localClasses[0].id : prev;
+          });
         }
         if (res.students) {
           const stList = res.students.length > 0 ? res.students : storageService.getStudents(undefined, sId);
           setStudents(stList);
           if (res.students.length > 0) {
-            storageService.setStudents(res.students);
+            storageService.setStudents(res.students, sId);
           }
         }
         if (res.users && res.users.length > 0) {
           storageService.setUsers(res.users);
         }
-        if (res.alerts) {
+        if (res.alerts && res.alerts.length > 0) {
           setAlerts(res.alerts);
-          storageService.setAlerts(res.alerts);
+          storageService.setAlerts(res.alerts, sId);
+        } else {
+          setAlerts(storageService.getAlerts(sId));
         }
-        if (res.attendance !== undefined) {
-          storageService.setAttendanceRecords(res.attendance);
+        if (res.attendance && res.attendance.length > 0) {
+          const localAttendance = storageService.getAttendanceRecords(undefined, undefined, sId);
+          const cloudIds = new Set(res.attendance.map(a => a.id));
+          const localOnly = localAttendance.filter(a => !cloudIds.has(a.id));
+          storageService.setAttendanceRecords([...res.attendance, ...localOnly], sId);
         }
-        if (res.interventions) {
+        if (res.interventions && res.interventions.length > 0) {
           setInterventions(res.interventions);
-          storageService.setInterventions(res.interventions);
+          storageService.setInterventions(res.interventions, sId);
+        } else {
+          setInterventions(storageService.getInterventions(sId));
         }
         if (res.gate && res.gate.length > 0) {
-          storageService.setGateRecords(res.gate);
+          const localGate = storageService.getGateRecords(undefined, undefined, sId);
+          const cloudIds = new Set(res.gate.map(g => g.id));
+          const mergedGate = [...res.gate, ...localGate.filter(g => !cloudIds.has(g.id))];
+          storageService.setGateRecords(mergedGate, sId);
         }
         if (res.ocorrencias) {
           salvarCacheOcorrencias(res.ocorrencias);
         }
         if (res.tablets) {
           salvarCacheTablets(res.tablets);
+        }
+        if (res.calendar) {
+          storageService.setSchoolCalendar(res.calendar, sId);
+        }
+        if (res.teacherSchedules) {
+          storageService.setTeacherSchedules(res.teacherSchedules, sId);
+        }
+        if (res.timetableWorkspace) {
+          storageService.setTimetableWorkspace(res.timetableWorkspace, sId);
         }
 
         setSchoolInfo(prev => ({
@@ -201,11 +219,7 @@ export default function App() {
       setStudents(localStudents);
       setAlerts(storageService.getAlerts(sId));
       setInterventions(storageService.getInterventions(sId));
-      if (localClasses.length > 0) {
-        setSelectedClassId(localClasses[0].id);
-      } else {
-        setSelectedClassId('');
-      }
+      setSelectedClassId(localClasses.length > 0 ? localClasses[0].id : '');
       if (isExplicitLogin) {
         setSyncNotification({
           type: 'warning',
@@ -219,7 +233,7 @@ export default function App() {
       setFirebaseLoginSyncing(false);
     }
     return false;
-  }, [selectedClassId]);
+  }, []);
 
   const handleSyncData = async () => {
     setIsSyncing(true);
@@ -251,6 +265,17 @@ export default function App() {
     }
     return students;
   }, [students, currentUser?.role]);
+
+  // Apenas estudantes com matrícula ativa (exclui estudantes transferidos das chamadas e métricas ativas)
+  const activeStudents = useMemo(
+    () => students.filter(s => s.status !== 'transferido'),
+    [students]
+  );
+
+  const visibleActiveStudents = useMemo(
+    () => visibleStudents.filter(s => s.status !== 'transferido'),
+    [visibleStudents]
+  );
 
   // Modals state
   const [selectedStudentDetailId, setSelectedStudentDetailId] = useState<string | null>(null);
@@ -286,188 +311,116 @@ export default function App() {
     }
   }, []);
 
-  // Fetch all base data
+  // Fetch all base data (Otimizado: atualiza estado imediatamente via storageService e sincroniza com Firestore sem chamadas duplicadas)
   const fetchData = useCallback(async () => {
     setIsRefreshing(true);
-    let hasServerInfo = false;
-    let hasServerClasses = false;
-    let hasServerStudents = false;
-    let hasServerAlerts = false;
-    let hasServerInterventions = false;
-    let hasServerReport = false;
-
-    // Verificar se precisa sincronizar do Google Sheets
-    const checkAndSyncFromSheets = async () => {
-      try {
-        const configRes = await fetch('/api/google-sheets/config');
-        if (configRes.ok) {
-          const config = await configRes.json();
-          if (config.spreadsheetId) {
-            // Se tem planilha, tenta importar automaticamente
-            const syncRes = await fetch('/api/google-sheets/sync-from-sheet', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({}),
-            });
-            if (syncRes.ok) {
-              console.log('Sincronização automática do Sheets realizada com sucesso.');
-            }
-          }
-        }
-      } catch (err) {
-        console.error('Erro na sincronização automática:', err);
-      }
-    };
-
-    // Só sincroniza se estiver vazio
-    if (!localStorage.getItem('school_students')) {
-      await checkAndSyncFromSheets();
-    }
-
-    // Busca dados em tempo real da Nuvem central (Firestore) compartilhada entre todos os navegadores
     const sId = storageService.getActiveSchoolId();
+
+    // 1. Atualização instantânea a partir do cache local da escola ativa (Zero latência na UI após cadastros/exclusões)
+    const localClasses = storageService.getClasses(sId);
+    const localStudents = storageService.getStudents(undefined, sId);
+    const localAlerts = storageService.getAlerts(sId);
+    const localInterventions = storageService.getInterventions(sId);
+
+    setSchools(storageService.getSchools());
+    setCurrentSchool(storageService.getActiveSchool(sId));
+    setClasses(localClasses);
+    setStudents(localStudents);
+    setAlerts(localAlerts);
+    setInterventions(localInterventions);
+    setSchoolInfo(storageService.getSchoolInfo(sId));
+    setMonthlyReport(storageService.getMonthlyReport(selectedMonthIndex));
+    setSelectedClassId(prev => {
+      if (localClasses.length === 0) return '';
+      return !prev || !localClasses.some(c => c.id === prev) ? localClasses[0].id : prev;
+    });
+
+    // 2. Sincronização em nuvem (Firestore) isolada por unidade escolar
     try {
-      const [cloudClasses, cloudStudents, cloudAlerts, cloudAttendance, cloudInterventions, cloudGate] = await Promise.all([
+      const [cloudClasses, cloudStudents, cloudAlerts, cloudAttendance, cloudInterventions, cloudGate, cloudCalendar, cloudSchedules] = await Promise.all([
         firestoreService.getClasses(sId),
         firestoreService.getStudents(sId),
         firestoreService.getAlerts(sId),
         firestoreService.getAttendanceRecords(undefined, sId),
         firestoreService.getInterventions(sId),
         firestoreService.getGateRecords(undefined, sId),
+        firestoreService.getSchoolCalendar(sId),
+        firestoreService.getTeacherSchedules(sId),
       ]);
 
       if (cloudClasses && cloudClasses.length > 0) {
         setClasses(cloudClasses);
-        storageService.setClasses(cloudClasses);
-        hasServerClasses = true;
-        if (!selectedClassId || !cloudClasses.some(c => c.id === selectedClassId)) {
-          setSelectedClassId(cloudClasses[0].id);
-        }
+        storageService.setClasses(cloudClasses, sId);
+        setSelectedClassId(prev => (!prev || !cloudClasses.some(c => c.id === prev) ? cloudClasses[0].id : prev));
       }
       if (cloudStudents && cloudStudents.length > 0) {
         setStudents(cloudStudents);
-        storageService.setStudents(cloudStudents);
-        hasServerStudents = true;
+        storageService.setStudents(cloudStudents, sId);
       }
       if (cloudAlerts && cloudAlerts.length > 0) {
         setAlerts(cloudAlerts);
-        storageService.setAlerts(cloudAlerts);
-        hasServerAlerts = true;
+        storageService.setAlerts(cloudAlerts, sId);
       }
       if (cloudAttendance && cloudAttendance.length > 0) {
-        const localAttendance = storageService.getAttendanceRecords();
+        const localAttendance = storageService.getAttendanceRecords(undefined, undefined, sId);
         const cloudIds = new Set(cloudAttendance.map(a => a.id));
         const localOnly = localAttendance.filter(a => !cloudIds.has(a.id));
-        storageService.setAttendanceRecords([...cloudAttendance, ...localOnly]);
+        storageService.setAttendanceRecords([...cloudAttendance, ...localOnly], sId);
       }
       if (cloudInterventions && cloudInterventions.length > 0) {
         setInterventions(cloudInterventions);
-        storageService.setInterventions(cloudInterventions);
-        hasServerInterventions = true;
+        storageService.setInterventions(cloudInterventions, sId);
       }
       if (cloudGate && cloudGate.length > 0) {
-        storageService.setGateRecords(cloudGate);
+        const localGate = storageService.getGateRecords(undefined, undefined, sId);
+        const cloudIds = new Set(cloudGate.map(g => g.id));
+        const mergedGate = [...cloudGate, ...localGate.filter(g => !cloudIds.has(g.id))];
+        storageService.setGateRecords(mergedGate, sId);
       }
+      if (cloudCalendar) {
+        storageService.setSchoolCalendar(cloudCalendar, sId);
+      }
+      if (cloudSchedules && cloudSchedules.length > 0) {
+        storageService.setTeacherSchedules(cloudSchedules, sId);
+      }
+
+      setSchoolInfo(storageService.getSchoolInfo(sId));
+      setMonthlyReport(storageService.getMonthlyReport(selectedMonthIndex));
     } catch (cloudErr) {
-      console.warn('Erro ao carregar dados do Firestore em App.tsx:', cloudErr);
-    }
-
-    try {
-      const [infoRes, classesRes, studentsRes, alertsRes, interventionsRes, reportRes] = await Promise.all([
-        fetch('/api/school-info').catch(() => null),
-        fetch('/api/classes').catch(() => null),
-        fetch('/api/students').catch(() => null),
-        fetch('/api/alerts').catch(() => null),
-        fetch('/api/interventions').catch(() => null),
-        fetch(`/api/reports/monthly?month=${selectedMonthIndex}&year=2026`).catch(() => null),
-      ]);
-
-      if (infoRes && infoRes.ok && infoRes.headers.get('content-type')?.includes('application/json')) {
-        setSchoolInfo(await infoRes.json());
-        hasServerInfo = true;
-      }
-      if (!hasServerClasses && classesRes && classesRes.ok && classesRes.headers.get('content-type')?.includes('application/json')) {
-        const clsList = await classesRes.json();
-        if (Array.isArray(clsList) && clsList.length > 0) {
-          setClasses(clsList);
-          hasServerClasses = true;
-          if (clsList.length > 0) {
-            if (!selectedClassId || !clsList.some((c: any) => c.id === selectedClassId)) {
-              setSelectedClassId(clsList[0].id);
-            }
-          } else {
-            setSelectedClassId('');
-          }
-        }
-      }
-      if (!hasServerStudents && studentsRes && studentsRes.ok && studentsRes.headers.get('content-type')?.includes('application/json')) {
-        const stList = await studentsRes.json();
-        if (Array.isArray(stList) && stList.length > 0) {
-          setStudents(stList);
-          hasServerStudents = true;
-        }
-      }
-      if (alertsRes && alertsRes.ok && alertsRes.headers.get('content-type')?.includes('application/json')) {
-        const alList = await alertsRes.json();
-        if (Array.isArray(alList)) {
-          setAlerts(alList);
-          hasServerAlerts = true;
-        }
-      }
-      if (interventionsRes && interventionsRes.ok && interventionsRes.headers.get('content-type')?.includes('application/json')) {
-        const intList = await interventionsRes.json();
-        if (Array.isArray(intList)) {
-          setInterventions(intList);
-          hasServerInterventions = true;
-        }
-      }
-      if (reportRes && reportRes.ok && reportRes.headers.get('content-type')?.includes('application/json')) {
-        setMonthlyReport(await reportRes.json());
-        hasServerReport = true;
-      }
-    } catch (err) {
-      console.warn('API backend indisponível, usando dados locais (storageService):', err);
+      console.warn('Erro ao sincronizar dados do Firestore em fetchData:', cloudErr);
     } finally {
-      // Fallback para quando o app roda na Vercel ou sem backend ativo
-      if (!hasServerClasses) {
-        const fbClasses = storageService.getClasses();
-        setClasses(fbClasses);
-        if (fbClasses.length > 0) {
-          if (!selectedClassId || !fbClasses.some((c: any) => c.id === selectedClassId)) {
-            setSelectedClassId(fbClasses[0].id);
-          }
-        } else {
-          setSelectedClassId('');
-        }
-      }
-      if (!hasServerStudents) {
-        setStudents(storageService.getStudents());
-      }
-      if (!hasServerInfo) {
-        setSchoolInfo(storageService.getSchoolInfo());
-      }
-      if (!hasServerAlerts) {
-        setAlerts(storageService.getAlerts());
-      }
-      if (!hasServerInterventions) {
-        setInterventions(storageService.getInterventions());
-      }
-      if (!hasServerReport) {
-        setMonthlyReport(storageService.getMonthlyReport());
-      }
       fetchQuotaStatus();
       setIsRefreshing(false);
     }
-  }, [selectedClassId, selectedMonthIndex, fetchQuotaStatus]);
+  }, [selectedMonthIndex, fetchQuotaStatus]);
 
-  // Load on mount: carrega diretamente do Firebase primeiro
+  // Load on mount: carrega cache local imediato e sincroniza com Firebase uma única vez (sem recarregar 13 coleções ao trocar mês)
   useEffect(() => {
+    const sId = storageService.getActiveSchoolId();
+    const localClasses = storageService.getClasses(sId);
+    const localStudents = storageService.getStudents(undefined, sId);
+    setClasses(localClasses);
+    setStudents(localStudents);
+    setAlerts(storageService.getAlerts(sId));
+    setInterventions(storageService.getInterventions(sId));
+    setSchoolInfo(storageService.getSchoolInfo(sId));
+    setMonthlyReport(storageService.getMonthlyReport(selectedMonthIndex));
+    setSelectedClassId(prev => {
+      if (localClasses.length === 0) return '';
+      return !prev || !localClasses.some(c => c.id === prev) ? localClasses[0].id : prev;
+    });
+
     loadAllFromFirebaseDirectly(false).then((loaded) => {
       if (!loaded) {
-        fetchData();
+        fetchQuotaStatus();
       }
     });
-  }, [loadAllFromFirebaseDirectly, fetchData]);
+  }, [loadAllFromFirebaseDirectly, fetchQuotaStatus]);
+
+  // Recalcula o relatório mensal localmente quando o mês selecionado muda
+  useEffect(() => {
+    setMonthlyReport(storageService.getMonthlyReport(selectedMonthIndex));
+  }, [selectedMonthIndex]);
 
   // Troca de Escola Ativa no Sistema (Multi-Tenant)
   const handleSwitchSchool = async (schoolId: string) => {
@@ -511,6 +464,7 @@ export default function App() {
     // Prepara sub-abas ideais caso o usuário navegue para os módulos
     setSubTabDiario('hub');
     setSubTabBuscaAtiva('hub');
+    setOcorrenciasSubTab(session.role === 'professor' ? 'hub' : 'pendentes');
     setActiveTab(session.role === 'professor' ? 'teacher_absence' : 'attendance');
   };
 
@@ -518,13 +472,17 @@ export default function App() {
   const handleNavigateFromHome = (
     module: MainModuleType,
     subDiario?: 'hub' | 'chamada' | 'portaria' | 'ausencias' | 'turmas',
-    subBuscaAtiva?: 'hub' | 'ocorrencias' | 'alertas' | 'casos',
+    subBuscaAtiva?: 'hub' | 'alertas' | 'casos',
     ocorrTab?: string
   ) => {
     setActiveModule(module);
     setSubTabDiario(subDiario || 'hub');
     setSubTabBuscaAtiva(subBuscaAtiva || 'hub');
-    if (ocorrTab) setOcorrenciasSubTab(ocorrTab);
+    if (ocorrTab) {
+      setOcorrenciasSubTab(ocorrTab);
+    } else if (module === 'ocorrencias') {
+      setOcorrenciasSubTab(currentUser?.role === 'professor' ? 'hub' : 'pendentes');
+    }
   };
 
   // Botão "Voltar à tela anterior"
@@ -541,6 +499,12 @@ export default function App() {
       } else {
         setActiveModule('inicio');
       }
+    } else if (activeModule === 'ocorrencias') {
+      if (currentUser?.role === 'professor' && ocorrenciasSubTab !== 'hub') {
+        setOcorrenciasSubTab('hub');
+      } else {
+        setActiveModule('inicio');
+      }
     } else {
       setActiveModule('inicio');
     }
@@ -551,6 +515,7 @@ export default function App() {
     setActiveModule('inicio');
     setSubTabDiario('hub');
     setSubTabBuscaAtiva('hub');
+    setOcorrenciasSubTab(currentUser?.role === 'professor' ? 'hub' : 'pendentes');
   };
 
   // Breadcrumb legível para o cabeçalho
@@ -564,13 +529,23 @@ export default function App() {
       if (subTabDiario === 'turmas') return 'Diário & Portaria > Relação de Turmas';
     }
     if (activeModule === 'busca_ativa') {
-      if (subTabBuscaAtiva === 'hub') return 'Busca Ativa & Ocorrências';
-      if (subTabBuscaAtiva === 'ocorrencias') return 'Busca Ativa > Ocorrências & Mediação';
+      if (subTabBuscaAtiva === 'hub') return 'Busca Ativa Escolar';
       if (subTabBuscaAtiva === 'alertas') return 'Busca Ativa > Ausências & WhatsApp';
       if (subTabBuscaAtiva === 'casos') return 'Busca Ativa > Casos de Busca Ativa & IA';
     }
-    if (activeModule === 'tablets') return 'Agendamento de Tablets';
-    if (activeModule === 'relatorios') return 'Relatórios Pedagógicos SEDUC';
+    if (activeModule === 'ocorrencias') {
+      if (currentUser?.role === 'professor') {
+        if (ocorrenciasSubTab === 'hub') return 'Ocorrências Escolares';
+        if (ocorrenciasSubTab === 'registrar') return 'Ocorrências Escolares > Nova Ocorrência';
+        if (ocorrenciasSubTab === 'meus_registros') return 'Ocorrências Escolares > Meus Registros';
+        if (ocorrenciasSubTab === 'devolutivas') return 'Ocorrências Escolares > Minhas Devolutivas';
+        if (ocorrenciasSubTab === 'tutorados') return 'Ocorrências Escolares > Meus Tutorados';
+      }
+      return 'Ocorrências & Mediação';
+    }
+    if (activeModule === 'tablets') return 'Agendamento de Equipamentos';
+    if (activeModule === 'grade_calendario') return 'Grade Curricular & Calendário Letivo';
+    if (activeModule === 'relatorios') return 'Relatórios Pedagógicos';
     if (activeModule === 'system_manager') return 'Gerenciador Central do Sistema';
     return '';
   };
@@ -612,22 +587,9 @@ export default function App() {
     setCurrentUser(null);
   };
 
-  // Handle class selection change
-  const handleSelectClass = async (classId: string) => {
+  // Handle class selection change (preserva a lista global de estudantes da unidade escolar)
+  const handleSelectClass = (classId: string) => {
     setSelectedClassId(classId);
-    try {
-      const res = await fetch(`/api/students?classId=${classId}`);
-      if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          setStudents(data);
-          return;
-        }
-      }
-    } catch (e) {
-      console.warn('Erro ao buscar estudantes da turma via API:', e);
-    }
-    setStudents(storageService.getStudents(classId));
   };
 
   // Record Batch Attendance & catch automated alerts
@@ -672,10 +634,11 @@ export default function App() {
     }
 
     if (newAlerts.length > 0) {
+      const sId = storageService.getActiveSchoolId();
       setAutomatedAlertsTriggered(newAlerts);
       for (const alert of newAlerts) {
         try {
-          await firestoreService.saveAlert(alert);
+          await firestoreService.saveAlert({ ...alert, schoolId: alert.schoolId || sId }, sId);
         } catch (alertErr) {
           console.warn('Erro ao salvar alerta gerado no Firestore:', alertErr);
         }
@@ -762,28 +725,27 @@ export default function App() {
   const handleAddInterventionAction = async (
     caseId: string,
     action: {
-      type: string;
-      description: string;
-      responsibleParty: string;
+      action?: string;
+      author?: string;
+      notes?: string;
+      result?: string;
+      advanceStageTo?: InterventionStage;
+      type?: string;
+      description?: string;
+      responsibleParty?: string;
       outcome?: string;
       newStage?: InterventionStage;
     }
   ) => {
-    try {
-      const res = await fetch(`/api/interventions/${caseId}/actions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(action),
-      });
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
-      }
-    } catch (e) {
-      console.warn('API de busca ativa indisponível, registrando ação localmente:', e);
-    }
+    const sId = storageService.getActiveSchoolId();
+    storageService.addInterventionAction(caseId, action, sId);
 
-    storageService.addInterventionAction(caseId, action);
+    fetch(`/api/interventions/${encodeURIComponent(caseId)}/action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(action),
+    }).catch(() => {});
+
     await fetchData();
   };
 
@@ -888,6 +850,8 @@ export default function App() {
   };
 
   const handleCreateCase = async (caseData: Partial<InterventionCase>) => {
+    const sId = storageService.getActiveSchoolId();
+    const todayLocal = getLocalTodayStr();
     const newCase: InterventionCase = {
       id: `int-${Date.now()}`,
       studentId: caseData.studentId || '',
@@ -898,10 +862,11 @@ export default function App() {
       guardianPhone: caseData.guardianPhone || '',
       priority: caseData.priority || 'alta',
       stage: caseData.stage || 'alerta_inicial',
-      openedAt: new Date().toISOString().split('T')[0],
-      lastUpdatedAt: new Date().toISOString().split('T')[0],
+      openedAt: todayLocal,
+      lastUpdatedAt: todayLocal,
       assignedPedagogue: caseData.assignedPedagogue || currentUser.name || 'Coordenação Pedagógica / PAAC',
       reason: caseData.reason || 'Infrequência escolar recorrente identificada',
+      schoolId: sId,
       actionPlan: caseData.actionPlan || [
         'Contato telefônico e envio de notificação aos responsáveis via WhatsApp',
         'Pactuação de compromisso e retorno às aulas presenciais',
@@ -910,7 +875,7 @@ export default function App() {
       actionLog: [
         {
           id: `act-${Date.now()}`,
-          date: new Date().toISOString().split('T')[0],
+          date: todayLocal,
           action: 'Abertura Formal do Caso de Busca Ativa',
           author: currentUser.name || 'Coordenação Pedagógica',
           notes: caseData.reason || 'Caso instaurado para acompanhamento pedagógico e garantia da frequência escolar.',
@@ -919,13 +884,13 @@ export default function App() {
       ]
     };
 
-    const list = storageService.getInterventions();
+    const list = storageService.getInterventions(sId);
     list.unshift(newCase);
-    storageService.setInterventions(list);
+    storageService.setInterventions(list, sId);
     setInterventions(list);
 
     try {
-      await firestoreService.saveIntervention(newCase);
+      await firestoreService.saveIntervention(newCase, sId);
     } catch (err) {
       console.warn('Erro ao salvar caso no Firestore:', err);
     }
@@ -933,11 +898,13 @@ export default function App() {
   };
 
   const handleAutoGenerateCasesFromRiskStudents = async (): Promise<number> => {
-    const existingCases = storageService.getInterventions();
+    const sId = storageService.getActiveSchoolId();
+    const todayLocal = getLocalTodayStr();
+    const existingCases = storageService.getInterventions(sId);
     const existingStudentIds = new Set(existingCases.map(c => c.studentId));
     
-    // Identifica estudantes em situação de atenção ou risco de infrequência
-    let riskStudents = students.filter(
+    // Identifica estudantes ativos em situação de atenção ou risco de infrequência
+    let riskStudents = activeStudents.filter(
       s => (
         s.riskLevel === 'critico' ||
         s.riskLevel === 'alto' ||
@@ -950,9 +917,9 @@ export default function App() {
       ) && !existingStudentIds.has(s.id)
     );
 
-    // Se nenhum estiver com risco elevado, busca qualquer estudante com histórico de faltas não justificadas
+    // Se nenhum estiver com risco elevado, busca qualquer estudante ativo com histórico de faltas não justificadas
     if (riskStudents.length === 0) {
-      riskStudents = students.filter(
+      riskStudents = activeStudents.filter(
         s => (
           (s.totalAbsences && s.totalAbsences > 0) ||
           (s.consecutiveAbsences && s.consecutiveAbsences > 0) ||
@@ -978,10 +945,11 @@ export default function App() {
         guardianPhone: st.guardianPhone || '',
         priority: isUrgent ? 'urgente_conselho' : 'alta',
         stage: 'alerta_inicial',
-        openedAt: new Date().toISOString().split('T')[0],
-        lastUpdatedAt: new Date().toISOString().split('T')[0],
+        openedAt: todayLocal,
+        lastUpdatedAt: todayLocal,
         assignedPedagogue: currentUser?.name || 'Coordenação Pedagógica / PAAC',
         reason: `Gatilho de Busca Ativa (Resolução SEDUC 39/2023): ${absences} ausência(s) registrada(s). Frequência apurada: ${rate}%. ${st.vulnerabilityFactors?.join(', ') || ''}`.trim(),
+        schoolId: sId,
         actionPlan: [
           'Contato telefônico e envio de notificação formal aos responsáveis via WhatsApp',
           'Agendamento de reunião presencial para acolhimento e pactuação de retorno',
@@ -990,7 +958,7 @@ export default function App() {
         actionLog: [
           {
             id: `act-${Date.now()}-${st.id}`,
-            date: new Date().toISOString().split('T')[0],
+            date: todayLocal,
             action: 'Identificação de Infrequência Escolar & Abertura de Caso',
             author: currentUser?.name || 'Coordenação Pedagógica / PAAC',
             notes: `Estudante com ${absences} ausência(s) e taxa de assiduidade de ${rate}%. Caso aberto para acompanhamento pedagógico contínuo.`,
@@ -1001,12 +969,12 @@ export default function App() {
     });
 
     const updatedList = [...newCases, ...existingCases];
-    storageService.setInterventions(updatedList);
+    storageService.setInterventions(updatedList, sId);
     setInterventions(updatedList);
 
     for (const c of newCases) {
       try {
-        await firestoreService.saveIntervention(c);
+        await firestoreService.saveIntervention(c, sId);
       } catch (e) {
         console.warn('Erro ao salvar caso no Firestore:', e);
       }
@@ -1032,7 +1000,7 @@ export default function App() {
   }
 
   // Calculate high-level summary metrics
-  const criticalStudentsTotal = students.filter(s => s.riskLevel === 'critico').length;
+  const criticalStudentsTotal = activeStudents.filter(s => s.riskLevel === 'critico').length;
   const avgAttendanceOverall = monthlyReport ? monthlyReport.averageAttendanceRate : 88.4;
 
   return (
@@ -1119,7 +1087,7 @@ export default function App() {
             currentSchool={currentSchool}
             onOpenSchoolSelector={() => setIsSchoolSelectorOpen(true)}
             classes={classes}
-            students={visibleStudents}
+            students={visibleActiveStudents}
             alerts={alerts}
             interventions={interventions}
             averageAttendance={avgAttendanceOverall}
@@ -1247,7 +1215,7 @@ export default function App() {
                 classes={classes}
                 selectedClassId={selectedClassId}
                 onSelectClass={handleSelectClass}
-                students={students}
+                students={activeStudents}
                 currentUser={currentUser}
                 onSaveAttendance={handleSaveAttendance}
                 onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
@@ -1261,7 +1229,7 @@ export default function App() {
 
             {subTabDiario === 'portaria' && currentUser.role !== 'professor' && (
               <GatePassManager
-                students={students}
+                students={activeStudents}
                 classes={classes}
                 operatorName={currentUser.name}
               />
@@ -1270,8 +1238,9 @@ export default function App() {
             {subTabDiario === 'ausencias' && (
               <TeacherAbsenceView
                 classes={classes}
-                students={visibleStudents}
+                students={visibleActiveStudents}
                 teacherName={currentUser.name}
+                currentUser={currentUser}
               />
             )}
 
@@ -1283,6 +1252,7 @@ export default function App() {
                 onRefresh={fetchData}
                 onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
                 onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
+                onOpenCalendarModule={() => setActiveModule('grade_calendario')}
                 onOpenResetAllModal={() => {
                   setWipeConfirmText('');
                   setIsWipeAllConfirmOpen(true);
@@ -1293,199 +1263,66 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
-        {/* MÓDULO 2: BUSCA ATIVA & OCORRÊNCIAS (NAVEGAÇÃO POR CARDS - OPERADORES)    */}
+        {/* MÓDULO 2A: BUSCA ATIVA ESCOLAR (SEPARADO DE OCORRÊNCIAS)                  */}
         {/* ========================================================================= */}
         {activeModule === 'busca_ativa' && !currentUser.isUniversal && currentUser.role !== 'super_admin' && (
           <div className="space-y-5 animate-in fade-in duration-200">
-            {/* Hub de Cards para Busca Ativa & Ocorrências */}
+            {/* Hub de Cards exclusivo da Busca Ativa */}
             {subTabBuscaAtiva === 'hub' && (
               <div className="space-y-4">
                 <div className="mb-2">
                   <h2 className="text-lg font-black text-slate-900">
-                    Busca Ativa & Ocorrências • Sub-menus
+                    Busca Ativa Escolar • Sub-menus
                   </h2>
                   <p className="text-xs text-slate-500 font-medium">
-                    Selecione uma das opções abaixo para acessar o módulo
+                    Selecione uma das opções abaixo para gerenciar ausências, comunicados aos responsáveis e casos de Busca Ativa
                   </p>
                 </div>
 
-                {currentUser.role === 'professor' ? (
-                  /* Cards do Professor */
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div
-                      onClick={() => {
-                        setSubTabBuscaAtiva('ocorrencias');
-                        setOcorrenciasSubTab('registrar');
-                      }}
-                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-amber-600 group-hover:text-white transition-all shadow-2xs">
-                          <Edit3 className="w-6 h-6" />
-                        </div>
-                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-amber-600 transition-colors">
-                          Registrar Nova Ocorrência
-                        </h3>
-                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                          Criar novo registro disciplinar ou pedagógico em sala com assistência de IA.
-                        </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div
+                    onClick={() => setSubTabBuscaAtiva('alertas')}
+                    className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-2xs">
+                        <Smartphone className="w-6 h-6" />
                       </div>
-                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
-                        <span>Registrar</span>
-                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                      </div>
+                      <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-emerald-600 transition-colors">
+                        Ausências & WhatsApp
+                      </h3>
+                      <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                        Notificação via WhatsApp para responsáveis sobre faltas do dia e histórico de respostas/justificativas.
+                      </p>
                     </div>
-
-                    <div
-                      onClick={() => {
-                        setSubTabBuscaAtiva('ocorrencias');
-                        setOcorrenciasSubTab('meus_registros');
-                      }}
-                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-2xs">
-                          <FileText className="w-6 h-6" />
-                        </div>
-                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-indigo-600 transition-colors">
-                          Meus Registros (Edição)
-                        </h3>
-                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                          Edite suas ocorrências enviadas que ainda não receberam parecer da Gestão.
-                        </p>
-                      </div>
-                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-600">
-                        <span>Acessar</span>
-                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                      </div>
-                    </div>
-
-                    <div
-                      onClick={() => {
-                        setSubTabBuscaAtiva('ocorrencias');
-                        setOcorrenciasSubTab('devolutivas');
-                      }}
-                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-2xs">
-                          <Inbox className="w-6 h-6" />
-                        </div>
-                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-emerald-600 transition-colors">
-                          Minhas Devolutivas
-                        </h3>
-                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                          Consultar pareceres e medidas já tomadas pela gestão pedagógica nos seus casos.
-                        </p>
-                      </div>
-                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
-                        <span>Ver Devolutivas</span>
-                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                      </div>
-                    </div>
-
-                    <div
-                      onClick={() => {
-                        setSubTabBuscaAtiva('ocorrencias');
-                        setOcorrenciasSubTab('tutorados');
-                      }}
-                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-purple-400 transition-all cursor-pointer flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="w-12 h-12 rounded-2xl bg-purple-50 border border-purple-200 text-purple-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-purple-600 group-hover:text-white transition-all shadow-2xs">
-                          <Users className="w-6 h-6" />
-                        </div>
-                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-purple-600 transition-colors">
-                          Meus Tutorados
-                        </h3>
-                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                          Dossiê e acompanhamento disciplinar dos estudantes sob sua tutoria docente.
-                        </p>
-                      </div>
-                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-purple-600">
-                        <span>Ver Tutorados</span>
-                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                      </div>
+                    <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
+                      <span>Abrir Ausências & Alertas</span>
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                     </div>
                   </div>
-                ) : (
-                  /* Cards da Gestão e Admin */
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div
-                      onClick={() => setSubTabBuscaAtiva('ocorrencias')}
-                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-amber-600 group-hover:text-white transition-all shadow-2xs">
-                          <AlertOctagon className="w-6 h-6" />
-                        </div>
-                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-amber-600 transition-colors">
-                          Ocorrências & Mediação
-                        </h3>
-                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                          Analisar ocorrências de sala de aula, registrar parecer da gestão e alterar status.
-                        </p>
-                      </div>
-                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
-                        <span>Abrir Ocorrências</span>
-                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                      </div>
-                    </div>
 
-                    <div
-                      onClick={() => setSubTabBuscaAtiva('alertas')}
-                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-2xs">
-                          <Smartphone className="w-6 h-6" />
-                        </div>
-                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-emerald-600 transition-colors">
-                          Ausências & WhatsApp
-                        </h3>
-                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                          Notificação direta via WhatsApp para responsáveis sobre faltas do dia e busca ativa.
-                        </p>
+                  <div
+                    onClick={() => setSubTabBuscaAtiva('casos')}
+                    className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-rose-400 transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-rose-600 group-hover:text-white transition-all shadow-2xs">
+                        <ShieldAlert className="w-6 h-6" />
                       </div>
-                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
-                        <span>Abrir Alertas</span>
-                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                      </div>
+                      <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-rose-600 transition-colors">
+                        Casos de Busca Ativa & IA
+                      </h3>
+                      <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                        Acompanhamento formal de casos de evasão/infrequência crítica (etapas FICAI, reuniões, Conselho Tutelar e plano IA).
+                      </p>
                     </div>
-
-                    <div
-                      onClick={() => setSubTabBuscaAtiva('casos')}
-                      className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-rose-400 transition-all cursor-pointer flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-rose-600 group-hover:text-white transition-all shadow-2xs">
-                          <ShieldAlert className="w-6 h-6" />
-                        </div>
-                        <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-rose-600 transition-colors">
-                          Casos de Busca Ativa & IA
-                        </h3>
-                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                          Intervenções pedagógicas, visitas domiciliares, notificações ao Conselho Tutelar e planos IA.
-                        </p>
-                      </div>
-                      <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-rose-600">
-                        <span>Abrir Casos</span>
-                        <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                      </div>
+                    <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-rose-600">
+                      <span>Abrir Casos</span>
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                     </div>
                   </div>
-                )}
+                </div>
               </div>
-            )}
-
-            {/* Conteúdo da Sub-Aba de Busca Ativa */}
-            {subTabBuscaAtiva === 'ocorrencias' && (
-              <OcorrenciasManager
-                currentUser={currentUser}
-                classes={classes}
-                students={visibleStudents}
-                initialTab={ocorrenciasSubTab}
-              />
             )}
 
             {subTabBuscaAtiva === 'alertas' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin' || currentUser.role === 'admin_escola') && (
@@ -1510,7 +1347,7 @@ export default function App() {
             {subTabBuscaAtiva === 'casos' && (currentUser.role === 'gestao_paac' || currentUser.role === 'admin' || currentUser.role === 'admin_escola') && (
               <InterventionsManager
                 cases={interventions}
-                students={students}
+                students={activeStudents}
                 currentUser={currentUser}
                 onAddAction={handleAddInterventionAction}
                 onCreateCase={handleCreateCase}
@@ -1528,6 +1365,119 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
+        {/* MÓDULO 2B: OCORRÊNCIAS ESCOLARES & MEDIAÇÃO (INDEPENDENTE DE BUSCA ATIVA) */}
+        {/* ========================================================================= */}
+        {activeModule === 'ocorrencias' && !currentUser.isUniversal && currentUser.role !== 'super_admin' && (
+          <div className="space-y-5 animate-in fade-in duration-200">
+            {currentUser.role === 'professor' && ocorrenciasSubTab === 'hub' ? (
+              <div className="space-y-4">
+                <div className="mb-2">
+                  <h2 className="text-lg font-black text-slate-900">
+                    Ocorrências Escolares • Sub-menus
+                  </h2>
+                  <p className="text-xs text-slate-500 font-medium">
+                    Selecione uma das opções abaixo para registrar ou consultar ocorrências
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div
+                    onClick={() => setOcorrenciasSubTab('registrar')}
+                    className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-amber-600 group-hover:text-white transition-all shadow-2xs">
+                        <Edit3 className="w-6 h-6" />
+                      </div>
+                      <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-amber-600 transition-colors">
+                        Registrar Nova Ocorrência
+                      </h3>
+                      <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                        Criar novo registro disciplinar ou pedagógico em sala, tutoria ou intervalos.
+                      </p>
+                    </div>
+                    <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
+                      <span>Registrar</span>
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </div>
+                  </div>
+
+                  <div
+                    onClick={() => setOcorrenciasSubTab('meus_registros')}
+                    className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-2xs">
+                        <FileText className="w-6 h-6" />
+                      </div>
+                      <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-indigo-600 transition-colors">
+                        Meus Registros (Edição)
+                      </h3>
+                      <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                        Edite suas ocorrências enviadas que ainda não receberam parecer da Gestão.
+                      </p>
+                    </div>
+                    <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-indigo-600">
+                      <span>Acessar</span>
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </div>
+                  </div>
+
+                  <div
+                    onClick={() => setOcorrenciasSubTab('devolutivas')}
+                    className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-2xs">
+                        <Inbox className="w-6 h-6" />
+                      </div>
+                      <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-emerald-600 transition-colors">
+                        Minhas Devolutivas
+                      </h3>
+                      <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                        Consultar pareceres e medidas já tomadas pela gestão pedagógica nos seus casos.
+                      </p>
+                    </div>
+                    <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
+                      <span>Ver Devolutivas</span>
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </div>
+                  </div>
+
+                  <div
+                    onClick={() => setOcorrenciasSubTab('tutorados')}
+                    className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-purple-400 transition-all cursor-pointer flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="w-12 h-12 rounded-2xl bg-purple-50 border border-purple-200 text-purple-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-purple-600 group-hover:text-white transition-all shadow-2xs">
+                        <Users className="w-6 h-6" />
+                      </div>
+                      <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-purple-600 transition-colors">
+                        Meus Tutorados
+                      </h3>
+                      <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                        Dossiê e acompanhamento disciplinar dos estudantes sob sua tutoria docente.
+                      </p>
+                    </div>
+                    <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-purple-600">
+                      <span>Ver Tutorados</span>
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <OcorrenciasManager
+                currentUser={currentUser}
+                classes={classes}
+                students={visibleActiveStudents}
+                initialTab={ocorrenciasSubTab === 'hub' ? 'pendentes' : ocorrenciasSubTab}
+              />
+            )}
+          </div>
+        )}
+
+        {/* ========================================================================= */}
         {/* MÓDULO 3: AGENDAMENTO DE TABLETS (OPERADORES ESCOLARES)                  */}
         {/* ========================================================================= */}
         {activeModule === 'tablets' && !currentUser.isUniversal && currentUser.role !== 'super_admin' && (
@@ -1538,13 +1488,25 @@ export default function App() {
         )}
 
         {/* ========================================================================= */}
+        {/* MÓDULO 3B: GRADE CURRICULAR, GERADOR DE HORÁRIOS & CALENDÁRIO LETIVO      */}
+        {/* ========================================================================= */}
+        {activeModule === 'grade_calendario' && !currentUser.isUniversal && currentUser.role !== 'super_admin' && (
+          <CurriculumCalendarModule
+            currentUser={currentUser}
+            classes={classes}
+            onRefresh={fetchData}
+          />
+        )}
+
+        {/* ========================================================================= */}
         {/* MÓDULO 4: RELATÓRIOS & ESTRATÉGICO (OPERADORES ESCOLARES)                */}
         {/* ========================================================================= */}
         {activeModule === 'relatorios' && !currentUser.isUniversal && currentUser.role !== 'super_admin' && (
           <MonthlyReport
             report={monthlyReport}
             classes={classes}
-            students={students}
+            students={activeStudents}
+            allStudents={students}
             alerts={alerts}
             interventions={interventions}
             onSelectMonth={monthIndex => setSelectedMonthIndex(monthIndex)}
@@ -1591,7 +1553,7 @@ export default function App() {
         isOpen={isSeducReportModalOpen}
         onClose={() => setIsSeducReportModalOpen(false)}
         classes={classes}
-        students={students}
+        students={activeStudents}
         currentSchool={currentSchool}
         currentUser={currentUser}
       />
@@ -1627,7 +1589,7 @@ export default function App() {
           setIsNewAlertModalOpen(false);
           setPreSelectedStudentForAlert(null);
         }}
-        students={visibleStudents}
+        students={visibleActiveStudents}
         preSelectedStudent={preSelectedStudentForAlert}
         onSendAlert={handleSendManualAlert}
       />
@@ -1636,8 +1598,14 @@ export default function App() {
       <AutomatedAlertTriggerModal
         alerts={automatedAlertsTriggered}
         onClose={() => setAutomatedAlertsTriggered([])}
-        onGoToAlerts={() => setActiveTab('alerts')}
-        onGoToInterventions={() => setActiveTab('interventions')}
+        onGoToAlerts={() => {
+          setActiveModule('busca_ativa');
+          setSubTabBuscaAtiva('alertas');
+        }}
+        onGoToInterventions={() => {
+          setActiveModule('busca_ativa');
+          setSubTabBuscaAtiva('casos');
+        }}
       />
 
       {/* Google Sheets Database Integration Modal */}
@@ -1791,9 +1759,9 @@ export default function App() {
         counts={{
           classesCount: classes.length,
           studentsCount: students.length,
-          usersCount: storageService.getUsers().length,
+          usersCount: isFirebaseStatusModalOpen ? storageService.getUsers(currentSchool.id).length : 26,
           alertsCount: alerts.length,
-          attendanceCount: storageService.getAttendanceRecords().length,
+          attendanceCount: isFirebaseStatusModalOpen ? storageService.getAttendanceRecords(undefined, undefined, currentSchool.id).length : 0,
           interventionsCount: interventions.length,
           ocorrenciasCount: 59,
           tabletsCount: 81,

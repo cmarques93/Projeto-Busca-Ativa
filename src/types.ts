@@ -20,6 +20,7 @@ export interface SchoolModulesConfig {
   ocorrencias?: boolean; // Livro de Ocorrências & Mediação Escolar
   tablets?: boolean; // Agendamento de Carrinhos de Tablets
   relatorios?: boolean; // Relatórios Oficiais SEDUC & Dossiês
+  grade_calendario?: boolean; // Módulo Separado: Grade Curricular, Gerador de Horários & Calendário Letivo
 }
 
 export function isModuleEnabled(
@@ -83,6 +84,9 @@ export interface GateRecord {
   date: string; // YYYY-MM-DD
   time: string; // HH:MM
   type: GateMovementType;
+  classPeriodId?: string;
+  classPeriodName?: string;
+  classPeriodType?: 'aula' | 'intervalo';
   reason: string;
   guardianOrAuthorizedPerson: string;
   guardianPhone?: string;
@@ -92,8 +96,72 @@ export interface GateRecord {
   registeredAt?: string;
   schoolId?: string;
 }
+
+export type SchoolCalendarEventType =
+  | 'feriado'
+  | 'recesso'
+  | 'ferias'
+  | 'sabado_letivo'
+  | 'conselho_classe'
+  | 'reuniao_pedagogica'
+  | 'reposicao';
+
+export interface SchoolBimester {
+  id: '1B' | '2B' | '3B' | '4B';
+  name: string;
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+}
+
+export interface SchoolCalendarEvent {
+  id: string;
+  date: string; // YYYY-MM-DD
+  endDate?: string; // YYYY-MM-DD (para férias ou recessos contínuos)
+  title: string;
+  type: SchoolCalendarEventType;
+  countsAsSchoolDay?: boolean;
+  notes?: string;
+}
+
+export interface SchoolCalendarConfig {
+  schoolId?: string;
+  year: number;
+  bimesters: SchoolBimester[];
+  events: SchoolCalendarEvent[];
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface TeacherScheduleSlot {
+  id: string;
+  schoolId?: string;
+  teacherId?: string;
+  teacherName: string;
+  classId: string;
+  className?: string;
+  dayOfWeek: number; // 1 = Segunda ... 5 = Sexta, 6 = Sábado
+  periodId: string;
+  periodName: string;
+  subject?: string;
+  hasPlatform?: boolean;
+  platformName?: string;
+}
+
+export type EquipmentCondition = 'em_uso' | 'quebrado' | 'em_manutencao';
+
+export interface EquipmentItem {
+  id: string;
+  nome: string;
+  tipo: string;
+  patrimonio?: string;
+  condicao: EquipmentCondition;
+  observacao?: string;
+  atualizadoEm?: string;
+  atualizadoPor?: string;
+}
+
 export type RiskLevel = 'baixo' | 'moderado' | 'alto' | 'critico';
-export type StudentStatus = 'regular' | 'alerta' | 'evasao_iminente' | 'em_busca_ativa' | 'reintegrado';
+export type StudentStatus = 'regular' | 'alerta' | 'evasao_iminente' | 'em_busca_ativa' | 'reintegrado' | 'transferido';
 
 export interface Student {
   id: string;
@@ -118,6 +186,11 @@ export interface Student {
   activeInterventionId?: string;
   notes?: string;
   schoolId?: string;
+  transferredAt?: string; // YYYY-MM-DD
+  transferDestination?: string; // Escola ou rede de destino
+  transferReason?: string; // Motivo/observação da transferência
+  previousClassId?: string; // Turma de origem antes da transferência
+  previousClassName?: string; // Nome da turma de origem
 }
 
 export interface AttendanceRecord {
@@ -359,3 +432,158 @@ export interface GoogleSheetsConfig {
     alerts: number;
   };
 }
+
+// === MÓDULO DE GRADE CURRICULAR, GERADOR DE HORÁRIOS & CRITÉRIOS ANUAIS ===
+export type CurriculumMatrixCategory = 'note' | 'ema' | 'rest';
+
+export type SimultaneityRuleMode = 'exclusive' | 'together';
+
+export interface ExclusiveGroupCriteria {
+  id: string;
+  name: string; // Ex: "Laboratório de Ciências" ou "Educação Física Conjunta"
+  mode?: SimultaneityRuleMode; // 'exclusive' (limite simultâneo) | 'together' (precisam acontecer juntas)
+  keyword: string; // Palavra-chave / disciplina principal
+  disciplines?: string[]; // Disciplinas selecionadas da Matriz Curricular
+  targetGradeSeries?: string[]; // Opcional: Anos/Séries específicos (vazio = todas as turmas com a disciplina)
+  maxSimultaneous: number; // Usado quando mode === 'exclusive' (Ex: 1 turma por horário na escola)
+  colorHex: string; // Ex: "#6aa84f"
+}
+
+export interface AnnualTimetableCriteria {
+  year: number;
+  legislationRef: string; // Ex: "Diretrizes Curriculares 2026"
+  notes?: string;
+  preservedFixedTerms: string[]; // Termos/disciplinas fixas preservadas na limpeza
+  conflictExceptionTerms: string[]; // Exceções de choque (ex: intervalos, atividades conjuntas)
+  noteDisciplines: string[]; // Disciplinas que usam Notebook / Carrinho de Equipamentos
+  platformKeywords: string[]; // Palavras-chave que ativam trava de plataforma no módulo de Equipamentos
+  maxCartsSimultaneous: number; // Quantidade máxima de carrinhos simultâneos na escola
+  khanThirdCartWhenEduProfFree: boolean; // Regra opcional de carrinho extra
+  exclusiveGroups: ExclusiveGroupCriteria[]; // Grupos de simultaneidade (exclusividade ou aulas conjuntas)
+  maxSameSubjectPerDay: number; // Máx. aulas da mesma disciplina por dia na mesma turma
+  defaultTeacherDailyLimit: number; // Limite padrão de aulas por dia por professor
+  preferDoubleLessonsNote: boolean; // Priorizar aulas geminadas para disciplinas com notebook/equipamentos
+  preferDoubleLessonsEma: boolean; // Priorizar aulas geminadas para grupos de simultaneidade
+  enablePreBlockContinuityLock: boolean; // Trava pré-Multiplica/ATPCA: evita 1 aula isolada logo antes de bloqueio
+  availableAoeAgents: number; // Quantidade de agentes AOE para logística de corredor (padrão 2)
+  areaColors: Record<string, string>;
+  areaCompatibility: Record<string, string[]>;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface AtpcaBlockRule {
+  id: string;
+  area: string; // Ex: "LGG", "MAT", "CHS", "CNT"
+  dayOfWeek: number; // 1 = Segunda ... 5 = Sexta
+  periodNumbers: number[]; // Ex: [1, 2]
+  label?: string;
+}
+
+export interface MultiplicaSlot {
+  id: string;
+  dayOfWeek: number; // 1 = Segunda ... 5 = Sexta
+  startTime: string; // Horário de relógio "HH:MM" (ex: "13:00")
+  endTime: string;   // Horário de relógio "HH:MM" (ex: "14:30")
+}
+
+export interface TimetableTeacherProfile {
+  id: string;
+  userId?: string; // Vínculo direto com UserAccount da escola
+  name: string;
+  role?: UserRole; // 'professor' | 'gestao_paac'
+  area: string; // Área principal — ex: "LGG", "MAT", "CHS", "CNT", "INOVA"
+  areas?: string[]; // Todas as áreas de atuação do docente (afinidade pedagógica nas substituições)
+  disciplines?: string[]; // Disciplinas cadastradas na Matriz Curricular que este docente pode lecionar
+  multiplicaDay?: number; // Retrocompatibilidade (1..5)
+  multiplicaPeriods: number[]; // Aulas assimiladas ou legado
+  multiplicaStartTime?: string; // Horário de início no relógio "HH:MM"
+  multiplicaEndTime?: string; // Horário de término no relógio "HH:MM"
+  multiplicaSlots?: MultiplicaSlot[]; // Lista flexível de dias e horários de relógio do Multiplica
+  dailyLimit: number; // Ex: 7
+}
+
+export interface GradeCurriculumEntry {
+  id: string;
+  gradeSeries: string; // Ex: "6º Ano", "7º Ano", "1ª Série do EM"
+  discipline: string; // Ex: "História", "Matemática", "Física"
+  weeklyLessons: number; // Quantidade de aulas por semana para CADA turma deste ano/série
+}
+
+export interface CurriculumMatrixItem {
+  id: string;
+  category: CurriculumMatrixCategory;
+  classId: string;
+  className: string;
+  gradeSeries?: string;
+  discipline: string;
+  teacherName: string;
+  weeklyLessons: number;
+  hasPlatform?: boolean;
+  platformName?: string;
+}
+
+export interface TimetablePeriodDef {
+  number: number; // 1..9 (0 para intervalos/almoço)
+  id: string;
+  label: string; // Ex: "1ª Aula", "Intervalo", "Almoço"
+  start: string; // HH:MM
+  end: string; // HH:MM
+  isBreak?: boolean;
+}
+
+export interface TimetableGridCell {
+  id: string; // `${dayOfWeek}|${periodId}|${classId}`
+  dayOfWeek: number; // 1..5
+  periodId: string;
+  periodNumber: number; // 1..9 (0 se intervalo)
+  periodLabel: string;
+  classId: string;
+  className: string;
+  teacherName?: string;
+  discipline?: string;
+  fixedLabel?: string;
+  category?: 'fixed' | 'note' | 'ema' | 'rest' | 'manual';
+  colorHex?: string;
+  locked?: boolean;
+  hasPlatform?: boolean;
+  platformName?: string;
+}
+
+export interface TeacherSubstitutionRecord {
+  id: string;
+  date: string; // YYYY-MM-DD
+  dayOfWeek: number; // 1..5
+  periodId: string;
+  periodNumber: number; // 1..9
+  periodLabel: string;
+  classId: string;
+  className: string;
+  discipline: string;
+  absentTeacherName: string;
+  absentTeacherArea: string;
+  substituteTeacherName: string;
+  substituteTeacherArea: string;
+  sameArea: boolean;
+  reason?: string;
+  notes?: string;
+  status: 'confirmada' | 'cancelada';
+  recordedBy?: string;
+  recordedAt: string;
+}
+
+export interface TimetableWorkspace {
+  schoolId: string;
+  activeYear: number;
+  criteriaByYear: Record<number, AnnualTimetableCriteria>;
+  atpcaRules: AtpcaBlockRule[];
+  teachers: TimetableTeacherProfile[];
+  gradeCurriculum?: GradeCurriculumEntry[]; // Matriz Curricular padronizada por Ano/Série
+  matrix: CurriculumMatrixItem[]; // Cargas expandidas por turma (vínculo docente)
+  periods: TimetablePeriodDef[];
+  cells: TimetableGridCell[];
+  substitutions?: TeacherSubstitutionRecord[];
+  updatedAt?: string;
+  updatedBy?: string;
+}
+

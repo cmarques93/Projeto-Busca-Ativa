@@ -42,6 +42,7 @@ import { BulkWhatsAppModal } from './BulkWhatsAppModal';
 import { storageService } from '../data/storageService';
 import { firestoreService, isSameDay } from '../lib/firestoreService';
 import { findActiveAbsenceForDate } from '../utils/atestadoUtils';
+import { getLocalTodayStr } from '../utils/reportCalculator';
 
 interface DailyAbsenteeItem {
   studentId: string;
@@ -89,7 +90,7 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
   onSendAlertDirect,
   onRefresh,
 }) => {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalTodayStr();
 
   // Sub-tabs: "Ausências do Dia para WhatsApp" vs "Histórico de Alertas"
   const [activeSubTab, setActiveSubTab] = useState<'daily_absences' | 'all_alerts'>('daily_absences');
@@ -107,6 +108,23 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
   // Bulk WhatsApp state
   const [isBulkWhatsAppOpen, setIsBulkWhatsAppOpen] = useState(false);
   const [bulkAlertsList, setBulkAlertsList] = useState<ParentAlert[]>([]);
+  const persistedBulkIdsRef = React.useRef<Record<string, string>>({});
+
+  // Resolve student dossier safely by ID or exact name fallback
+  const handleOpenStudentFicha = (studentId: string, studentName?: string) => {
+    const allStudents = students.length > 0 ? students : storageService.getStudents();
+    let targetId = studentId;
+    if (!targetId || !allStudents.some(s => s.id === targetId)) {
+      if (studentName) {
+        const normName = studentName.trim().toLowerCase();
+        const found = allStudents.find(s => (s.name || '').trim().toLowerCase() === normName);
+        if (found) targetId = found.id;
+      }
+    }
+    if (targetId) {
+      onOpenStudentDetail(targetId);
+    }
+  };
 
   // History tab state
   const [localAlerts, setLocalAlerts] = useState<ParentAlert[]>(alerts);
@@ -151,59 +169,41 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
     }
   };
 
-  // Load daily attendance records and gate records for the chosen date
+  // Load daily attendance records and gate records for the chosen date (Firestore + storageService multi-tenant)
   const loadDailyAbsences = async (date: string) => {
     setIsLoadingDaily(true);
-    let fetchedAttendance: AttendanceRecord[] = [];
-    let fetchedGate: GateRecord[] = [];
+    const sId = storageService.getActiveSchoolId();
 
-    // 1. Prioridade Cloud Firestore
+    const localAtt = storageService.getAttendanceRecords(undefined, date, sId);
+    const localGate = storageService.getGateRecords(date, undefined, sId);
+    let fetchedAttendance: AttendanceRecord[] = localAtt;
+    let fetchedGate: GateRecord[] = localGate;
+
     try {
-      const allCloudAtt = await firestoreService.getAttendanceRecords();
+      const [allCloudAtt, cloudGate] = await Promise.all([
+        firestoreService.getAttendanceRecords(undefined, sId).catch(() => []),
+        firestoreService.getGateRecords(date, sId).catch(() => []),
+      ]);
+
       if (allCloudAtt && allCloudAtt.length > 0) {
-        const matching = allCloudAtt.filter(r => isSameDay(r.date, date));
-        if (matching.length > 0) {
-          fetchedAttendance = matching;
-        }
+        const attMap = new Map<string, AttendanceRecord>();
+        allCloudAtt.filter(r => isSameDay(r.date, date)).forEach(r => attMap.set(r.studentId, r));
+        localAtt.forEach(r => {
+          if (!attMap.has(r.studentId)) attMap.set(r.studentId, r);
+        });
+        fetchedAttendance = Array.from(attMap.values());
+      }
+
+      if (cloudGate && cloudGate.length > 0) {
+        const gateMap = new Map<string, GateRecord>();
+        cloudGate.forEach(g => gateMap.set(g.id, g));
+        localGate.forEach(g => {
+          if (!gateMap.has(g.id)) gateMap.set(g.id, g);
+        });
+        fetchedGate = Array.from(gateMap.values());
       }
     } catch (e) {
-      console.warn('Erro ao consultar frequências do Firestore em AlertsManager:', e);
-    }
-
-    // 2. Fallback backend API
-    if (fetchedAttendance.length === 0) {
-      try {
-        const res = await fetch(`/api/attendance-records?date=${date}`);
-        if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
-          const data = await res.json();
-          if (Array.isArray(data)) {
-            fetchedAttendance = data;
-          }
-        }
-      } catch (e) {
-        console.warn('Backend indisponível para registros diários, consultando storageService:', e);
-      }
-    }
-
-    // 3. Fallback storageService local
-    if (fetchedAttendance.length === 0) {
-      fetchedAttendance = storageService.getAttendanceRecords(undefined, date);
-    }
-
-    try {
-      const resGate = await fetch(`/api/gate-records?date=${date}`);
-      if (resGate.ok && resGate.headers.get('content-type')?.includes('application/json')) {
-        const dataGate = await resGate.json();
-        if (Array.isArray(dataGate)) {
-          fetchedGate = dataGate;
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    if (fetchedGate.length === 0) {
-      fetchedGate = storageService.getGateRecords(date);
+      console.warn('Erro ao consultar frequências/portaria do Firestore em AlertsManager:', e);
     }
 
     setDailyRecords(fetchedAttendance);
@@ -479,6 +479,7 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
       };
     });
 
+    persistedBulkIdsRef.current = {};
     setBulkAlertsList(preparedAlerts);
     setIsBulkWhatsAppOpen(true);
   };
@@ -860,7 +861,7 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
                               <div>
                                 <button
                                   type="button"
-                                  onClick={() => onOpenStudentDetail(item.studentId)}
+                                  onClick={() => handleOpenStudentFicha(item.studentId, item.studentName)}
                                   className="font-bold text-slate-900 hover:text-indigo-600 text-left transition-colors cursor-pointer text-xs"
                                 >
                                   {item.studentName}
@@ -1003,7 +1004,7 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
                               {/* Student dossier */}
                               <button
                                 type="button"
-                                onClick={() => onOpenStudentDetail(item.studentId)}
+                                onClick={() => handleOpenStudentFicha(item.studentId, item.studentName)}
                                 className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors cursor-pointer"
                                 title="Ver ficha e dossiê completo do estudante"
                               >
@@ -1127,7 +1128,7 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              onClick={() => onOpenStudentDetail(alert.studentId)}
+                              onClick={() => handleOpenStudentFicha(alert.studentId, alert.studentName)}
                               className="font-bold text-slate-900 hover:text-indigo-600 text-left transition-colors cursor-pointer text-sm"
                             >
                               {alert.studentName}
@@ -1193,39 +1194,53 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
                       </div>
                     )}
 
-                    {/* Action bar for simulating response / updating status */}
-                    <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                        <span>Atualizar status:</span>
+                    {/* Action bar for justification response / updating status */}
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => handleSimulateStatus(alert.id, 'entregue')}
-                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-semibold cursor-pointer"
+                          onClick={() => {
+                            setSelectedAlertForReply(alert);
+                            setCustomReplyText(alert.guardianFeedback || '');
+                          }}
+                          className={`px-3.5 py-2 rounded-xl font-extrabold text-xs cursor-pointer flex items-center gap-1.5 shadow-xs transition-all ${
+                            hasFeedback
+                              ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-900 border border-emerald-300'
+                              : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm'
+                          }`}
                         >
-                          Entregue
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>
+                            {hasFeedback
+                              ? 'Editar Justificativa da Ausência'
+                              : 'Registrar Justificativa da Ausência'}
+                          </span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSimulateStatus(alert.id, 'lido')}
-                          className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded font-semibold cursor-pointer"
-                        >
-                          Lido
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedAlertForReply(alert)}
-                          className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded font-semibold cursor-pointer flex items-center gap-1"
-                        >
-                          <MessageSquare className="w-3 h-3" />
-                          <span>Registrar Resposta</span>
-                        </button>
+
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 pl-1">
+                          <span>Status:</span>
+                          <button
+                            type="button"
+                            onClick={() => handleSimulateStatus(alert.id, 'entregue')}
+                            className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-semibold cursor-pointer"
+                          >
+                            Entregue
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSimulateStatus(alert.id, 'lido')}
+                            className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded font-semibold cursor-pointer"
+                          >
+                            Lido
+                          </button>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2.5">
                         {isWhatsApp && (
                           <a
-                            href={`https://wa.me/${alert.guardianPhone.replace(/\D/g, '')}?text=${encodeURIComponent(
-                              alert.messageContent
+                            href={`https://wa.me/${(alert.guardianPhone || '').replace(/\D/g, '')}?text=${encodeURIComponent(
+                              alert.messageContent || ''
                             )}`}
                             target="_blank"
                             rel="noreferrer"
@@ -1237,10 +1252,11 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
                         )}
                         <button
                           type="button"
-                          onClick={() => onOpenStudentDetail(alert.studentId)}
-                          className="text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+                          onClick={() => handleOpenStudentFicha(alert.studentId, alert.studentName)}
+                          className="text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1"
                         >
-                          Ver Ficha Completa &rarr;
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Ver Ficha Completa</span>
                         </button>
                         <button
                           type="button"
@@ -1254,24 +1270,24 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
                       </div>
                     </div>
 
-                    {/* Inline Reply Form if chosen */}
+                    {/* Inline Justification / Reply Form */}
                     {selectedAlertForReply?.id === alert.id && (
-                      <div className="mt-3 p-3 bg-slate-100 rounded-lg border border-slate-300 space-y-2">
-                        <label className="text-xs font-bold text-slate-700 block">
-                          Registrar resposta dada pelo responsável ({alert.guardianName}):
+                      <div className="mt-3 p-3.5 bg-indigo-50/70 rounded-xl border border-indigo-200 space-y-2">
+                        <label className="text-xs font-bold text-indigo-950 block">
+                          Registrar justificativa da ausência / retorno do responsável ({alert.guardianName}):
                         </label>
                         <textarea
                           rows={2}
                           value={customReplyText}
                           onChange={e => setCustomReplyText(e.target.value)}
-                          placeholder="Ex: Mãe informou que o aluno esteve doente e levará atestado amanhã."
-                          className="w-full text-xs p-2 bg-white border border-slate-300 rounded-md focus:ring-2 focus:ring-emerald-500 focus:outline-hidden"
+                          placeholder="Ex: Mãe informou que o estudante teve consulta médica e apresentará o atestado na secretaria."
+                          className="w-full text-xs p-2.5 bg-white border border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                         />
                         <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
                             onClick={() => setSelectedAlertForReply(null)}
-                            className="px-3 py-1 text-xs text-slate-600 hover:text-slate-800 font-semibold cursor-pointer"
+                            className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800 font-semibold cursor-pointer"
                           >
                             Cancelar
                           </button>
@@ -1279,9 +1295,9 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
                             type="button"
                             disabled={!customReplyText.trim() || isUpdating}
                             onClick={() => handleSimulateStatus(alert.id, 'respondido', customReplyText)}
-                            className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md disabled:opacity-50 cursor-pointer"
+                            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg disabled:opacity-50 cursor-pointer"
                           >
-                            Salvar Resposta
+                            Salvar Justificativa da Ausência
                           </button>
                         </div>
                       </div>
@@ -1300,7 +1316,37 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
         onClose={() => setIsBulkWhatsAppOpen(false)}
         alerts={bulkAlertsList.length > 0 ? bulkAlertsList : alerts.filter(a => a.channel === 'whatsapp')}
         onMarkAsDelivered={async (alertId: string) => {
-          await onUpdateAlertStatus(alertId, 'entregue');
+          const persistedId = persistedBulkIdsRef.current[alertId];
+          const existingInStore =
+            (persistedId && localAlerts.find(a => a.id === persistedId)) ||
+            localAlerts.find(a => a.id === alertId) ||
+            alerts.find(a => a.id === alertId);
+
+          if (existingInStore) {
+            await onUpdateAlertStatus(existingInStore.id, 'entregue');
+          } else {
+            const bulkItem = bulkAlertsList.find(a => a.id === alertId);
+            if (bulkItem) {
+              const realId = `alt-${Date.now()}-${bulkItem.studentId}`;
+              persistedBulkIdsRef.current[alertId] = realId;
+              const newAlert: ParentAlert = {
+                ...bulkItem,
+                id: realId,
+                status: 'entregue',
+                sentAt: new Date().toISOString(),
+              };
+              storageService.addAlert(newAlert);
+              if (onRefresh) {
+                await onRefresh();
+              }
+            } else {
+              await onUpdateAlertStatus(alertId, 'entregue');
+            }
+          }
+
+          setBulkAlertsList(prev =>
+            prev.map(a => (a.id === alertId ? { ...a, status: 'entregue' } : a))
+          );
         }}
       />
 

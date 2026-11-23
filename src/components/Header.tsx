@@ -29,7 +29,9 @@ export type MainModuleType =
   | 'inicio'
   | 'diario'
   | 'busca_ativa'
+  | 'ocorrencias'
   | 'tablets'
+  | 'grade_calendario'
   | 'relatorios'
   | 'system_manager';
 
@@ -180,7 +182,7 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </div>
             <p className="text-[11px] text-slate-500 font-medium">
-              Portal Integrado • Frequência, Prevenção à Evasão, Tablets & Mediação Escolar
+              Portal Integrado • Frequência, Prevenção à Evasão, Equipamentos & Mediação Escolar
             </p>
           </div>
         </div>

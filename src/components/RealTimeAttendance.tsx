@@ -18,11 +18,14 @@ import {
   ArrowRight,
   AlertCircle,
   FileSpreadsheet,
-  Trash2
+  Trash2,
+  Eye,
+  Lock
 } from 'lucide-react';
 import { Student, SchoolClass, AttendanceStatus, ParentAlert, AttendanceRecord } from '../types';
 import { storageService } from '../data/storageService';
 import { firestoreService, isSameDay, normalizeDateStr } from '../lib/firestoreService';
+import { getCalendarDayStatus, getCalendarMetricsSummary, calculateCalendarAttendanceRate } from '../utils/calendarUtils';
 import {
   generateAtestadoRecordsSequence,
   generateJustifiedAbsenceSequence,
@@ -30,6 +33,7 @@ import {
   formatJustificationDaysInfo,
   findActiveAbsenceForDate
 } from '../utils/atestadoUtils';
+import { getLocalTodayStr } from '../utils/reportCalculator';
 
 // Helper flexível para associar estudante à turma
 export const isStudentInClass = (s: { classId?: string; className?: string }, cls: { id: string; name: string }): boolean => {
@@ -167,7 +171,7 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
   onOpenStudentDetail,
   onGoToAlerts,
 }) => {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalTodayStr();
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [teacherName, setTeacherName] = useState<string>(
     currentUser?.name || 'AOE / Equipe Escolar'
@@ -189,6 +193,15 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
   const [dailyRecords, setDailyRecords] = useState<AttendanceRecord[]>([]);
   const [isLoadingRecords, setIsLoadingRecords] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+  const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null);
+
+  // Modo de visualização: Lançamento vs Consulta (somente leitura)
+  const [viewMode, setViewMode] = useState<'lancamento' | 'consulta'>('lancamento');
+  const [consultScope, setConsultScope] = useState<'data_turma' | 'estudante'>('data_turma');
+  const [consultClassId, setConsultClassId] = useState<string>('todas');
+  const [consultStatusFilter, setConsultStatusFilter] = useState<string>('todos');
+  const [consultSearch, setConsultSearch] = useState<string>('');
+  const [consultStudentId, setConsultStudentId] = useState<string>('');
 
   // Modal State for "Lançar Frequência"
   const [activeModalClass, setActiveModalClass] = useState<SchoolClass | null>(null);
@@ -216,6 +229,11 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
   const [modalStudentSearch, setModalStudentSearch] = useState('');
   const [modalRiskFilter, setModalRiskFilter] = useState<string>('todos');
   const [isSubmittingModal, setIsSubmittingModal] = useState(false);
+
+  // Modal State for "Consultar Frequência (Somente Leitura)"
+  const [consultModalClass, setConsultModalClass] = useState<SchoolClass | null>(null);
+  const [consultModalSearch, setConsultModalSearch] = useState('');
+  const [consultModalStatusFilter, setConsultModalStatusFilter] = useState<string>('todos');
 
   // Delete Attendance Modal state
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -269,62 +287,47 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
       }
     } catch (err) {
       console.error('Erro ao excluir registros de frequência:', err);
-      alert('Ocorreu um erro ao excluir os registros. Tente novamente.');
+      setSaveErrorMsg('Ocorreu um erro ao excluir os registros. Tente novamente.');
+      setTimeout(() => setSaveErrorMsg(null), 6000);
     } finally {
       setIsDeletingRecords(false);
     }
   };
 
-  // Fetch daily attendance records when date changes
+  // Fetch daily attendance records when date changes (instant local read + school-scoped cloud sync)
   const loadDailyRecords = async (date: string) => {
-    setIsLoadingRecords(true);
-    let records: AttendanceRecord[] = [];
+    const sId = storageService.getActiveSchoolId();
 
-    // 1. Fonte da Verdade em Nuvem: Firebase Firestore
-    try {
-      const firestoreRecords = await firestoreService.getAttendanceRecords();
-      if (firestoreRecords && firestoreRecords.length > 0) {
-        storageService.setAttendanceRecords(firestoreRecords);
-        const dateFirestore = firestoreRecords.filter(r => isSameDay(r.date, date));
-        if (dateFirestore.length > 0) {
-          records = dateFirestore;
-        }
-      }
-    } catch (err) {
-      console.warn('Falha ao obter frequências do Firestore:', err);
-    }
-
-    // 2. Fallback: API backend
-    if (records.length === 0) {
-      try {
-        const res = await fetch(`/api/attendance-records?date=${date}`);
-        if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
-          const json = await res.json();
-          if (Array.isArray(json) && json.length > 0) {
-            records = json.filter((r: any) => isSameDay(r.date, date));
-          }
-        }
-      } catch (err) {
-        console.warn('API indisponível, consultando storageService:', err);
-      }
-    }
-
-    // 3. Fallback: storageService local
-    if (records.length === 0) {
-      records = storageService.getAttendanceRecords(undefined, date);
+    // 1. Leitura instantânea do cache local da escola ativa para zero latência ao trocar datas
+    const localInitial = storageService.getAttendanceRecords(undefined, date, sId);
+    if (localInitial.length > 0) {
+      setDailyRecords(localInitial);
     } else {
-      // Mescla com registros locais que possam ter sido salvos nesta sessão
-      const localRecords = storageService.getAttendanceRecords(undefined, date);
-      if (localRecords.length > 0) {
+      setIsLoadingRecords(true);
+    }
+
+    let records: AttendanceRecord[] = localInitial;
+
+    // 2. Sincronização em nuvem filtrada pela unidade escolar ativa (preservando registros locais pendentes)
+    try {
+      const firestoreRecords = await firestoreService.getAttendanceRecords(undefined, sId);
+      if (firestoreRecords && firestoreRecords.length > 0) {
+        const localAll = storageService.getAttendanceRecords(undefined, undefined, sId);
+        const cloudIds = new Set(firestoreRecords.map(r => r.id));
+        const mergedAll = [...firestoreRecords, ...localAll.filter(r => !cloudIds.has(r.id))];
+        storageService.setAttendanceRecords(mergedAll, sId);
+
+        const dateMerged = mergedAll.filter(r => isSameDay(r.date, date));
         const recordMap = new Map<string, AttendanceRecord>();
-        records.forEach(r => recordMap.set(r.studentId, r));
-        localRecords.forEach(r => {
+        dateMerged.forEach(r => {
           if (!recordMap.has(r.studentId)) {
             recordMap.set(r.studentId, r);
           }
         });
         records = Array.from(recordMap.values());
       }
+    } catch (err) {
+      console.warn('Falha ao obter frequências do Firestore:', err);
     }
 
     setDailyRecords(records);
@@ -553,8 +556,9 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
     setIsEditConfirmOpen(false);
 
     try {
-      // 1. Apaga prévia e explicitamente os registros antigos desta turma nesta data para garantir substituição limpa no Firebase Firestore e storageService
-      await firestoreService.deleteAttendanceByDate(selectedDate, activeModalClass.id);
+      // 1. Apaga prévia e explicitamente os registros antigos desta turma nesta data (isolado por schoolId)
+      const sId = storageService.getActiveSchoolId();
+      await firestoreService.deleteAttendanceByDate(selectedDate, activeModalClass.id, sId);
       await storageService.deleteAttendanceByDate(selectedDate, activeModalClass.id);
       try {
         await fetch(`/api/attendance?date=${selectedDate}&classId=${encodeURIComponent(activeModalClass.id)}`, {
@@ -652,7 +656,8 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
       setActiveModalClass(null);
     } catch (err) {
       console.error('Erro ao registrar/substituir frequência:', err);
-      alert('Erro ao registrar frequência. Tente novamente.');
+      setSaveErrorMsg('Erro ao registrar frequência. Tente novamente.');
+      setTimeout(() => setSaveErrorMsg(null), 6000);
     } finally {
       setIsSubmittingModal(false);
     }
@@ -726,9 +731,128 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
       faltasInjust: values.filter(v => v.status === 'falta_injustificada').length,
       faltasJustif: values.filter(v => v.status === 'falta_justificada').length,
       atestados: values.filter(v => v.status === 'atestado_medico').length,
-      atrasos: values.filter(v => v.status === 'atraso').length,
     };
   }, [modalAttendanceState]);
+
+  const activeCalendar = useMemo(() => storageService.getSchoolCalendar(), [selectedDate]);
+  const selectedDateCalStatus = useMemo(
+    () => getCalendarDayStatus(selectedDate, activeCalendar),
+    [selectedDate, activeCalendar]
+  );
+
+  // Dados para o modo Consulta (lê todos os registros sincronizados da escola)
+  const allSchoolAttendanceRecords = useMemo(() => {
+    const sId = storageService.getActiveSchoolId();
+    return storageService.getAttendanceRecords(undefined, undefined, sId);
+  }, [dailyRecords, viewMode, selectedDate]);
+
+  const consultationRecordsByDateAndClass = useMemo(() => {
+    const list = allSchoolAttendanceRecords.filter(r => {
+      if (!r.studentId || r.studentId.startsWith('cls-marker-')) return false;
+      if (!isSameDay(r.date, selectedDate)) return false;
+      if (consultClassId !== 'todas') {
+        const targetCls = classes.find(c => c.id === consultClassId);
+        if (targetCls && !isRecordInClass(r, targetCls)) return false;
+      }
+      if (consultStatusFilter !== 'todos' && r.status !== consultStatusFilter) return false;
+      if (consultSearch.trim()) {
+        const q = consultSearch.toLowerCase().trim();
+        const st = students.find(s => s.id === r.studentId);
+        const matchName = (r.studentName || st?.name || '').toLowerCase().includes(q);
+        const matchRa = (st?.ra || '').toLowerCase().includes(q);
+        const matchClass = (r.className || st?.className || '').toLowerCase().includes(q);
+        if (!matchName && !matchRa && !matchClass) return false;
+      }
+      return true;
+    });
+    return list.sort((a, b) => (a.className || '').localeCompare(b.className || '') || (a.studentName || '').localeCompare(b.studentName || ''));
+  }, [allSchoolAttendanceRecords, selectedDate, consultClassId, consultStatusFilter, consultSearch, classes, students]);
+
+  const consultationStudentHistory = useMemo(() => {
+    if (!consultStudentId) return [];
+    return allSchoolAttendanceRecords
+      .filter(r => r.studentId === consultStudentId)
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  }, [allSchoolAttendanceRecords, consultStudentId]);
+
+  const selectedConsultStudent = useMemo(
+    () => students.find(s => s.id === consultStudentId) || null,
+    [students, consultStudentId]
+  );
+
+  // Dados computados para o Pop-up de Consulta (Somente Leitura) do Card da Turma
+  const handleOpenConsultModal = (cls: SchoolClass) => {
+    setConsultModalSearch('');
+    setConsultModalStatusFilter('todos');
+    setConsultModalClass(cls);
+  };
+
+  const consultModalData = useMemo(() => {
+    if (!consultModalClass) return null;
+    const classStudents = students
+      .filter(s => isStudentInClass(s, consultModalClass))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+    const classRecordsOnDate = dailyRecords.filter(
+      r => isSameDay(r.date, selectedDate) && isRecordInClass(r, consultModalClass)
+    );
+
+    const rows = classStudents.map(student => {
+      const directRec =
+        classRecordsOnDate.find(r => r.studentId === student.id) ||
+        dailyRecords.find(r => isSameDay(r.date, selectedDate) && r.studentId === student.id);
+      const activeAbsence = !directRec
+        ? findActiveAbsenceForDate(allSchoolAttendanceRecords, student.id, selectedDate)
+        : null;
+      const record = directRec || activeAbsence || null;
+      return {
+        student,
+        record,
+        status: (record?.status as AttendanceStatus | undefined) || null,
+      };
+    });
+
+    const recordedBy =
+      classRecordsOnDate.find(r => r.recordedBy)?.recordedBy ||
+      rows.find(r => r.record?.recordedBy)?.record?.recordedBy ||
+      'Registro não identificado';
+
+    const counts = {
+      total: rows.length,
+      presentes: rows.filter(r => r.status === 'presente' || (r.status as any) === 'atraso').length,
+      faltasInjust: rows.filter(r => r.status === 'falta_injustificada').length,
+      faltasJustif: rows.filter(r => r.status === 'falta_justificada').length,
+      atestados: rows.filter(r => r.status === 'atestado_medico').length,
+      semRegistro: rows.filter(r => !r.status).length,
+    };
+
+    const q = consultModalSearch.toLowerCase().trim();
+    const filteredRows = rows.filter(r => {
+      const matchesSearch =
+        !q ||
+        r.student.name.toLowerCase().includes(q) ||
+        (r.student.ra || '').toLowerCase().includes(q);
+      const matchesStatus =
+        consultModalStatusFilter === 'todos' ||
+        (consultModalStatusFilter === 'sem_registro' ? !r.status : r.status === consultModalStatusFilter);
+      return matchesSearch && matchesStatus;
+    });
+
+    return {
+      rows,
+      filteredRows,
+      counts,
+      recordedBy,
+    };
+  }, [
+    consultModalClass,
+    students,
+    dailyRecords,
+    selectedDate,
+    allSchoolAttendanceRecords,
+    consultModalSearch,
+    consultModalStatusFilter,
+  ]);
 
   return (
     <div className="space-y-6">
@@ -741,13 +865,52 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
                 <School className="w-5 h-5" />
               </span>
               <div>
-                <h1 className="text-xl font-black text-slate-900 tracking-tight">
-                  Lançamento de Frequência Escolar
-                </h1>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-xl font-black text-slate-900 tracking-tight">
+                    {viewMode === 'lancamento' ? 'Lançamento de Frequência Escolar' : 'Consulta de Frequência Escolar'}
+                  </h1>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    selectedDateCalStatus.isSchoolDay
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-amber-50 text-amber-800 border-amber-200'
+                  }`}>
+                    {selectedDateCalStatus.reason}
+                  </span>
+                </div>
                 <p className="text-xs text-slate-500 font-medium">
-                  Selecione a turma abaixo para lançar ou atualizar a chamada diária via pop-up.
+                  {viewMode === 'lancamento'
+                    ? 'Selecione a turma abaixo para lançar ou atualizar a chamada diária via pop-up.'
+                    : 'Consulte chamadas já lançadas por data, turma ou histórico individual do estudante (somente leitura).'}
                 </p>
               </div>
+            </div>
+
+            {/* Alternador de Modo: Lançamento vs Consulta */}
+            <div className="mt-3 inline-flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setViewMode('lancamento')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  viewMode === 'lancamento'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>Lançamento</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('consulta')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                  viewMode === 'consulta'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Consulta</span>
+              </button>
             </div>
           </div>
 
@@ -823,6 +986,22 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
           </div>
         )}
 
+        {saveErrorMsg && (
+          <div className="mt-4 p-3 bg-rose-50 border border-rose-200 text-rose-900 rounded-xl flex items-center justify-between gap-3 animate-in fade-in duration-200">
+            <div className="flex items-center gap-2 text-xs font-bold">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{saveErrorMsg}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSaveErrorMsg(null)}
+              className="text-rose-700 hover:text-rose-900 text-xs font-semibold cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Progress of Class Attendances */}
         <div className="mt-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-indigo-50/50 border border-indigo-100 rounded-xl p-3.5">
           <div className="flex items-center gap-2 text-xs text-indigo-950 font-semibold">
@@ -847,64 +1026,348 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
           </div>
         </div>
 
-        {/* Filter Bar for Class Cards */}
-        <div className="mt-5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={classSearch}
-              onChange={e => setClassSearch(e.target.value)}
-              placeholder="Buscar turma (ex: 7º Ano A, 9º B, 1ª Série)..."
-              className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium"
-            />
-          </div>
+        {viewMode === 'lancamento' && (
+          <>
+            {/* Filter Bar for Class Cards */}
+            <div className="mt-5 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={classSearch}
+                  onChange={e => setClassSearch(e.target.value)}
+                  placeholder="Buscar turma (ex: 7º Ano A, 9º B, 1ª Série)..."
+                  className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium"
+                />
+              </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Shift Filter */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
-              {['todos', 'Manhã', 'Tarde', 'Integral'].map(sh => (
-                <button
-                  key={sh}
-                  type="button"
-                  onClick={() => setShiftFilter(sh)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    shiftFilter === sh
-                      ? 'bg-white text-indigo-700 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {sh === 'todos' ? 'Todos os Turnos' : sh}
-                </button>
-              ))}
-            </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Shift Filter */}
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                  {['todos', 'Manhã', 'Tarde', 'Integral'].map(sh => (
+                    <button
+                      key={sh}
+                      type="button"
+                      onClick={() => setShiftFilter(sh)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        shiftFilter === sh
+                          ? 'bg-white text-indigo-700 shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {sh === 'todos' ? 'Todos os Turnos' : sh}
+                    </button>
+                  ))}
+                </div>
 
-            {/* Status Filter */}
-            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
-              {[
-                { id: 'todos', label: 'Todas' },
-                { id: 'realizadas', label: 'Realizadas' },
-                { id: 'pendentes', label: 'Pendentes' },
-              ].map(st => (
-                <button
-                  key={st.id}
-                  type="button"
-                  onClick={() => setStatusFilter(st.id as any)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    statusFilter === st.id
-                      ? 'bg-white text-indigo-700 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {st.label}
-                </button>
-              ))}
+                {/* Status Filter */}
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                  {[
+                    { id: 'todos', label: 'Todas' },
+                    { id: 'realizadas', label: 'Realizadas' },
+                    { id: 'pendentes', label: 'Pendentes' },
+                  ].map(st => (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => setStatusFilter(st.id as any)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        statusFilter === st.id
+                          ? 'bg-white text-indigo-700 shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
 
+      {/* MODO CONSULTA DE FREQUÊNCIAS */}
+      {viewMode === 'consulta' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConsultScope('data_turma')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                    consultScope === 'data_turma'
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Consulta por Data e Turma
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConsultScope('estudante')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                    consultScope === 'estudante'
+                      ? 'bg-slate-900 text-white'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  Histórico Individual do Estudante
+                </button>
+              </div>
+              <span className="text-[11px] text-slate-500 font-medium">
+                Modo de consulta somente leitura — sem risco de alterar registros
+              </span>
+            </div>
+
+            {consultScope === 'data_turma' ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 block mb-1">Turma:</label>
+                    <select
+                      value={consultClassId}
+                      onChange={e => setConsultClassId(e.target.value)}
+                      className="w-full text-xs font-semibold text-slate-800 border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="todas">Todas as Turmas ({classes.length})</option>
+                      {classes.map(c => (
+                        <option key={c.id} value={c.id}>{c.name} ({c.shift})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 block mb-1">Filtrar Status:</label>
+                    <select
+                      value={consultStatusFilter}
+                      onChange={e => setConsultStatusFilter(e.target.value)}
+                      className="w-full text-xs font-semibold text-slate-800 border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="todos">Todos os Status</option>
+                      <option value="presente">Presentes</option>
+                      <option value="falta_injustificada">Faltas Injustificadas</option>
+                      <option value="falta_justificada">Faltas Justificadas</option>
+                      <option value="atestado_medico">Atestados Médicos</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 block mb-1">Buscar Estudante / RA:</label>
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        value={consultSearch}
+                        onChange={e => setConsultSearch(e.target.value)}
+                        placeholder="Nome, RA ou turma..."
+                        className="w-full pl-8 pr-3 py-2 text-xs border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Resumo quantitativo da consulta */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Registros Filtrados</span>
+                    <div className="text-lg font-black text-slate-900">{consultationRecordsByDateAndClass.length}</div>
+                  </div>
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                    <span className="text-[10px] font-bold uppercase text-emerald-700">Presentes</span>
+                    <div className="text-lg font-black text-emerald-900">
+                      {consultationRecordsByDateAndClass.filter(r => r.status === 'presente' || (r.status as any) === 'atraso').length}
+                    </div>
+                  </div>
+                  <div className="bg-rose-50 border border-rose-200 rounded-xl p-3">
+                    <span className="text-[10px] font-bold uppercase text-rose-700">Faltas Injust.</span>
+                    <div className="text-lg font-black text-rose-900">
+                      {consultationRecordsByDateAndClass.filter(r => r.status === 'falta_injustificada').length}
+                    </div>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                    <span className="text-[10px] font-bold uppercase text-amber-700">Faltas Justif.</span>
+                    <div className="text-lg font-black text-amber-900">
+                      {consultationRecordsByDateAndClass.filter(r => r.status === 'falta_justificada').length}
+                    </div>
+                  </div>
+                  <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-3">
+                    <span className="text-[10px] font-bold uppercase text-cyan-700">Atestados</span>
+                    <div className="text-lg font-black text-cyan-900">
+                      {consultationRecordsByDateAndClass.filter(r => r.status === 'atestado_medico').length}
+                    </div>
+                  </div>
+                </div>
+
+                {consultationRecordsByDateAndClass.length === 0 ? (
+                  <div className="p-10 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-500 text-xs">
+                    Nenhum registro de frequência localizado para a data <strong>{new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR')}</strong> com os filtros aplicados.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase text-[10px] font-bold">
+                        <tr>
+                          <th className="py-2.5 px-4">Estudante</th>
+                          <th className="py-2.5 px-3">Turma</th>
+                          <th className="py-2.5 px-3">Situação</th>
+                          <th className="py-2.5 px-3">Justificativa / Atestado</th>
+                          <th className="py-2.5 px-3">Registrado por</th>
+                          <th className="py-2.5 px-4 text-right">Dossiê</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {consultationRecordsByDateAndClass.map(rec => {
+                          const st = students.find(s => s.id === rec.studentId);
+                          return (
+                            <tr key={rec.id} className="hover:bg-slate-50">
+                              <td className="py-2.5 px-4">
+                                <div className="font-bold text-slate-900">{rec.studentName || st?.name || 'Estudante'}</div>
+                                {st?.ra && <div className="text-[10px] text-slate-500 font-mono">RA: {st.ra}</div>}
+                              </td>
+                              <td className="py-2.5 px-3 font-medium text-slate-700">
+                                {rec.className || st?.className || rec.classId}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                {rec.status === 'presente' && (
+                                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">Presente</span>
+                                )}
+                                {rec.status === 'falta_injustificada' && (
+                                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800">Falta Injustificada</span>
+                                )}
+                                {rec.status === 'falta_justificada' && (
+                                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800">Falta Justificada</span>
+                                )}
+                                {rec.status === 'atestado_medico' && (
+                                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-cyan-100 text-cyan-800">Atestado Médico</span>
+                                )}
+                                {(rec.status as any) === 'atraso' && (
+                                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-200 text-slate-800">Atraso (Histórico)</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-600 max-w-xs">
+                                {rec.justification || rec.medicalCertificate || '—'}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-500 text-[11px]">
+                                {rec.recordedBy || '—'}
+                              </td>
+                              <td className="py-2.5 px-4 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenStudentDetail(rec.studentId)}
+                                  className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-[11px] cursor-pointer"
+                                >
+                                  Ver Ficha
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-500 block mb-1">Selecione o Estudante para Consultar Histórico:</label>
+                    <select
+                      value={consultStudentId}
+                      onChange={e => setConsultStudentId(e.target.value)}
+                      className="w-full text-xs font-semibold text-slate-800 border border-slate-200 rounded-xl px-3 py-2 bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="">-- Escolha um estudante --</option>
+                      {[...students]
+                        .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+                        .map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.name} ({s.className} • RA: {s.ra})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  {selectedConsultStudent && (() => {
+                    const calMetrics = getCalendarMetricsSummary(activeCalendar);
+                    const totalAbs = consultationStudentHistory.filter(
+                      r => r.status === 'falta_injustificada' || r.status === 'falta_justificada' || r.status === 'atestado_medico'
+                    ).length || selectedConsultStudent.totalAbsences;
+                    const calc = calculateCalendarAttendanceRate(totalAbs, activeCalendar, selectedConsultStudent.totalSchoolDays);
+                    return (
+                      <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl p-3 flex items-center justify-between gap-3">
+                        <div className="text-xs">
+                          <div className="font-bold text-indigo-950">{selectedConsultStudent.name}</div>
+                          <div className="text-[11px] text-indigo-800">
+                            Frequência: <strong>{calc.attendanceRate}%</strong> (Base: {calMetrics.elapsedSchoolDays} dias letivos transcorridos)
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => onOpenStudentDetail(selectedConsultStudent.id)}
+                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold cursor-pointer shrink-0"
+                        >
+                          Dossiê Completo
+                        </button>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {consultStudentId && (
+                  consultationStudentHistory.length === 0 ? (
+                    <div className="p-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200 text-xs text-slate-500">
+                      Nenhum registro individual encontrado no diário para este estudante até o momento.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase text-[10px] font-bold">
+                          <tr>
+                            <th className="py-2.5 px-4">Data</th>
+                            <th className="py-2.5 px-3">Calendário</th>
+                            <th className="py-2.5 px-3">Status</th>
+                            <th className="py-2.5 px-3">Detalhes / Justificativa</th>
+                            <th className="py-2.5 px-3">Responsável pelo Lançamento</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {consultationStudentHistory.map(rec => {
+                            const dayCal = getCalendarDayStatus(rec.date, activeCalendar);
+                            return (
+                              <tr key={rec.id} className="hover:bg-slate-50">
+                                <td className="py-2.5 px-4 font-bold text-slate-800">
+                                  {new Date(normalizeDateStr(rec.date) + 'T12:00:00').toLocaleDateString('pt-BR')}
+                                </td>
+                                <td className="py-2.5 px-3 text-[11px] text-slate-500">
+                                  {dayCal.reason}
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  {rec.status === 'presente' && <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800">Presente</span>}
+                                  {rec.status === 'falta_injustificada' && <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800">Falta Injustificada</span>}
+                                  {rec.status === 'falta_justificada' && <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800">Falta Justificada</span>}
+                                  {rec.status === 'atestado_medico' && <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-cyan-100 text-cyan-800">Atestado Médico</span>}
+                                  {(rec.status as any) === 'atraso' && <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-200 text-slate-800">Atraso (Histórico)</span>}
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-600">{rec.justification || rec.medicalCertificate || '—'}</td>
+                                <td className="py-2.5 px-3 text-slate-500">{rec.recordedBy || '—'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Grid of All Classes */}
+      {viewMode === 'lancamento' && (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {filteredClasses.length === 0 ? (
           <div className="col-span-full bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
@@ -1014,21 +1477,33 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
                   </div>
                 </div>
 
-                {/* Action Buttons to Open Pop-up / Delete */}
-                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2">
+                {/* Action Buttons to Open Pop-up / Consult / Delete */}
+                <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleOpenAttendanceModal(cls)}
-                    className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition-all shadow-2xs active:scale-98 ${
+                    className={`flex-1 min-w-[130px] py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-all shadow-2xs active:scale-98 ${
                       isRecorded
                         ? 'bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-800'
                         : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                     }`}
                   >
-                    <UserCheck className="w-4 h-4" />
+                    <UserCheck className="w-4 h-4 shrink-0" />
                     <span>{isRecorded ? 'Editar Chamada' : 'Lançar Frequência'}</span>
-                    <ChevronRight className="w-3.5 h-3.5 opacity-70" />
+                    <ChevronRight className="w-3.5 h-3.5 opacity-70 shrink-0" />
                   </button>
+
+                  {(isRecorded || classRecords.length > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenConsultModal(cls)}
+                      className="py-2.5 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs shrink-0"
+                      title={`Consultar lista de chamada da turma ${cls.name} (somente leitura)`}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Consultar</span>
+                    </button>
+                  )}
 
                   {isRecorded && (
                     <button
@@ -1046,6 +1521,7 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
           })
         )}
       </div>
+      )}
 
       {/* ============================================================== */}
       {/* POP-UP MODAL: LANÇAR FREQUÊNCIA DA TURMA                       */}
@@ -1126,9 +1602,6 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
                 </span>
                 <span className="px-2 py-0.5 rounded-md bg-cyan-100 text-cyan-800 font-bold text-[11px]">
                   {modalCounts.atestados} Atestados
-                </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-800 font-bold text-[11px]">
-                  {modalCounts.atrasos} Atrasos
                 </span>
               </div>
             </div>
@@ -1236,18 +1709,6 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
                             }`}
                           >
                             Atestado Méd.
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleModalStatusChange(student.id, 'atraso')}
-                            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
-                              currentItem.status === 'atraso'
-                                ? 'bg-slate-800 text-white shadow-xs'
-                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                            }`}
-                          >
-                            Atraso
                           </button>
                         </div>
                       </div>
@@ -1426,6 +1887,251 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* POP-UP MODAL: CONSULTAR FREQUÊNCIA DA TURMA (SOMENTE LEITURA)  */}
+      {/* ============================================================== */}
+      {consultModalClass && consultModalData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-xs">
+                  <Eye className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="font-black text-base text-white">
+                      Consulta de Frequência — {consultModalClass.name}
+                    </h2>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-800 text-indigo-200">
+                      {consultModalClass.shift}
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-700 text-slate-200 inline-flex items-center gap-1">
+                      <Lock className="w-3 h-3" />
+                      Somente Leitura
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">
+                    Data: <strong>{new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR')}</strong> •
+                    Registrado por: <strong>{consultModalData.recordedBy}</strong> • {consultModalData.counts.total} estudantes
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setConsultModalClass(null)}
+                className="text-slate-400 hover:text-white p-2 rounded-lg cursor-pointer transition-colors text-lg font-bold"
+                title="Fechar consulta"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Search & Status Filter + Read-only Tally Bar */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 space-y-3 shrink-0">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={consultModalSearch}
+                    onChange={e => setConsultModalSearch(e.target.value)}
+                    placeholder="Buscar estudante por nome ou RA nesta turma..."
+                    className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500 font-medium"
+                  />
+                </div>
+
+                <select
+                  value={consultModalStatusFilter}
+                  onChange={e => setConsultModalStatusFilter(e.target.value)}
+                  className="text-xs font-bold text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 bg-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="todos">Todos os Status ({consultModalData.counts.total})</option>
+                  <option value="presente">Presentes ({consultModalData.counts.presentes})</option>
+                  <option value="falta_injustificada">Faltas Injustificadas ({consultModalData.counts.faltasInjust})</option>
+                  <option value="falta_justificada">Faltas Justificadas ({consultModalData.counts.faltasJustif})</option>
+                  <option value="atestado_medico">Atestados Médicos ({consultModalData.counts.atestados})</option>
+                  {consultModalData.counts.semRegistro > 0 && (
+                    <option value="sem_registro">Sem Registro ({consultModalData.counts.semRegistro})</option>
+                  )}
+                </select>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-bold text-slate-600 text-[11px]">Resumo Registrado:</span>
+                <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 font-bold text-[11px]">
+                  {consultModalData.counts.presentes} Presentes
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-800 font-bold text-[11px]">
+                  {consultModalData.counts.faltasInjust} Faltas Injust.
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-800 font-bold text-[11px]">
+                  {consultModalData.counts.faltasJustif} Faltas Justif.
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-cyan-100 text-cyan-800 font-bold text-[11px]">
+                  {consultModalData.counts.atestados} Atestados
+                </span>
+                {consultModalData.counts.semRegistro > 0 && (
+                  <span className="px-2 py-0.5 rounded-md bg-slate-200 text-slate-700 font-bold text-[11px]">
+                    {consultModalData.counts.semRegistro} Sem Registro
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Scrollable Students List (Strictly Read-Only) */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-2.5">
+              {consultModalData.filteredRows.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs">
+                  Nenhum estudante encontrado com os filtros aplicados nesta turma.
+                </div>
+              ) : (
+                consultModalData.filteredRows.map(({ student, record, status }) => {
+                  const rowBgClass =
+                    status === 'presente' || (status as any) === 'atraso'
+                      ? 'bg-white border-slate-200'
+                      : status === 'falta_injustificada'
+                      ? 'bg-rose-50/50 border-rose-200'
+                      : status === 'falta_justificada'
+                      ? 'bg-amber-50/50 border-amber-200'
+                      : status === 'atestado_medico'
+                      ? 'bg-cyan-50/50 border-cyan-200'
+                      : 'bg-slate-50 border-slate-200';
+
+                  return (
+                    <div key={student.id} className={`p-3.5 rounded-xl border ${rowBgClass}`}>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        {/* Student Info */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-slate-900 text-xs truncate">
+                              {student.name}
+                            </span>
+                            {student.riskLevel === 'critico' && (
+                              <span className="bg-rose-100 text-rose-800 text-[9px] font-black px-1.5 py-0.2 rounded border border-rose-200 shrink-0">
+                                CRÍTICO
+                              </span>
+                            )}
+                            {student.riskLevel === 'alto' && (
+                              <span className="bg-amber-100 text-amber-800 text-[9px] font-bold px-1.5 py-0.2 rounded border border-amber-200 shrink-0">
+                                ALERTA
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                            RA: {student.ra || 'S/N'} • Faltas acumuladas: {student.totalAbsences || 0}
+                          </div>
+                        </div>
+
+                        {/* Read-Only Status Badge */}
+                        <div className="shrink-0 flex items-center gap-2">
+                          {status === 'presente' && (
+                            <span className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 text-white shadow-2xs inline-flex items-center gap-1.5">
+                              <Check className="w-3.5 h-3.5" />
+                              Presente
+                            </span>
+                          )}
+                          {status === 'falta_injustificada' && (
+                            <span className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-600 text-white shadow-2xs inline-flex items-center gap-1.5">
+                              <X className="w-3.5 h-3.5" />
+                              Ausente (Falta Injustificada)
+                            </span>
+                          )}
+                          {status === 'falta_justificada' && (
+                            <span className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 text-white shadow-2xs inline-flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Falta Justificada
+                            </span>
+                          )}
+                          {status === 'atestado_medico' && (
+                            <span className="px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-600 text-white shadow-2xs inline-flex items-center gap-1.5">
+                              <Stethoscope className="w-3.5 h-3.5" />
+                              Atestado Médico
+                            </span>
+                          )}
+                          {(status as any) === 'atraso' && (
+                            <span className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-600 text-white shadow-2xs">
+                              Atraso (Histórico)
+                            </span>
+                          )}
+                          {!status && (
+                            <span className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-200 text-slate-700">
+                              Sem Registro nesta Data
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Read-only Details for Justified Absences or Medical Certificates */}
+                      {(status === 'falta_justificada' || status === 'atestado_medico') && record && (
+                        <div
+                          className={`mt-2 pt-2 border-t text-[11px] flex flex-wrap items-center gap-x-4 gap-y-1 ${
+                            status === 'atestado_medico'
+                              ? 'border-cyan-200/70 text-cyan-950'
+                              : 'border-amber-200/70 text-amber-950'
+                          }`}
+                        >
+                          {status === 'falta_justificada' && (
+                            <>
+                              <span>
+                                <strong>Duração:</strong>{' '}
+                                {formatJustificationDaysInfo(
+                                  record.justificationDayCurrent || 1,
+                                  record.justificationDays || record.durationDays || 1
+                                )}
+                              </span>
+                              {record.justification && (
+                                <span>
+                                  <strong>Motivo:</strong> {record.justification}
+                                </span>
+                              )}
+                            </>
+                          )}
+                          {status === 'atestado_medico' && (
+                            <>
+                              <span>
+                                <strong>Vigência:</strong>{' '}
+                                {formatMedicalDaysInfo(
+                                  record.medicalDayCurrent || 1,
+                                  record.medicalDays || record.durationDays || 1
+                                )}
+                              </span>
+                              {(record.medicalCertificate || record.justification) && (
+                                <span>
+                                  <strong>CID / Observação:</strong>{' '}
+                                  {record.medicalCertificate || record.justification}
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal Footer (Read-Only) */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
+              <div className="text-xs text-slate-500 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span>Visualização somente leitura — nenhuma alteração pode ser feita nesta tela.</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConsultModalClass(null)}
+                className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>

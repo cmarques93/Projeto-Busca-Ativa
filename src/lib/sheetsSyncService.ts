@@ -524,27 +524,38 @@ export async function salvarReservaTabletsSeguro(payload: any, currentDb?: any):
           ...(payload.turmas ? { turmas: payload.turmas } : {}),
           ...(payload.horarios ? { horarios: payload.horarios } : {}),
           ...(payload.feriados ? { feriados: payload.feriados } : {}),
-          ...(payload.maxTablets ? { maxTablets: payload.maxTablets } : {}),
+          ...(payload.maxTablets !== undefined ? { maxTablets: payload.maxTablets } : {}),
+          ...(payload.equipamentos !== undefined ? { equipamentos: payload.equipamentos } : {}),
+          ...(payload.equipmentTypes !== undefined ? { equipmentTypes: payload.equipmentTypes } : {}),
           ...(currentDb || {}),
         };
       } else if (payload.action === 'cancelar') {
-        const agendamentos = (base.agendamentos || []).filter(
-          (ag: any) =>
-            !(
-              (ag.data || '').trim() === (payload.data || '').trim() &&
-              (ag.aula || '').trim() === (payload.aula || '').trim() &&
-              (ag.turma || '').trim() === (payload.turma || '').trim()
-            )
-        );
+        const agendamentos = (base.agendamentos || []).filter((ag: any) => {
+          if (payload.id && ag.id) {
+            return ag.id !== payload.id;
+          }
+          const sameDate = (ag.data || '').trim() === (payload.data || '').trim();
+          const sameAula = (ag.aula || '').trim() === (payload.aula || '').trim();
+          const sameTurma = (ag.turma || '').trim() === (payload.turma || '').trim();
+          const sameProf = !payload.professor || (ag.professor || '').trim() === (payload.professor || '').trim();
+          const sameType =
+            !payload.equipmentType ||
+            (ag.equipmentType || 'Tablet').trim().toLowerCase() === String(payload.equipmentType).trim().toLowerCase();
+          return !(sameDate && sameAula && sameTurma && sameProf && sameType);
+        });
         base = { ...base, agendamentos };
       } else {
-        // Novo agendamento
+        // Novo agendamento de equipamento
+        const qty = Number(payload.quantity ?? payload.tablets) || 1;
         const novoAg = {
+          id: payload.id || `ag-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           data: payload.data,
           aula: payload.aula,
           professor: payload.professor,
           turma: payload.turma,
-          tablets: Number(payload.tablets) || 1,
+          tablets: qty,
+          quantity: qty,
+          equipmentType: payload.equipmentType || 'Tablet',
         };
         const agendamentos = [novoAg, ...(base.agendamentos || [])];
         base = { ...base, agendamentos };
@@ -568,51 +579,102 @@ export async function salvarReservaTabletsSeguro(payload: any, currentDb?: any):
   return { ok: true };
 }
 
-// Helpers de Cache Local
+// Helpers de Cache Local (com fallback em memória caso localStorage esteja cheio)
+const memoryOcorrenciasCache = new Map<string, any>();
+const memoryTabletsCache = new Map<string, any>();
+
+function freeLegacyStorageDuplicates() {
+  const keys = [
+    'school_attendance',
+    'school_gate_records',
+    'school_students',
+    'school_classes',
+    'school_alerts',
+    'school_interventions',
+    'school_monthly_report',
+    'school_calendar',
+    'school_teacher_schedules',
+  ];
+  for (const k of keys) {
+    try {
+      localStorage.removeItem(k);
+    } catch {}
+  }
+}
+
 export function salvarCacheOcorrencias(data: any, schoolId?: string) {
+  const sId = schoolId || getCurrentSchoolId();
+  const key = sId === 'ee-arlindo-silvestre' ? 'CACHE_OCORRENCIAS_APP' : `CACHE_OCORRENCIAS_APP_${sId}`;
+  let payload = data;
+  if (data && Array.isArray(data.registros)) {
+    payload = {
+      ...data,
+      registros: ordenarOcorrenciasPorMaisRecentes(data.registros),
+    };
+  }
+  memoryOcorrenciasCache.set(key, payload);
   try {
-    const sId = schoolId || getCurrentSchoolId();
-    const key = sId === 'ee-arlindo-silvestre' ? 'CACHE_OCORRENCIAS_APP' : `CACHE_OCORRENCIAS_APP_${sId}`;
-    let payload = data;
-    if (data && Array.isArray(data.registros)) {
-      payload = {
-        ...data,
-        registros: ordenarOcorrenciasPorMaisRecentes(data.registros),
-      };
-    }
     localStorage.setItem(key, JSON.stringify(payload));
-  } catch (e) {
-    console.warn('Erro ao salvar cache de ocorrências:', e);
+  } catch {
+    freeLegacyStorageDuplicates();
+    try {
+      localStorage.setItem(key, JSON.stringify(payload));
+    } catch {
+      if (payload && Array.isArray(payload.registros) && payload.registros.length > 300) {
+        try {
+          localStorage.setItem(key, JSON.stringify({
+            ...payload,
+            registros: payload.registros.slice(0, 300),
+          }));
+        } catch {}
+      }
+    }
   }
 }
 
 export function lerCacheOcorrencias(schoolId?: string): any | null {
+  const sId = schoolId || getCurrentSchoolId();
+  const key = sId === 'ee-arlindo-silvestre' ? 'CACHE_OCORRENCIAS_APP' : `CACHE_OCORRENCIAS_APP_${sId}`;
+  if (memoryOcorrenciasCache.has(key)) {
+    return memoryOcorrenciasCache.get(key);
+  }
   try {
-    const sId = schoolId || getCurrentSchoolId();
-    const key = sId === 'ee-arlindo-silvestre' ? 'CACHE_OCORRENCIAS_APP' : `CACHE_OCORRENCIAS_APP_${sId}`;
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    memoryOcorrenciasCache.set(key, parsed);
+    return parsed;
   } catch {
     return null;
   }
 }
 
 export function salvarCacheTablets(data: any, schoolId?: string) {
+  const sId = schoolId || getCurrentSchoolId();
+  const key = sId === 'ee-arlindo-silvestre' ? 'CACHE_TABLET_APP' : `CACHE_TABLET_APP_${sId}`;
+  memoryTabletsCache.set(key, data);
   try {
-    const sId = schoolId || getCurrentSchoolId();
-    const key = sId === 'ee-arlindo-silvestre' ? 'CACHE_TABLET_APP' : `CACHE_TABLET_APP_${sId}`;
     localStorage.setItem(key, JSON.stringify(data));
-  } catch (e) {
-    console.warn('Erro ao salvar cache de tablets:', e);
+  } catch {
+    freeLegacyStorageDuplicates();
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch {}
   }
 }
 
 export function lerCacheTablets(schoolId?: string): any | null {
+  const sId = schoolId || getCurrentSchoolId();
+  const key = sId === 'ee-arlindo-silvestre' ? 'CACHE_TABLET_APP' : `CACHE_TABLET_APP_${sId}`;
+  if (memoryTabletsCache.has(key)) {
+    return memoryTabletsCache.get(key);
+  }
   try {
-    const sId = schoolId || getCurrentSchoolId();
-    const key = sId === 'ee-arlindo-silvestre' ? 'CACHE_TABLET_APP' : `CACHE_TABLET_APP_${sId}`;
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    memoryTabletsCache.set(key, parsed);
+    return parsed;
   } catch {
     return null;
   }
@@ -686,5 +748,12 @@ function gerarFallbackTablets(classes: any[] = []) {
       { data: '2026-09-15', motivo: 'Aniversário de Limeira' },
       { data: '2026-10-12', motivo: 'Nossa Senhora Aparecida' },
     ],
+    equipamentos: Array.from({ length: 23 }, (_, idx) => ({
+      id: `eq-tablet-${String(idx + 1).padStart(2, '0')}`,
+      nome: `Tablet ${String(idx + 1).padStart(2, '0')}`,
+      tipo: 'Tablet',
+      patrimonio: '',
+      condicao: 'em_uso',
+    })),
   };
 }

@@ -50,26 +50,28 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Usuários cadastrados para seleção de tutoria
+  // Usuários cadastrados da unidade escolar para seleção de tutoria
   const [registeredUsers, setRegisteredUsers] = useState<UserAccount[]>(() => {
-    return storageService.getUsers();
+    return storageService.getUsers(storageService.getActiveSchoolId());
   });
   const [customTutorMode, setCustomTutorMode] = useState(false);
 
   useEffect(() => {
-    const local = storageService.getUsers();
+    const sId = storageService.getActiveSchoolId();
+    const local = storageService.getUsers(sId);
     if (local && local.length > 0) {
       setRegisteredUsers(local);
     }
-    firestoreService.getUsers().then(cloudUsers => {
+    firestoreService.getUsers(sId).then(cloudUsers => {
       if (cloudUsers && cloudUsers.length > 0) {
-        setRegisteredUsers(cloudUsers);
+        storageService.setUsers(cloudUsers);
+        setRegisteredUsers(storageService.getUsers(sId));
       }
     }).catch(() => {});
   }, []);
 
   const { professoresList, gestaoList } = useMemo(() => {
-    const active = registeredUsers.filter(u => u.active !== false);
+    const active = registeredUsers.filter(u => u.active !== false && !u.isUniversal && u.role !== 'super_admin');
     const profs = active
       .filter(u => u.role === 'professor')
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
@@ -156,8 +158,7 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
       console.warn('API backend indisponível, salvando estudante localmente:', err);
     }
 
-    const savedStudent = storageService.createStudent(createdStudent || newStudentData);
-    await firestoreService.saveStudent(savedStudent);
+    storageService.createStudent(createdStudent || newStudentData);
     await onStudentRegistered();
     setSuccessMessage(`Estudante "${cleanName}" cadastrado(a) com sucesso no banco de dados!`);
     setName('');
@@ -343,7 +344,6 @@ Juliana Cristina Vieira;2024-7755;19 95432-1098`;
     }
 
     storageService.createClass(classData);
-    await firestoreService.saveClass(classData);
     setClassList(prev => [...prev.filter(c => c.id.toLowerCase() !== cleanId.toLowerCase()), classData]);
     await onStudentRegistered();
     setSuccessMessage(`Turma "${cleanName}" (${cleanId}) salva com sucesso no banco de dados!`);
@@ -374,7 +374,6 @@ Juliana Cristina Vieira;2024-7755;19 95432-1098`;
     }
 
     storageService.deleteClass(clsId);
-    await firestoreService.deleteClass(clsId);
     setClassList(prev => prev.filter(c => c.id.toLowerCase() !== clsId.toLowerCase()));
 
     // Adjust selected class if it was the deleted one

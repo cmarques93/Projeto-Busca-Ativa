@@ -23,8 +23,8 @@ export interface ParsedPhone {
  * and returns the list of individual trimmed phone numbers.
  */
 export function parsePhoneNumbers(phoneInput?: string | null): string[] {
-  if (!phoneInput) return [];
-  const raw = String(phoneInput).trim();
+  if (!phoneInput || typeof phoneInput !== 'string') return [];
+  const raw = phoneInput.trim();
   if (!raw) return [];
 
   // Primary separator: '/' (as in "19 99999-0000 / +55 19 90000-9999")
@@ -43,6 +43,7 @@ export function parsePhoneNumbers(phoneInput?: string | null): string[] {
  * - "(19) 99999-0000" -> "5519999990000"
  */
 export function cleanPhoneForWhatsApp(phone: string): string {
+  if (!phone || typeof phone !== 'string') return '';
   const digits = phone.replace(/\D/g, '');
   if (!digits) return '';
 
@@ -68,6 +69,7 @@ export function cleanPhoneForWhatsApp(phone: string): string {
  * Nicely formats a single phone string for display (e.g., "(19) 99999-0000").
  */
 export function formatSinglePhone(phone: string): string {
+  if (!phone || typeof phone !== 'string') return '';
   const clean = phone.trim();
   const digits = clean.replace(/\D/g, '');
 
@@ -99,11 +101,12 @@ export function formatSinglePhone(phone: string): string {
  * Returns structured metadata for each phone number identified in the string.
  */
 export function getStudentPhones(phoneInput?: string | null, message?: string): ParsedPhone[] {
+  if (!phoneInput || typeof phoneInput !== 'string') return [];
   const rawList = parsePhoneNumbers(phoneInput);
 
   if (rawList.length === 0) {
-    if (phoneInput && phoneInput.trim()) {
-      const clean = phoneInput.trim();
+    const clean = phoneInput.trim();
+    if (clean) {
       const digits = cleanPhoneForWhatsApp(clean);
       return [{
         original: clean,

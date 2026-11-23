@@ -208,7 +208,8 @@ export const InterventionsManager: React.FC<InterventionsManagerProps> = ({
       setTimeout(() => setFeedbackMsg(null), 5000);
     } catch (err) {
       console.error('Erro ao criar caso:', err);
-      alert('Erro ao criar caso. Tente novamente.');
+      setFeedbackMsg('Erro ao criar caso de Busca Ativa. Tente novamente.');
+      setTimeout(() => setFeedbackMsg(null), 5000);
     } finally {
       setIsSubmittingNewCase(false);
     }

@@ -14,10 +14,19 @@ import {
   ArrowRight,
   Edit3,
   Inbox,
-  FileText
+  FileText,
+  CalendarDays,
+  Clock
 } from 'lucide-react';
 import { MainModuleType } from './Header';
 import { SchoolClass, Student, ParentAlert, InterventionCase, UserSession, School as SchoolType, isModuleEnabled } from '../types';
+import { storageService } from '../data/storageService';
+import { ProfessorMultiplicaModal } from './ProfessorMultiplicaModal';
+import {
+  formatMultiplicaSummary,
+  getEffectiveSchoolPeriods,
+  normalizeTeacherKey
+} from '../utils/timetableEngine';
 
 interface DashboardHomeProps {
   currentUser: UserSession;
@@ -32,7 +41,7 @@ interface DashboardHomeProps {
   onNavigate: (
     module: MainModuleType,
     subTabDiario?: 'hub' | 'chamada' | 'portaria' | 'ausencias' | 'turmas',
-    subTabBuscaAtiva?: 'hub' | 'ocorrencias' | 'alertas' | 'casos',
+    subTabBuscaAtiva?: 'hub' | 'alertas' | 'casos',
     ocorrenciasSubTab?: string
   ) => void;
   onSelectStudent: (student: Student) => void;
@@ -64,6 +73,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
   const hasBuscaAtiva = isModuleEnabled(currentSchool, 'busca_ativa');
   const hasOcorrencias = isModuleEnabled(currentSchool, 'ocorrencias');
   const hasTablets = isModuleEnabled(currentSchool, 'tablets');
+  const hasGradeCalendario = isModuleEnabled(currentSchool, 'grade_calendario');
   const hasRelatorios = isModuleEnabled(currentSchool, 'relatorios');
 
   // Barra de busca de estudantes para Dossiê liberada apenas para Gestão/PAAC e Administrador Geral
@@ -71,6 +81,28 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
 
   // Busca rápida de alunos na tela inicial
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Auto-edição de Horários Multiplica no perfil do Professor
+  const [showMultiplicaModal, setShowMultiplicaModal] = useState(false);
+  const [multiplicaVersion, setMultiplicaVersion] = useState(0);
+
+  const myMultiplicaSummary = useMemo(() => {
+    if (!isProfessor && !isGestao) return '';
+    try {
+      const sId = currentSchool?.id || currentUser.schoolId || storageService.getActiveSchoolId();
+      const ws = storageService.getTimetableWorkspace(sId);
+      const periods = getEffectiveSchoolPeriods(ws);
+      const uKey = normalizeTeacherKey(currentUser.name);
+      const profile = (ws.teachers || []).find(
+        t =>
+          (currentUser.id && (t.userId === currentUser.id || t.id === currentUser.id)) ||
+          normalizeTeacherKey(t.name) === uKey
+      );
+      return formatMultiplicaSummary(profile, periods);
+    } catch {
+      return '';
+    }
+  }, [isProfessor, isGestao, currentSchool?.id, currentUser.schoolId, currentUser.id, currentUser.name, multiplicaVersion]);
 
   // Carrega contagens de ocorrências do cache
   const { totalOcorrencias, ocorrenciasSemMediacao, minhasSemMediacao, minhasComDevolutiva } = useMemo(() => {
@@ -303,10 +335,10 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
               </div>
             )}
 
-            {/* Card 2: Ocorrências Escolares (Leva ao Hub de Cards de Ocorrências do Professor) */}
-            {(hasOcorrencias || hasBuscaAtiva) && (
+            {/* Card 2: Ocorrências Escolares (Módulo independente de Ocorrências do Professor) */}
+            {hasOcorrencias && (
               <div
-                onClick={() => onNavigate('busca_ativa', undefined, 'hub')}
+                onClick={() => onNavigate('ocorrencias', undefined, undefined, 'hub')}
                 className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
               >
                 <div>
@@ -348,10 +380,10 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                     </span>
                   </div>
                   <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-sky-600 transition-colors">
-                    Agendar Carrinho de Tablets
+                    Agendamento de Equipamentos
                   </h3>
                   <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                    Reserve kits de tablets para suas aulas por turma, horário e disciplina na grade semanal.
+                    Reserve equipamentos escolares por tipo e horário na grade semanal (com trava para aulas c/ plataformas).
                   </p>
                 </div>
                 <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
@@ -362,9 +394,9 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
             )}
 
             {/* Card 4: Meus Alunos Tutorados */}
-            {(hasBuscaAtiva || hasOcorrencias) && (
+            {hasOcorrencias && (
               <div
-                onClick={() => onNavigate('busca_ativa', undefined, 'ocorrencias', 'tutorados')}
+                onClick={() => onNavigate('ocorrencias', undefined, undefined, 'tutorados')}
                 className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-purple-400 transition-all cursor-pointer flex flex-col justify-between"
               >
                 <div>
@@ -385,6 +417,66 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                 </div>
                 <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-purple-600">
                   <span>Ver Tutorados</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            )}
+
+            {/* Card 5: Grade Curricular & Calendário Letivo (Módulo Separado) */}
+            {hasGradeCalendario && (
+              <div
+                onClick={() => onNavigate('grade_calendario')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-teal-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-teal-600 group-hover:text-white transition-all shadow-2xs">
+                      <CalendarDays className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200">
+                      Horários & Calendário
+                    </span>
+                  </div>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-teal-600 transition-colors">
+                    Grade Curricular & Calendário
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Consultar horários por turma e professor, Momento de Estudo, ATPCA e calendário letivo anual.
+                  </p>
+                </div>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-teal-600">
+                  <span>Consultar Grade</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            )}
+
+            {/* Card 6: Meu Horário Multiplica (auto-edição pelo próprio professor) */}
+            {hasGradeCalendario && (
+              <div
+                onClick={() => setShowMultiplicaModal(true)}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-violet-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-violet-50 border border-violet-200 text-violet-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-violet-600 group-hover:text-white transition-all shadow-2xs">
+                      <Clock className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-violet-700 bg-violet-50 px-2.5 py-1 rounded-full border border-violet-200">
+                      Horários Multiplica
+                    </span>
+                  </div>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-violet-600 transition-colors">
+                    Meu Horário Multiplica
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    {myMultiplicaSummary && myMultiplicaSummary !== 'Não informado'
+                      ? myMultiplicaSummary
+                      : 'Cadastre ou atualize o dia e horário (relógio) do seu Multiplica para assimilação automática na grade.'}
+                  </p>
+                </div>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-violet-600">
+                  <span>Alterar Dia e Horário</span>
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
@@ -426,10 +518,39 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
               </div>
             )}
 
-            {/* Card 2: Busca Ativa & Ocorrências (Hub com 3 sub-menus) */}
-            {(hasBuscaAtiva || hasOcorrencias) && (
+            {/* Card 2: Busca Ativa Escolar (Separado de Ocorrências - 2 Sub-menus) */}
+            {hasBuscaAtiva && (
               <div
                 onClick={() => onNavigate('busca_ativa', undefined, 'hub')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-rose-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-rose-600 group-hover:text-white transition-all shadow-2xs">
+                      <ShieldAlert className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-rose-700 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-200">
+                      2 Sub-menus
+                    </span>
+                  </div>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-rose-600 transition-colors">
+                    Busca Ativa Escolar
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Ausências & WhatsApp aos Responsáveis e Gestão de Casos Críticos de Infrequência com IA.
+                  </p>
+                </div>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-rose-600">
+                  <span>Acessar Busca Ativa</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            )}
+
+            {/* Card 2B: Ocorrências & Mediação (Módulo Separado) */}
+            {hasOcorrencias && (
+              <div
+                onClick={() => onNavigate('ocorrencias', undefined, undefined, 'pendentes')}
                 className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
               >
                 <div>
@@ -438,18 +559,18 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                       <AlertOctagon className="w-6 h-6" />
                     </div>
                     <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
-                      3 Sub-menus
+                      {ocorrenciasSemMediacao > 0 ? `${ocorrenciasSemMediacao} Pendentes` : 'Convivência'}
                     </span>
                   </div>
                   <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-amber-600 transition-colors">
-                    Busca Ativa & Ocorrências
+                    Ocorrências & Mediação
                   </h3>
                   <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                    Triagem de Ocorrências com parecer, Notificações WhatsApp e Casos Críticos com IA.
+                    Triagem disciplinar, mediação escolar, registro de parecer da gestão e tratativas com famílias.
                   </p>
                 </div>
                 <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
-                  <span>Acessar Módulo</span>
+                  <span>Abrir Ocorrências</span>
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
@@ -471,10 +592,10 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                     </span>
                   </div>
                   <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-sky-600 transition-colors">
-                    Agendamento de Tablets
+                    Agendamento de Equipamentos
                   </h3>
                   <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                    Grade semanal de alocação de equipamentos e disponibilidade de kits de tablets.
+                    Cadastro com controle de condição (Em Uso, Quebrado, Em manutenção), reserva por tipo e trava de plataformas.
                   </p>
                 </div>
                 <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
@@ -484,7 +605,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
               </div>
             )}
 
-            {/* Card 4: Relatórios Pedagógicos SEDUC */}
+            {/* Card 4: Relatórios Pedagógicos Unificados */}
             {hasRelatorios && (
               <div
                 onClick={() => onNavigate('relatorios')}
@@ -496,14 +617,14 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                       <Sparkles className="w-6 h-6" />
                     </div>
                     <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                      SEDUC
+                      Unificado
                     </span>
                   </div>
                   <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-emerald-600 transition-colors">
                     Relatórios Pedagógicos
                   </h3>
                   <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                    Demonstrativos de infrequência escolar, análise por turma e contingência oficial SEDUC.
+                    Todos os relatórios da escola: frequências, busca ativa, ocorrências, equipamentos, portaria e transferidos.
                   </p>
                 </div>
                 <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
@@ -539,6 +660,35 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                 <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </div>
             </div>
+
+            {/* Card 6: Grade Curricular, Gerador de Horários & Calendário Letivo (Módulo Separado) */}
+            {hasGradeCalendario && (
+              <div
+                onClick={() => onNavigate('grade_calendario')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-teal-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-teal-600 group-hover:text-white transition-all shadow-2xs">
+                      <CalendarDays className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200">
+                      Gerador + Calendário
+                    </span>
+                  </div>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-teal-600 transition-colors">
+                    Grade Curricular & Calendário Letivo
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Critérios anuais por legislação, distribuição automática NOTE/EMA/Base, ajuste manual, Dominó, roteiro AOE e calendário escolar.
+                  </p>
+                </div>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-teal-600">
+                  <span>Abrir Grade & Calendário</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -650,14 +800,43 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                     </span>
                   </div>
                   <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-sky-600 transition-colors">
-                    Grade de Tablets
+                    Grade de Equipamentos
                   </h3>
                   <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                    Verificar agendamentos do dia para conferência e entrega dos carrinhos aos professores.
+                    Verificar agendamentos do dia e condições dos equipamentos para conferência e entrega aos docentes.
                   </p>
                 </div>
                 <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
                   <span>Ver Agendamentos</span>
+                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            )}
+
+            {/* Card 5: Grade Curricular, Roteiro AOE & Calendário */}
+            {hasGradeCalendario && (
+              <div
+                onClick={() => onNavigate('grade_calendario')}
+                className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-teal-400 transition-all cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center group-hover:scale-105 group-hover:bg-teal-600 group-hover:text-white transition-all shadow-2xs">
+                      <CalendarDays className="w-6 h-6" />
+                    </div>
+                    <span className="text-[11px] font-bold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full border border-teal-200">
+                      Roteiro AOE
+                    </span>
+                  </div>
+                  <h3 className="font-extrabold text-base text-slate-900 mt-4 group-hover:text-teal-600 transition-colors">
+                    Grade Curricular & Roteiro AOE
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                    Painel de horários por turma e professor, prancheta de trocas de sala, roteiro dinâmico AOE e calendário escolar.
+                  </p>
+                </div>
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-teal-600">
+                  <span>Abrir Roteiro & Grade</span>
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </div>
               </div>
@@ -729,10 +908,37 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                 </div>
               )}
 
-              {/* Busca Ativa & Ocorrências */}
-              {(hasBuscaAtiva || hasOcorrencias) && (
+              {/* Busca Ativa Escolar */}
+              {hasBuscaAtiva && (
                 <div
                   onClick={() => onNavigate('busca_ativa', undefined, 'hub')}
+                  className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-rose-400 transition-all cursor-pointer flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="w-11 h-11 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center group-hover:bg-rose-600 group-hover:text-white transition-all shadow-2xs">
+                        <ShieldAlert className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                        2 Sub-menus
+                      </span>
+                    </div>
+                    <h4 className="font-extrabold text-sm text-slate-900 mt-3 group-hover:text-rose-600 transition-colors">
+                      Busca Ativa Escolar
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1">Ausências & WhatsApp e Casos Críticos com IA.</p>
+                  </div>
+                  <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-rose-600">
+                    <span>Acessar Sub-menus</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+              )}
+
+              {/* Ocorrências & Mediação */}
+              {hasOcorrencias && (
+                <div
+                  onClick={() => onNavigate('ocorrencias', undefined, undefined, 'pendentes')}
                   className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
                 >
                   <div>
@@ -741,16 +947,16 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                         <AlertOctagon className="w-5 h-5" />
                       </div>
                       <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                        3 Sub-menus
+                        Mediação
                       </span>
                     </div>
                     <h4 className="font-extrabold text-sm text-slate-900 mt-3 group-hover:text-amber-600 transition-colors">
-                      Busca Ativa & Ocorrências
+                      Ocorrências & Mediação
                     </h4>
-                    <p className="text-xs text-slate-500 mt-1">Ocorrências, Notificações WhatsApp e Casos com IA.</p>
+                    <p className="text-xs text-slate-500 mt-1">Registro disciplinar, mediação da gestão e tratativas.</p>
                   </div>
                   <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-amber-600">
-                    <span>Acessar Sub-menus</span>
+                    <span>Abrir Ocorrências</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </div>
                 </div>
@@ -768,13 +974,13 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                         <Tablet className="w-5 h-5" />
                       </div>
                       <span className="text-[10px] font-bold text-sky-700 bg-sky-50 px-2 py-0.5 rounded-full border border-sky-200">
-                        Tablets
+                        Inventário
                       </span>
                     </div>
                     <h4 className="font-extrabold text-sm text-slate-900 mt-3 group-hover:text-sky-600 transition-colors">
-                      Agendamento de Tablets
+                      Agendamento de Equipamentos
                     </h4>
-                    <p className="text-xs text-slate-500 mt-1">Grade semanal de carrinhos e kits de tecnologia.</p>
+                    <p className="text-xs text-slate-500 mt-1">Cadastro, condição de uso, reservas e trava de plataformas.</p>
                   </div>
                   <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-sky-600">
                     <span>Ver Grade</span>
@@ -783,7 +989,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                 </div>
               )}
 
-              {/* Relatórios SEDUC */}
+              {/* Relatórios Pedagógicos */}
               {hasRelatorios && (
                 <div
                   onClick={() => onNavigate('relatorios')}
@@ -795,16 +1001,45 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
                         <Sparkles className="w-5 h-5" />
                       </div>
                       <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                        SEDUC
+                        Unificado
                       </span>
                     </div>
                     <h4 className="font-extrabold text-sm text-slate-900 mt-3 group-hover:text-emerald-600 transition-colors">
                       Relatórios Pedagógicos
                     </h4>
-                    <p className="text-xs text-slate-500 mt-1">Demonstrativos de assiduidade e contingência.</p>
+                    <p className="text-xs text-slate-500 mt-1">Frequências, ocorrências, equipamentos, portaria e busca ativa.</p>
                   </div>
                   <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-emerald-600">
                     <span>Abrir Relatórios</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </div>
+                </div>
+              )}
+
+              {/* Grade Curricular & Calendário Letivo (Módulo Separado) */}
+              {hasGradeCalendario && (
+                <div
+                  onClick={() => onNavigate('grade_calendario')}
+                  className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-teal-400 transition-all cursor-pointer flex flex-col justify-between"
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="w-11 h-11 rounded-xl bg-teal-50 border border-teal-200 text-teal-700 flex items-center justify-center group-hover:bg-teal-600 group-hover:text-white transition-all shadow-2xs">
+                        <CalendarDays className="w-5 h-5" />
+                      </div>
+                      <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
+                        Gerador + Calendário
+                      </span>
+                    </div>
+                    <h4 className="font-extrabold text-sm text-slate-900 mt-3 group-hover:text-teal-600 transition-colors">
+                      Grade Curricular & Calendário
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Critérios anuais, distribuição de aulas, ajuste manual, Dominó e calendário letivo.
+                    </p>
+                  </div>
+                  <div className="mt-4 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs font-bold text-teal-600">
+                    <span>Abrir Módulo</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </div>
                 </div>
@@ -813,6 +1048,15 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
           </div>
         )}
       </div>
+
+      {/* Modal de Auto-Edição de Horários Multiplica pelo Professor */}
+      {showMultiplicaModal && (
+        <ProfessorMultiplicaModal
+          currentUser={currentUser}
+          onClose={() => setShowMultiplicaModal(false)}
+          onSaved={() => setMultiplicaVersion(v => v + 1)}
+        />
+      )}
     </div>
   );
 };

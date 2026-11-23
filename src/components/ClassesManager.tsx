@@ -23,12 +23,31 @@ import {
   Lock,
   MessageSquare,
   Smartphone,
-  UserCheck
+  UserCheck,
+  ArrowRightLeft,
+  RotateCcw,
+  Archive,
+  Calendar,
+  MapPin,
+  Save
 } from 'lucide-react';
-import { SchoolClass, Student, UserSession, RiskLevel, AttendanceStatus, UserAccount } from '../types';
+import {
+  SchoolClass,
+  Student,
+  UserSession,
+  RiskLevel,
+  AttendanceStatus,
+  UserAccount,
+  SchoolCalendarConfig
+} from '../types';
 import { storageService } from '../data/storageService';
 import { firestoreService } from '../lib/firestoreService';
 import { getStudentPhones } from '../utils/phoneUtils';
+import {
+  getCalendarMetricsSummary,
+  calculateCalendarAttendanceRate
+} from '../utils/calendarUtils';
+import { getLocalTodayStr } from '../utils/reportCalculator';
 
 interface ClassesManagerProps {
   classes: SchoolClass[];
@@ -38,6 +57,7 @@ interface ClassesManagerProps {
   onOpenStudentDetail: (id: string) => void;
   onOpenStudentRegistration: () => void;
   onOpenResetAllModal: () => void;
+  onOpenCalendarModule?: () => void;
 }
 
 export const ClassesManager: React.FC<ClassesManagerProps> = ({
@@ -48,50 +68,77 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   onOpenStudentDetail,
   onOpenStudentRegistration,
   onOpenResetAllModal,
+  onOpenCalendarModule,
 }) => {
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'admin_escola' || currentUser.role === 'super_admin';
   const isGestao = currentUser.role === 'gestao_paac';
   const isProfessor = currentUser.role === 'professor';
   const isAOE = currentUser.role === 'aoe';
 
-  // State: Tab view ('turmas' | 'estudantes')
-  const [activeSubTab, setActiveSubTab] = useState<'turmas' | 'estudantes'>('turmas');
+  // State: Tab view ('turmas' | 'estudantes' | 'transferidos') — Calendário e Grade Curricular agora em módulo dedicado separado
+  const [activeSubTab, setActiveSubTab] = useState<'turmas' | 'estudantes' | 'transferidos'>('turmas');
 
-  // Filters for students list
+  // Calendário Escolar Letivo (somente leitura para cálculo de métricas de frequência das turmas)
+  const [calendarConfig, setCalendarConfig] = useState<SchoolCalendarConfig>(() => storageService.getSchoolCalendar());
+
+  React.useEffect(() => {
+    const sId = storageService.getActiveSchoolId();
+    setCalendarConfig(storageService.getSchoolCalendar(sId));
+    firestoreService.getSchoolCalendar(sId).then(cloudCal => {
+      if (cloudCal && Array.isArray(cloudCal.bimesters)) {
+        storageService.setSchoolCalendar(cloudCal, sId);
+        setCalendarConfig(cloudCal);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Filters for active students list
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedClassFilter, setSelectedClassFilter] = useState<string>('todas');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('todos');
   const [selectedRiskFilter, setSelectedRiskFilter] = useState<string>('todos');
 
+  // Filters for transferred students list
+  const [transferSearchQuery, setTransferSearchQuery] = useState('');
+  const [transferClassFilter, setTransferClassFilter] = useState<string>('todas');
+
   // Modal States
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [studentToDelete, setStudentToDelete] = useState<Student | null>(null);
+  const [studentToTransfer, setStudentToTransfer] = useState<Student | null>(null);
+  const [transferDate, setTransferDate] = useState<string>(() => getLocalTodayStr());
+  const [transferDestination, setTransferDestination] = useState<string>('');
+  const [transferReason, setTransferReason] = useState<string>('');
+  const [studentToReactivate, setStudentToReactivate] = useState<Student | null>(null);
+  const [reactivateClassId, setReactivateClassId] = useState<string>('');
   const [classToDelete, setClassToDelete] = useState<SchoolClass | null>(null);
   const [editingClass, setEditingClass] = useState<SchoolClass | null>(null);
   const [isNewClassModalOpen, setIsNewClassModalOpen] = useState(false);
 
-  // Usuários cadastrados para seleção de tutores
+  // Usuários cadastrados da unidade escolar para seleção de tutores
   const [registeredUsers, setRegisteredUsers] = useState<UserAccount[]>(() => {
-    return storageService.getUsers();
+    return storageService.getUsers(storageService.getActiveSchoolId());
   });
   const [customTutorMode, setCustomTutorMode] = useState(false);
 
-  // Carrega e sincroniza usuários registrados da nuvem Firestore e local
+  // Carrega e sincroniza usuários registrados da nuvem Firestore e local (isolados por escola)
   React.useEffect(() => {
-    const local = storageService.getUsers();
+    const sId = storageService.getActiveSchoolId();
+    const local = storageService.getUsers(sId);
     if (local && local.length > 0) {
       setRegisteredUsers(local);
     }
-    firestoreService.getUsers().then(cloudUsers => {
+    firestoreService.getUsers(sId).then(cloudUsers => {
       if (cloudUsers && cloudUsers.length > 0) {
-        setRegisteredUsers(cloudUsers);
+        storageService.setUsers(cloudUsers);
+        setRegisteredUsers(storageService.getUsers(sId));
       }
     }).catch(() => {});
   }, []);
 
   // Organiza os usuários cadastrados em Professores e Equipe Pedagógica/Gestão
   const { professoresList, gestaoList } = useMemo(() => {
-    const active = registeredUsers.filter(u => u.active !== false);
+    const active = registeredUsers.filter(u => u.active !== false && !u.isUniversal && u.role !== 'super_admin');
     const profs = active
       .filter(u => u.role === 'professor')
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
@@ -115,9 +162,23 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     setTimeout(() => setFeedbackMessage(null), 4000);
   };
 
-  // Filtered students list
+  // Separa estudantes ativos e estudantes transferidos
+  const activeStudents = useMemo(
+    () => students.filter(s => s.status !== 'transferido'),
+    [students]
+  );
+
+  const transferredStudents = useMemo(
+    () =>
+      students
+        .filter(s => s.status === 'transferido')
+        .sort((a, b) => (b.transferredAt || '').localeCompare(a.transferredAt || '') || a.name.localeCompare(b.name, 'pt-BR')),
+    [students]
+  );
+
+  // Filtered active students list
   const filteredStudents = useMemo(() => {
-    return students.filter(student => {
+    return activeStudents.filter(student => {
       // Text search
       const q = searchQuery.toLowerCase().trim();
       const matchSearch =
@@ -134,7 +195,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
       // Status filter
       const matchStatus =
         selectedStatusFilter === 'todos' ||
-        (selectedStatusFilter === 'busca_ativa' && (student.status === 'busca_ativa' || student.status === 'em_busca_ativa')) ||
+        (selectedStatusFilter === 'busca_ativa' && ((student.status as string) === 'busca_ativa' || student.status === 'em_busca_ativa')) ||
         (selectedStatusFilter === 'regular' && student.status === 'regular') ||
         (selectedStatusFilter === 'alerta' && student.status === 'alerta') ||
         (selectedStatusFilter === 'evasao' && student.status === 'evasao_iminente');
@@ -144,22 +205,108 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
 
       return matchSearch && matchClass && matchStatus && matchRisk;
     });
-  }, [students, searchQuery, selectedClassFilter, selectedStatusFilter, selectedRiskFilter]);
+  }, [activeStudents, searchQuery, selectedClassFilter, selectedStatusFilter, selectedRiskFilter]);
+
+  // Filtered transferred students list
+  const filteredTransferredStudents = useMemo(() => {
+    return transferredStudents.filter(student => {
+      const q = transferSearchQuery.toLowerCase().trim();
+      const originClassId = student.previousClassId || student.classId;
+      const originClassName = student.previousClassName || student.className;
+
+      const matchSearch =
+        !q ||
+        student.name.toLowerCase().includes(q) ||
+        student.ra.toLowerCase().includes(q) ||
+        (originClassName && originClassName.toLowerCase().includes(q)) ||
+        (student.transferDestination && student.transferDestination.toLowerCase().includes(q)) ||
+        (student.transferReason && student.transferReason.toLowerCase().includes(q));
+
+      const matchClass = transferClassFilter === 'todas' || originClassId === transferClassFilter;
+
+      return matchSearch && matchClass;
+    });
+  }, [transferredStudents, transferSearchQuery, transferClassFilter]);
+
+  // Handle Transfer Student
+  const openTransferModal = (student: Student) => {
+    setStudentToTransfer(student);
+    setTransferDate(getLocalTodayStr());
+    setTransferDestination('');
+    setTransferReason('');
+  };
+
+  const handleConfirmTransferStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!studentToTransfer) return;
+
+    try {
+      const updated = storageService.transferStudent(studentToTransfer.id, {
+        transferredAt: transferDate || getLocalTodayStr(),
+        transferDestination,
+        transferReason,
+      });
+
+      if (updated) {
+        fetch(`/api/students/${encodeURIComponent(studentToTransfer.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated),
+        }).catch(() => null);
+      }
+
+      showToast(`${studentToTransfer.name} movido(a) para Estudantes Transferidos. Todo o histórico foi preservado.`);
+      setStudentToTransfer(null);
+      onRefresh();
+    } catch (e: any) {
+      showToast('Erro ao registrar transferência: ' + e.message, 'error');
+    }
+  };
+
+  // Handle Reactivate / Re-enroll Transferred Student
+  const openReactivateModal = (student: Student) => {
+    setStudentToReactivate(student);
+    const defaultClass =
+      classes.find(c => c.id === (student.previousClassId || student.classId))?.id ||
+      classes[0]?.id ||
+      '';
+    setReactivateClassId(defaultClass);
+  };
+
+  const handleConfirmReactivateStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!studentToReactivate) return;
+
+    try {
+      const updated = storageService.reactivateStudent(studentToReactivate.id, reactivateClassId);
+      if (updated) {
+        fetch(`/api/students/${encodeURIComponent(studentToReactivate.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated),
+        }).catch(() => null);
+      }
+
+      showToast(`${studentToReactivate.name} reativado(a) com sucesso na turma ${updated?.className || ''}!`);
+      setStudentToReactivate(null);
+      onRefresh();
+    } catch (e: any) {
+      showToast('Erro ao reativar estudante: ' + e.message, 'error');
+    }
+  };
 
   // Handle Delete Student
   const handleConfirmDeleteStudent = async () => {
     if (!studentToDelete) return;
     try {
-      // Backend deletion
-      await fetch(`/api/students/${encodeURIComponent(studentToDelete.id)}`, {
+      fetch(`/api/students/${encodeURIComponent(studentToDelete.id)}`, {
         method: 'DELETE',
       }).catch(() => null);
 
-      // Local storage deletion with complete cascade + Firestore deletion
+      // Local storage deletion (preserves historical attendance/alerts/cases for archive) + automatic Firestore sync
       storageService.deleteStudent(studentToDelete.id);
-      await firestoreService.deleteStudent(studentToDelete.id);
 
-      showToast(`Estudante ${studentToDelete.name} e todos os seus registros de faltas/alertas foram removidos.`);
+      showToast(`Estudante ${studentToDelete.name} removido(a) da lista. Histórico de frequências, alertas e busca ativa preservado para consultas.`);
       setStudentToDelete(null);
       onRefresh();
     } catch (e: any) {
@@ -171,16 +318,14 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   const handleConfirmDeleteClass = async () => {
     if (!classToDelete) return;
     try {
-      // Backend deletion
-      await fetch(`/api/classes/${encodeURIComponent(classToDelete.id)}`, {
+      fetch(`/api/classes/${encodeURIComponent(classToDelete.id)}`, {
         method: 'DELETE',
       }).catch(() => null);
 
-      // Local storage deletion with cascade + Firestore deletion
+      // Local storage deletion (preserves historical records) + automatic Firestore sync
       storageService.deleteClass(classToDelete.id);
-      await firestoreService.deleteClass(classToDelete.id);
 
-      showToast(`Turma ${classToDelete.name} e seus estudantes foram removidos com sucesso.`);
+      showToast(`Turma ${classToDelete.name} removida da listagem ativa. Registros históricos de frequência e alertas foram preservados.`);
       setClassToDelete(null);
       onRefresh();
     } catch (e: any) {
@@ -194,18 +339,31 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     if (!editingStudent) return;
 
     try {
-      // Update in backend
-      await fetch(`/api/students/${encodeURIComponent(editingStudent.id)}`, {
+      const payload: Student = {
+        ...editingStudent,
+        ...(editingStudent.status === 'transferido' && !editingStudent.transferredAt
+          ? {
+              transferredAt: getLocalTodayStr(),
+              previousClassId: editingStudent.previousClassId || editingStudent.classId,
+              previousClassName: editingStudent.previousClassName || editingStudent.className,
+            }
+          : {}),
+      };
+
+      fetch(`/api/students/${encodeURIComponent(payload.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editingStudent),
+        body: JSON.stringify(payload),
       }).catch(() => null);
 
-      // Update in storageService + Firestore
-      storageService.updateStudent(editingStudent.id, editingStudent);
-      await firestoreService.saveStudent(editingStudent);
+      // Update in storageService + automatic Firestore sync
+      storageService.updateStudent(payload.id, payload);
 
-      showToast(`Dados de ${editingStudent.name} atualizados com sucesso.`);
+      showToast(
+        payload.status === 'transferido'
+          ? `${payload.name} atualizado(a) e movido(a) para Estudantes Transferidos.`
+          : `Dados de ${payload.name} atualizados com sucesso.`
+      );
       setEditingStudent(null);
       onRefresh();
     } catch (e: any) {
@@ -235,14 +393,13 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     };
 
     try {
-      await fetch('/api/classes', {
+      fetch('/api/classes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newCls),
       }).catch(() => null);
 
       storageService.createClass(newCls);
-      await firestoreService.saveClass(newCls);
 
       showToast(`Turma ${newCls.name} criada com sucesso!`);
       setIsNewClassModalOpen(false);
@@ -260,14 +417,13 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     if (!editingClass) return;
 
     try {
-      await fetch(`/api/classes/${encodeURIComponent(editingClass.id)}`, {
+      fetch(`/api/classes/${encodeURIComponent(editingClass.id)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editingClass),
       }).catch(() => null);
 
       storageService.updateClass(editingClass.id, editingClass);
-      await firestoreService.saveClass(editingClass);
 
       showToast(`Turma ${editingClass.name} atualizada com sucesso.`);
       setEditingClass(null);
@@ -277,13 +433,19 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     }
   };
 
-  // Total metrics
-  const totalStudentsCount = students.length;
-  const atRiskCount = students.filter(s => s.riskLevel === 'alto' || s.riskLevel === 'critico').length;
-  const activeSearchCount = students.filter(s => s.status === 'busca_ativa' || s.status === 'em_busca_ativa').length;
-  const avgAttendance = totalStudentsCount > 0
-    ? Math.round(students.reduce((acc, s) => acc + (s.attendanceRate || 100), 0) / totalStudentsCount)
-    : 100;
+  const calendarSummary = useMemo(() => getCalendarMetricsSummary(calendarConfig), [calendarConfig]);
+
+  // Total metrics (apenas estudantes ativos e considerando o Calendário Escolar)
+  const totalStudentsCount = activeStudents.length;
+  const activeSearchCount = activeStudents.filter(s => (s.status as string) === 'busca_ativa' || s.status === 'em_busca_ativa').length;
+  const avgAttendance = useMemo(() => {
+    if (totalStudentsCount === 0) return 100;
+    const sum = activeStudents.reduce((acc, s) => {
+      const calc = calculateCalendarAttendanceRate(s.totalAbsences || 0, calendarConfig, s.totalSchoolDays);
+      return acc + calc.attendanceRate;
+    }, 0);
+    return Math.round(sum / totalStudentsCount);
+  }, [activeStudents, totalStudentsCount, calendarConfig]);
 
   return (
     <div className="space-y-6">
@@ -368,13 +530,13 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
         </div>
 
         {/* Global Key Metrics */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t border-slate-100">
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 mt-5 pt-4 border-t border-slate-100">
           <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Total de Turmas</span>
             <div className="text-xl font-bold text-slate-800 mt-0.5">{classes.length}</div>
           </div>
           <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Estudantes Matriculados</span>
+            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Estudantes Ativos</span>
             <div className="text-xl font-bold text-slate-800 mt-0.5">{totalStudentsCount > 0 ? totalStudentsCount : '-'}</div>
           </div>
           <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
@@ -385,11 +547,38 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
             <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Média de Presença</span>
             <div className="text-xl font-bold text-emerald-600 mt-0.5">{avgAttendance}%</div>
           </div>
+          <button
+            type="button"
+            onClick={() => onOpenCalendarModule?.()}
+            className="bg-indigo-50/70 hover:bg-indigo-100/70 p-3 rounded-lg border border-indigo-200 text-left transition-colors cursor-pointer"
+            title="Abrir módulo separado de Grade Curricular & Calendário Letivo"
+          >
+            <span className="text-[11px] font-semibold text-indigo-800 uppercase tracking-wider flex items-center justify-between">
+              <span>Dias Letivos ({calendarSummary.year})</span>
+              <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+            </span>
+            <div className="text-xl font-bold text-indigo-950 mt-0.5">
+              {calendarSummary.elapsedSchoolDays}
+              <span className="text-xs font-semibold text-indigo-600"> / {calendarSummary.totalPlannedSchoolDays}d</span>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('transferidos')}
+            className="bg-amber-50/70 hover:bg-amber-100/70 p-3 rounded-lg border border-amber-200 text-left transition-colors cursor-pointer"
+            title="Abrir sessão de estudantes transferidos"
+          >
+            <span className="text-[11px] font-semibold text-amber-800 uppercase tracking-wider flex items-center justify-between">
+              <span>Transferidos</span>
+              <Archive className="w-3.5 h-3.5 text-amber-600" />
+            </span>
+            <div className="text-xl font-bold text-amber-900 mt-0.5">{transferredStudents.length}</div>
+          </button>
         </div>
       </div>
 
-      {/* Sub-Tabs: Turmas vs Estudantes */}
-      <div className="flex border-b border-slate-200">
+      {/* Sub-Tabs: Turmas vs Estudantes Ativos vs Transferidos */}
+      <div className="flex flex-wrap border-b border-slate-200">
         <button
           onClick={() => setActiveSubTab('turmas')}
           className={`py-3 px-5 text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
@@ -411,7 +600,19 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>Todos os Estudantes ({students.length})</span>
+          <span>Estudantes Ativos ({activeStudents.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab('transferidos')}
+          className={`py-3 px-5 text-sm font-bold border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
+            activeSubTab === 'transferidos'
+              ? 'border-amber-600 text-amber-800 bg-amber-50/50'
+              : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+          }`}
+        >
+          <Archive className="w-4 h-4" />
+          <span>Estudantes Transferidos ({transferredStudents.length})</span>
         </button>
       </div>
 
@@ -438,7 +639,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {classes.map(cls => {
-                const classStudents = students.filter(s => s.classId === cls.id);
+                const classStudents = activeStudents.filter(s => s.classId === cls.id);
                 const classRiskCount = classStudents.filter(s => s.riskLevel === 'alto' || s.riskLevel === 'critico').length;
                 const shiftLabel = cls.shift === 'manha' ? 'Manhã' : cls.shift === 'tarde' ? 'Tarde' : 'Integral';
 
@@ -491,7 +692,14 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                         <div className="bg-slate-50 p-2 rounded">
                           <span className="text-[10px] text-slate-500 font-semibold block">Presença Média</span>
                           <span className="text-base font-bold text-emerald-600">
-                            {cls.attendanceRateToday || 100}%
+                            {classStudents.length > 0
+                              ? Math.round(
+                                  classStudents.reduce(
+                                    (acc, s) => acc + calculateCalendarAttendanceRate(s.totalAbsences || 0, calendarConfig, s.totalSchoolDays).attendanceRate,
+                                    0
+                                  ) / classStudents.length
+                                )
+                              : (cls.attendanceRateToday || 100)}%
                           </span>
                         </div>
                         <div className="bg-slate-50 p-2 rounded">
@@ -558,7 +766,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                   <option value="todas">Todas as Turmas ({classes.length})</option>
                   {classes.map(c => (
                     <option key={c.id} value={c.id}>
-                      {c.name} ({students.filter(s => s.classId === c.id).length} alunos)
+                      {c.name} ({activeStudents.filter(s => s.classId === c.id).length} alunos)
                     </option>
                   ))}
                 </select>
@@ -598,7 +806,7 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
             {/* Filter Summary */}
             <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
               <span>
-                Exibindo <strong className="text-slate-800">{filteredStudents.length}</strong> de {students.length} estudantes cadastrados
+                Exibindo <strong className="text-slate-800">{filteredStudents.length}</strong> de {activeStudents.length} estudantes ativos
               </span>
               {(searchQuery || selectedClassFilter !== 'todas' || selectedStatusFilter !== 'todos' || selectedRiskFilter !== 'todos') && (
                 <button
@@ -642,7 +850,11 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredStudents.map(student => {
-                      const rate = student.attendanceRate ?? 100;
+                      const rate = calculateCalendarAttendanceRate(
+                        student.totalAbsences || 0,
+                        calendarConfig,
+                        student.totalSchoolDays
+                      ).attendanceRate;
                       const isLowAttendance = rate < 75;
                       const isMidAttendance = rate >= 75 && rate < 85;
 
@@ -799,6 +1011,17 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                                 </button>
                               )}
 
+                              {/* Transfer student (Admin & Gestão) */}
+                              {(isAdmin || isGestao) && (
+                                <button
+                                  onClick={() => openTransferModal(student)}
+                                  className="p-1.5 text-slate-500 hover:text-amber-700 hover:bg-amber-50 rounded-md transition-colors cursor-pointer"
+                                  title="Transferir estudante (preservando todo o histórico escolar)"
+                                >
+                                  <ArrowRightLeft className="w-4 h-4" />
+                                </button>
+                              )}
+
                               {/* Delete student (Admin & Gestão) */}
                               {(isAdmin || isGestao) && (
                                 <button
@@ -821,6 +1044,198 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
           </div>
         </div>
       )}
+
+      {/* VIEW 3: ESTUDANTES TRANSFERIDOS */}
+      {activeSubTab === 'transferidos' && (
+        <div className="space-y-4">
+          {/* Informational Banner */}
+          <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 mt-0.5">
+                <Archive className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-amber-950">Arquivo Permanente de Estudantes Transferidos</h3>
+                <p className="text-xs text-amber-900/90 mt-0.5 leading-relaxed">
+                  Estudantes transferidos são removidos das chamadas diárias e das estatísticas ativas das turmas, mas permanecem com 100% do histórico de frequência, faltas, alertas, busca ativa e ocorrências salvo para consultas futuras ou rematrícula.
+                </p>
+              </div>
+            </div>
+            <span className="text-xs font-bold px-3 py-1 rounded-full bg-white border border-amber-300 text-amber-900 shrink-0 self-start sm:self-center">
+              {transferredStudents.length} {transferredStudents.length === 1 ? 'registro' : 'registros'}
+            </span>
+          </div>
+
+          {/* Search & Origin Class Filter */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder="Buscar transferido por Nome, RA, Destino ou Turma..."
+                  value={transferSearchQuery}
+                  onChange={e => setTransferSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-8 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-amber-500"
+                />
+                {transferSearchQuery && (
+                  <button
+                    onClick={() => setTransferSearchQuery('')}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div>
+                <select
+                  value={transferClassFilter}
+                  onChange={e => setTransferClassFilter(e.target.value)}
+                  className="w-full py-2 px-3 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-amber-500 text-slate-700 font-medium cursor-pointer"
+                >
+                  <option value="todas">Todas as Turmas de Origem</option>
+                  {classes.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({transferredStudents.filter(s => (s.previousClassId || s.classId) === c.id).length})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Transferred Students Table */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            {filteredTransferredStudents.length === 0 ? (
+              <div className="p-10 text-center">
+                <Archive className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                <h4 className="text-sm font-bold text-slate-800">
+                  {transferredStudents.length === 0
+                    ? 'Nenhum estudante transferido registrado'
+                    : 'Nenhum estudante transferido encontrado com os filtros atuais'}
+                </h4>
+                <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                  {transferredStudents.length === 0
+                    ? 'Quando a gestão transferir um estudante na aba "Estudantes Ativos", ele aparecerá aqui com todo o seu dossiê preservado.'
+                    : 'Tente limpar os filtros de busca ou selecionar outra turma de origem.'}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs sm:text-sm">
+                  <thead className="bg-amber-50/60 border-b border-amber-200/80 text-slate-700 font-semibold">
+                    <tr>
+                      <th className="py-3 px-4">Estudante & RA</th>
+                      <th className="py-3 px-3">Turma de Origem</th>
+                      <th className="py-3 px-3">Data da Transferência</th>
+                      <th className="py-3 px-3">Destino / Observação</th>
+                      <th className="py-3 px-3 text-center">Histórico Preservado</th>
+                      <th className="py-3 px-4 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredTransferredStudents.map(student => {
+                      const originName = student.previousClassName || student.className || 'Turma não informada';
+                      const originId = student.previousClassId || student.classId;
+                      const formattedDate = student.transferredAt && student.transferredAt.includes('-')
+                        ? student.transferredAt.split('-').reverse().join('/')
+                        : student.transferredAt || 'Não informada';
+
+                      return (
+                        <tr key={student.id} className="hover:bg-amber-50/30 transition-colors">
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-8 h-8 rounded-full bg-amber-100 text-amber-800 font-bold flex items-center justify-center text-xs shrink-0">
+                                {student.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <span className="font-bold text-slate-900 block">{student.name}</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-[11px] text-slate-500">RA: {student.ra}</span>
+                                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                                    Transferido
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-3">
+                            <span className="font-medium text-slate-700 block">{originName}</span>
+                            {originId && <span className="text-[10px] text-slate-400 font-mono">{originId}</span>}
+                          </td>
+
+                          <td className="py-3 px-3">
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700">
+                              <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                              {formattedDate}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-3 max-w-[240px]">
+                            <span className="font-medium text-slate-800 block text-xs truncate" title={student.transferDestination || ''}>
+                              {student.transferDestination || 'Destino não especificado'}
+                            </span>
+                            {student.transferReason && (
+                              <span className="text-[11px] text-slate-500 block truncate" title={student.transferReason}>
+                                {student.transferReason}
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-3 text-center">
+                            <div className="inline-flex flex-col items-center">
+                              <span className="text-xs font-bold text-slate-800">{student.attendanceRate ?? 100}% freq.</span>
+                              <span className="text-[10px] text-slate-500">{student.totalAbsences || 0} faltas registradas</span>
+                            </div>
+                          </td>
+
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => onOpenStudentDetail(student.id)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors cursor-pointer"
+                                title="Consultar dossiê histórico completo (frequências, alertas, busca ativa e ocorrências)"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Dossiê</span>
+                              </button>
+
+                              {(isAdmin || isGestao) && (
+                                <button
+                                  onClick={() => openReactivateModal(student)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md transition-colors cursor-pointer"
+                                  title="Reativar / rematricular estudante em uma turma ativa"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">Reativar</span>
+                                </button>
+                              )}
+
+                              {(isAdmin || isGestao) && (
+                                <button
+                                  onClick={() => setStudentToDelete(student)}
+                                  className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                                  title="Remover cadastro da lista de transferidos"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Calendário Escolar e Grade Curricular agora funcionam no módulo separado "Grade Curricular & Calendário Letivo" */}
 
       {/* MODAL 1: EDITAR ESTUDANTE (Master & Gestão) */}
       {editingStudent && (
@@ -1030,9 +1445,10 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
                   >
                     <option value="regular">Regular</option>
                     <option value="alerta">Alerta</option>
-                    <option value="busca_ativa">Busca Ativa</option>
+                    <option value="em_busca_ativa">Busca Ativa</option>
                     <option value="evasao_iminente">Evasão Iminente</option>
                     <option value="reintegrado">Reintegrado</option>
+                    <option value="transferido">Transferido (Mover para Sessão de Transferidos)</option>
                   </select>
                 </div>
               </div>
@@ -1087,35 +1503,208 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
         </div>
       )}
 
-      {/* MODAL 2: CONFIRMAÇÃO DE EXCLUSÃO DE ESTUDANTE (Master Only) */}
+      {/* MODAL 2: CONFIRMAÇÃO DE EXCLUSÃO DE ESTUDANTE */}
       {studentToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
             <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
               <Trash2 className="w-6 h-6" />
             </div>
-            <h3 className="text-base font-bold text-slate-900 text-center">Excluir Estudante do Sistema?</h3>
+            <h3 className="text-base font-bold text-slate-900 text-center">
+              {studentToDelete.status === 'transferido'
+                ? 'Remover Registro da Sessão de Transferidos?'
+                : 'Excluir ou Transferir Estudante?'}
+            </h3>
             <p className="text-xs sm:text-sm text-slate-600 text-center mt-2 leading-relaxed">
-              Você está prestes a excluir <strong className="text-slate-900">{studentToDelete.name}</strong> (RA: {studentToDelete.ra}) da turma {studentToDelete.className}.
+              Você selecionou <strong className="text-slate-900">{studentToDelete.name}</strong> (RA: {studentToDelete.ra}) da turma {studentToDelete.className}.
             </p>
-            <div className="bg-rose-50 border border-rose-200 p-3 rounded-lg text-xs text-rose-800 mt-3">
-              <strong>Atenção:</strong> Todos os registros de faltas, chamadas diárias, casos de busca ativa e histórico de portaria deste estudante serão removidos imediatamente em cascata.
+            <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-xs text-amber-900 mt-3">
+              <strong>Preservação de Histórico:</strong> Todos os registros anteriores de chamadas, faltas, alertas, ocorrências e casos de busca ativa permanecerão salvos no sistema para consultas futuras da escola.
+              {studentToDelete.status !== 'transferido' && (
+                <span className="block mt-1">
+                  Se o aluno mudou de escola, prefira usar <strong>"Transferir para Arquivo"</strong> para mantê-lo visível na aba de Estudantes Transferidos.
+                </span>
+              )}
             </div>
 
-            <div className="flex items-center justify-center gap-3 mt-6">
+            <div className="flex flex-col gap-2 mt-5">
+              {studentToDelete.status !== 'transferido' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const st = studentToDelete;
+                    setStudentToDelete(null);
+                    openTransferModal(st);
+                  }}
+                  className="w-full px-4 py-2 text-sm font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-lg shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2"
+                >
+                  <ArrowRightLeft className="w-4 h-4" />
+                  <span>Transferir para Sessão de Transferidos</span>
+                </button>
+              )}
+
+              <div className="flex items-center justify-center gap-3 mt-1">
+                <button
+                  onClick={() => setStudentToDelete(null)}
+                  className="flex-1 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleConfirmDeleteStudent}
+                  className="flex-1 px-4 py-2 text-sm font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs transition-colors cursor-pointer"
+                >
+                  Confirmar Exclusão
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2B: TRANSFERIR ESTUDANTE PARA SESSÃO DE TRANSFERIDOS */}
+      {studentToTransfer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <ArrowRightLeft className="w-5 h-5 text-amber-600" />
+                <h3 className="text-base font-bold text-slate-900">Registrar Transferência</h3>
+              </div>
               <button
-                onClick={() => setStudentToDelete(null)}
-                className="px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                onClick={() => setStudentToTransfer(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
               >
-                Cancelar
-              </button>
-              <button
-                onClick={handleConfirmDeleteStudent}
-                className="px-4 py-2 text-sm font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs transition-colors cursor-pointer"
-              >
-                Confirmar Exclusão
+                <X className="w-5 h-5" />
               </button>
             </div>
+
+            <form onSubmit={handleConfirmTransferStudent} className="space-y-4 mt-4">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs">
+                <div className="font-bold text-slate-900">{studentToTransfer.name}</div>
+                <div className="text-slate-500 mt-0.5">
+                  RA: <strong className="text-slate-700">{studentToTransfer.ra}</strong> • Turma atual: <strong className="text-slate-700">{studentToTransfer.className}</strong>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">Data da Transferência</label>
+                <input
+                  type="date"
+                  required
+                  value={transferDate}
+                  onChange={e => setTransferDate(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">Escola / Município de Destino (opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ex: EE João Paulo II / Mudança de cidade"
+                  value={transferDestination}
+                  onChange={e => setTransferDestination(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">Observação / Motivo (opcional)</label>
+                <textarea
+                  rows={2}
+                  placeholder="Informações úteis para consultas futuras da secretaria..."
+                  value={transferReason}
+                  onChange={e => setTransferReason(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-[11px] text-amber-900">
+                O estudante sairá da chamada diária e dos indicadores ativos, mas continuará acessível na aba <strong>Estudantes Transferidos</strong> com todo o histórico preservado.
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setStudentToTransfer(null)}
+                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-semibold shadow-xs transition-colors cursor-pointer"
+                >
+                  Confirmar Transferência
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2C: REATIVAR / REMATRICULAR ESTUDANTE TRANSFERIDO */}
+      {studentToReactivate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <RotateCcw className="w-5 h-5 text-emerald-600" />
+                <h3 className="text-base font-bold text-slate-900">Reativar / Rematricular Estudante</h3>
+              </div>
+              <button
+                onClick={() => setStudentToReactivate(null)}
+                className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmReactivateStudent} className="space-y-4 mt-4">
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs">
+                <div className="font-bold text-slate-900">{studentToReactivate.name}</div>
+                <div className="text-slate-500 mt-0.5">
+                  RA: <strong className="text-slate-700">{studentToReactivate.ra}</strong> • Turma anterior: <strong className="text-slate-700">{studentToReactivate.previousClassName || studentToReactivate.className}</strong>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1">Turma de Destino para Rematrícula</label>
+                <select
+                  required
+                  value={reactivateClassId}
+                  onChange={e => setReactivateClassId(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 bg-white"
+                >
+                  {classes.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-lg text-[11px] text-emerald-900">
+                O estudante retornará imediatamente para as chamadas diárias e listagens ativas da turma selecionada, mantendo todo o histórico anterior.
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setStudentToReactivate(null)}
+                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold shadow-xs transition-colors cursor-pointer"
+                >
+                  Confirmar Reativação
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1297,8 +1886,8 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
             <p className="text-xs sm:text-sm text-slate-600 text-center mt-2 leading-relaxed">
               Você está excluindo permanentemente a turma <strong className="text-slate-900">{classToDelete.name}</strong> ({classToDelete.id}).
             </p>
-            <div className="bg-rose-50 border border-rose-200 p-3 rounded-lg text-xs text-rose-800 mt-3">
-              <strong>Atenção:</strong> Todos os estudantes vinculados a esta turma e seus respectivos registros de frequência, faltas e portaria também serão apagados do sistema.
+            <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-xs text-amber-900 mt-3">
+              <strong>Preservação de Histórico:</strong> A turma e seus vínculos ativos serão removidos da listagem atual, mantendo salvos todos os registros históricos de frequência, alertas e ocorrências já lançados.
             </div>
 
             <div className="flex items-center justify-center gap-3 mt-6">

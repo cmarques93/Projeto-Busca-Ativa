@@ -1,16 +1,13 @@
-import { initializeApp } from 'firebase/app';
 import {
-  getAuth,
   signInWithPopup,
   GoogleAuthProvider,
   onAuthStateChanged,
   User,
   signOut,
 } from 'firebase/auth';
-import firebaseConfig from '../firebase-applet-config.json';
+import { auth } from './lib/firebase';
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+export { auth };
 
 const provider = new GoogleAuthProvider();
 provider.addScope('https://www.googleapis.com/auth/spreadsheets');

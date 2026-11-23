@@ -8,46 +8,85 @@ import {
   CheckCircle2,
   Filter,
   User,
-  Clock
+  Clock,
+  BookOpen,
+  Users
 } from 'lucide-react';
-import { SchoolClass, Student, AttendanceRecord } from '../types';
+import { SchoolClass, Student, AttendanceRecord, UserSession, TeacherScheduleSlot, GateRecord } from '../types';
 import { InfoTooltip } from './InfoTooltip';
 import { isStudentInClass, isRecordInClass } from './RealTimeAttendance';
 import { firestoreService, isSameDay } from '../lib/firestoreService';
 import { storageService } from '../data/storageService';
+import { evaluateTeacherAbsenceVisibility, getSchoolSchedulePeriods } from '../utils/scheduleUtils';
+import { getLocalTodayStr } from '../utils/reportCalculator';
 
 interface TeacherAbsenceViewProps {
   classes: SchoolClass[];
   students: Student[];
   teacherName: string;
+  currentUser?: UserSession | null;
 }
 
 export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
   classes,
   students,
   teacherName,
+  currentUser,
 }) => {
-  const todayStr = new Date().toISOString().split('T')[0];
-  const [selectedClassId, setSelectedClassId] = useState<string>(classes[0]?.id || '9A');
+  const isProfessor = currentUser?.role === 'professor';
+  const todayStr = getLocalTodayStr();
+  const [selectedClassId, setSelectedClassId] = useState<string>('todas');
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [viewAllDates, setViewAllDates] = useState<boolean>(false);
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [teacherSchedules, setTeacherSchedules] = useState<TeacherScheduleSlot[]>(() =>
+    storageService.getTeacherSchedules()
+  );
+  const [gateRecords, setGateRecords] = useState<GateRecord[]>(() =>
+    storageService.getGateRecords()
+  );
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filterType, setFilterType] = useState<'todas' | 'justificadas' | 'atestados'>('todas');
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  const currentClass = classes.find(c => c.id === selectedClassId) || classes[0];
+  const currentClass = selectedClassId === 'todas' ? null : (classes.find(c => c.id === selectedClassId) || null);
 
   const fetchRecords = async () => {
     setIsLoading(true);
+    const sId = storageService.getActiveSchoolId();
     let classRecs: AttendanceRecord[] = [];
 
-    // 1. Consulta em nuvem no Firestore
+    // Sincroniza grade horária docente e registros de portaria da escola ativa (local + nuvem)
+    setTeacherSchedules(storageService.getTeacherSchedules(sId));
+    const localGate = storageService.getGateRecords(undefined, undefined, sId);
+    setGateRecords(localGate);
+
+    firestoreService.getTeacherSchedules(sId).then(slots => {
+      if (slots && slots.length > 0) {
+        storageService.setTeacherSchedules(slots, sId);
+        setTeacherSchedules(slots);
+      }
+    }).catch(() => {});
+
+    firestoreService.getGateRecords(undefined, sId).then(cloudGate => {
+      if (cloudGate && cloudGate.length > 0) {
+        const mergedMap = new Map<string, GateRecord>();
+        cloudGate.forEach(g => mergedMap.set(g.id, g));
+        localGate.forEach(g => {
+          if (!mergedMap.has(g.id)) mergedMap.set(g.id, g);
+        });
+        const merged = Array.from(mergedMap.values());
+        storageService.setGateRecords(merged, sId);
+        setGateRecords(merged);
+      }
+    }).catch(() => {});
+
+    // 1. Consulta em nuvem no Firestore (isolada por escola)
     try {
-      const allCloud = await firestoreService.getAttendanceRecords();
-      if (allCloud && allCloud.length > 0 && currentClass) {
+      const allCloud = await firestoreService.getAttendanceRecords(undefined, sId);
+      if (allCloud && allCloud.length > 0) {
         classRecs = allCloud.filter(r => {
-          const matchClass = isRecordInClass(r, currentClass);
+          const matchClass = !currentClass || isRecordInClass(r, currentClass);
           if (!matchClass) return false;
           if (viewAllDates) return true;
           return isSameDay(r.date, selectedDate);
@@ -57,28 +96,10 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
       console.warn('Erro ao buscar do Firestore em TeacherAbsenceView:', e);
     }
 
-    // 2. Consulta API backend se vazio
+    // 2. Fallback storageService local da escola ativa (sem consultar banco em memória desconectado)
     if (classRecs.length === 0) {
-      try {
-        const url = viewAllDates
-          ? `/api/attendance-records?classId=${selectedClassId}`
-          : `/api/attendance-records?classId=${selectedClassId}&date=${selectedDate}`;
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) {
-            classRecs = data;
-          }
-        }
-      } catch (e) {
-        console.warn('Erro ao buscar da API backend em TeacherAbsenceView:', e);
-      }
-    }
-
-    // 3. Fallback storageService local
-    if (classRecs.length === 0 && currentClass) {
-      const localRecs = storageService.getAttendanceRecords(undefined, viewAllDates ? undefined : selectedDate);
-      classRecs = localRecs.filter(r => isRecordInClass(r, currentClass));
+      const localRecs = storageService.getAttendanceRecords(undefined, viewAllDates ? undefined : selectedDate, sId);
+      classRecs = currentClass ? localRecs.filter(r => isRecordInClass(r, currentClass)) : localRecs;
     }
 
     setRecords(classRecs);
@@ -89,7 +110,7 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
     fetchRecords();
   }, [selectedClassId, selectedDate, viewAllDates]);
 
-  const classStudents = currentClass ? students.filter(s => isStudentInClass(s, currentClass)) : [];
+  const classStudents = currentClass ? students.filter(s => isStudentInClass(s, currentClass)) : students;
 
   // Map only justified absences and medical certificates registered by management
   interface JustificationEntry {
@@ -97,6 +118,7 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
     studentId: string;
     studentName: string;
     studentRa: string;
+    className: string;
     date: string;
     status: 'falta_justificada' | 'atestado_medico';
     justification: string;
@@ -111,26 +133,57 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
     justificationDaysRemaining?: number;
     recordedBy: string;
     recordedAt?: string;
+    visibilityBadge?: string;
+    isTutorado?: boolean;
+    hasScheduledLesson?: boolean;
   }
 
+  const schoolPeriods = getSchoolSchedulePeriods();
   const justifiedEntries: JustificationEntry[] = [];
 
   // 1. Process from attendance records
   records.forEach(rec => {
+    if (!rec.studentId || rec.studentId.startsWith('cls-marker-')) return;
     const isJustified = rec.status === 'falta_justificada' || (rec.justification && rec.justification.trim().length > 0);
     const isMedical = rec.status === 'atestado_medico' || (rec.medicalCertificate && rec.medicalCertificate.trim().length > 0);
 
     if (isJustified || isMedical) {
-      const student = classStudents.find(s => s.id === rec.studentId) || {
-        name: rec.studentName || 'Estudante',
-        ra: '—'
+      const studentObj =
+        classStudents.find(s => s.id === rec.studentId) ||
+        students.find(s => s.id === rec.studentId);
+
+      const fallbackStudent = {
+        id: rec.studentId,
+        name: rec.studentName || studentObj?.name || 'Estudante',
+        ra: studentObj?.ra || '—',
+        classId: rec.classId || studentObj?.classId || '',
+        className: rec.className || studentObj?.className || currentClass?.name || 'Turma',
+        tutor: studentObj?.tutor || '',
       };
+
+      const gateToday = gateRecords.filter(g => isSameDay(g.date, rec.date));
+      const visibility = evaluateTeacherAbsenceVisibility({
+        student: fallbackStudent,
+        dateStr: rec.date,
+        teacherName,
+        teacherSchedules,
+        gateRecordsForDate: gateToday,
+        schoolPeriods,
+      });
+
+      // Regra estrita para o perfil Professor:
+      // Deverá aparecer SOMENTE para o professor que teve a ausência do estudante na sua aula
+      // (de acordo com a sincronia da grade horária) e também de seus tutorados.
+      if (isProfessor && !visibility.allowed) {
+        return;
+      }
 
       justifiedEntries.push({
         id: rec.id || `${rec.studentId}_${rec.date}`,
         studentId: rec.studentId,
-        studentName: rec.studentName || student.name,
-        studentRa: student.ra || '—',
+        studentName: fallbackStudent.name,
+        studentRa: fallbackStudent.ra,
+        className: fallbackStudent.className,
         date: rec.date,
         status: isMedical ? 'atestado_medico' : 'falta_justificada',
         justification: rec.justification || (isMedical ? 'Atestado médico protocolado' : 'Justificativa de ausência'),
@@ -145,24 +198,45 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
         justificationDaysRemaining: rec.justificationDaysRemaining,
         recordedBy: rec.recordedBy || 'Gestão Escolar / Secretaria',
         recordedAt: rec.recordedAt || rec.createdAt,
+        visibilityBadge: visibility.matchReasonLabel || (studentObj?.tutor ? `Tutor: ${studentObj.tutor}` : ''),
+        isTutorado: visibility.isTutorado,
+        hasScheduledLesson: visibility.hasScheduledClassAbsence,
       });
     }
   });
 
-  // 2. Also check if any student in this class has notes with medical certificate if viewing all or matching note
+  // 2. Check student notes only if still empty on day view
   if (justifiedEntries.length === 0 && !viewAllDates) {
     classStudents.forEach(student => {
       if (student.notes?.includes('Atestado')) {
+        const gateToday = gateRecords.filter(g => isSameDay(g.date, selectedDate));
+        const visibility = evaluateTeacherAbsenceVisibility({
+          student,
+          dateStr: selectedDate,
+          teacherName,
+          teacherSchedules,
+          gateRecordsForDate: gateToday,
+          schoolPeriods,
+        });
+
+        if (isProfessor && !visibility.allowed) {
+          return;
+        }
+
         justifiedEntries.push({
           id: `note_${student.id}`,
           studentId: student.id,
           studentName: student.name,
           studentRa: student.ra,
+          className: student.className,
           date: selectedDate,
           status: 'atestado_medico',
           justification: student.notes,
           medicalCertificate: student.notes,
-          recordedBy: 'Gestão Escolar / Secretaria'
+          recordedBy: 'Gestão Escolar / Secretaria',
+          visibilityBadge: visibility.matchReasonLabel || (student.tutor ? `Tutor: ${student.tutor}` : ''),
+          isTutorado: visibility.isTutorado,
+          hasScheduledLesson: visibility.hasScheduledClassAbsence,
         });
       }
     });
@@ -217,18 +291,38 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider">
-                  Painel do Docente • Consulta de Justificativas e Atestados
+                  {isProfessor
+                    ? 'Diário do Professor • Minhas Aulas na Grade & Tutorados'
+                    : 'Diário de Justificativas e Atestados • Visão Geral da Gestão'}
                 </span>
                 <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
-                  Acesso Restrito
+                  {isProfessor ? 'Sincronizado (Grade + Tutoria)' : 'Visão Completa'}
                 </span>
               </div>
               <h2 className="text-base font-bold text-slate-900 mt-0.5">
                 Justificativas de Ausência Registradas pela Gestão
               </h2>
               <p className="text-xs text-slate-600">
-                Olá, <strong>{teacherName}</strong>. Consulte as faltas justificadas e atestados médicos protocolados pela Gestão para planejar reposições e suporte pedagógico.
+                {isProfessor ? (
+                  <>
+                    Olá, <strong>{teacherName}</strong>. Exibindo exclusivamente justificativas e atestados de{' '}
+                    <strong>seus tutorados</strong> e de estudantes ausentes{' '}
+                    <strong>nas aulas vinculadas à sua grade horária</strong>.
+                  </>
+                ) : (
+                  <>
+                    Olá, <strong>{teacherName}</strong>. Consulte as faltas justificadas e atestados médicos protocolados pela Gestão em todas as turmas.
+                  </>
+                )}
               </p>
+              {isProfessor && teacherSchedules.length === 0 && (
+                <div className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold text-amber-900 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg">
+                  <BookOpen className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                  <span>
+                    Exibindo seus tutorados. As ausências por disciplina serão exibidas automaticamente assim que a Grade Horária das aulas for sincronizada.
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -244,6 +338,9 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
               onChange={e => setSelectedClassId(e.target.value)}
               className="text-xs font-bold text-slate-800 border border-slate-200 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-emerald-500 focus:outline-hidden bg-slate-50"
             >
+              <option value="todas">
+                {isProfessor ? 'Todas (Meus Tutorados & Minhas Aulas)' : `Todas as Turmas (${classes.length})`}
+              </option>
               {classes.map(c => (
                 <option key={c.id} value={c.id}>
                   {c.name} ({c.grade} • {c.shift})
@@ -317,7 +414,9 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
           </div>
           <div className="text-xl font-extrabold text-slate-900">{allJustifiedList.length}</div>
           <span className="text-[10px] text-slate-500">
-            {viewAllDates ? `Turma ${currentClass?.name}` : `Dia ${formatDateDisplay(selectedDate)}`}
+            {viewAllDates
+              ? (currentClass ? `Turma ${currentClass.name}` : 'Todas as turmas filtradas')
+              : `Dia ${formatDateDisplay(selectedDate)}`}
           </span>
         </div>
 
@@ -397,9 +496,13 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
               Nenhuma justificativa ou atestado registrado pela Gestão
             </h3>
             <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-              {viewAllDates
-                ? `Não há justificativas de ausência ou atestados protocolados pela Gestão para a turma ${currentClass?.name}.`
-                : `Não há justificativas de ausência ou atestados protocolados para o dia ${formatDateDisplay(selectedDate)} na turma ${currentClass?.name}.`}
+              {isProfessor
+                ? (viewAllDates
+                    ? `Não há justificativas ou atestados vinculados aos seus tutorados ou às suas aulas na grade${currentClass ? ` na turma ${currentClass.name}` : ''}.`
+                    : `Não há justificativas ou atestados para o dia ${formatDateDisplay(selectedDate)} vinculados aos seus tutorados ou às suas aulas na grade.`)
+                : (viewAllDates
+                    ? `Não há justificativas de ausência ou atestados protocolados pela Gestão${currentClass ? ` para a turma ${currentClass.name}` : ''}.`
+                    : `Não há justificativas de ausência ou atestados protocolados para o dia ${formatDateDisplay(selectedDate)}${currentClass ? ` na turma ${currentClass.name}` : ''}.`)}
             </p>
           </div>
         ) : (
@@ -407,7 +510,7 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[10px]">
                 <tr>
-                  <th className="py-3 px-4">Estudante & RA</th>
+                  <th className="py-3 px-4">Estudante, Turma & Vínculo</th>
                   <th className="py-3 px-4">Dia / Data da Ausência</th>
                   <th className="py-3 px-4">Tipo de Registro</th>
                   <th className="py-3 px-4">Justificativa da Ausência (Registrada pela Gestão)</th>
@@ -423,7 +526,23 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
                         <User className="w-3.5 h-3.5 text-slate-400" />
                         {entry.studentName}
                       </div>
-                      <div className="text-[11px] text-slate-500 font-mono mt-0.5">RA: {entry.studentRa}</div>
+                      <div className="text-[11px] text-slate-500 font-mono mt-0.5">
+                        {entry.className} • RA: {entry.studentRa}
+                      </div>
+                      {entry.visibilityBadge && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          <span
+                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                              entry.isTutorado
+                                ? 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                                : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            }`}
+                          >
+                            {entry.isTutorado ? <Users className="w-2.5 h-2.5" /> : <BookOpen className="w-2.5 h-2.5" />}
+                            <span>{entry.visibilityBadge}</span>
+                          </span>
+                        </div>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 whitespace-nowrap">

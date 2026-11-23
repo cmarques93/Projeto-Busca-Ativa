@@ -2057,19 +2057,17 @@ export class SchoolDatabase {
     return { insertedCount: inserted.length, students: inserted };
   }
 
-  public deleteStudent(id: string, purgeAll: boolean = true): boolean {
+  public deleteStudent(id: string, purgeAll: boolean = false): boolean {
     const cleanId = String(id || '').trim().toLowerCase();
     const initialLen = this.data.students.length;
     this.data.students = this.data.students.filter(s => (s.id || '').trim().toLowerCase() !== cleanId);
     if (this.data.students.length === initialLen) return false;
 
-    // Remove from active interventions / "Casos de Busca Ativa & IA" in BOTH modes
-    this.data.interventions = this.data.interventions.filter(
-      i => (i.studentId || '').trim().toLowerCase() !== cleanId
-    );
-
-    // If purgeAll is true, delete attendance records, alerts and gate records as well
+    // Preserva históricos de busca ativa, chamadas, alertas e portaria por padrão (casos de transferência ou consultas futuras)
     if (purgeAll) {
+      this.data.interventions = this.data.interventions.filter(
+        i => (i.studentId || '').trim().toLowerCase() !== cleanId
+      );
       this.data.attendanceRecords = this.data.attendanceRecords.filter(
         r => (r.studentId || '').trim().toLowerCase() !== cleanId
       );
@@ -2120,10 +2118,15 @@ export class SchoolDatabase {
     if (updates.totalAbsences !== undefined) student.totalAbsences = updates.totalAbsences;
     if (updates.consecutiveAbsences !== undefined) student.consecutiveAbsences = updates.consecutiveAbsences;
     if (updates.attendanceRate !== undefined) student.attendanceRate = updates.attendanceRate;
+    if (updates.transferredAt !== undefined) student.transferredAt = updates.transferredAt;
+    if (updates.transferDestination !== undefined) student.transferDestination = updates.transferDestination;
+    if (updates.transferReason !== undefined) student.transferReason = updates.transferReason;
+    if (updates.previousClassId !== undefined) student.previousClassId = updates.previousClassId;
+    if (updates.previousClassName !== undefined) student.previousClassName = updates.previousClassName;
 
-    // Refresh class student counts
+    // Refresh class student counts (active enrolled students only)
     this.data.classes.forEach(c => {
-      c.totalStudents = this.data.students.filter(s => s.classId === c.id).length;
+      c.totalStudents = this.data.students.filter(s => s.classId === c.id && s.status !== 'transferido').length;
     });
 
     this.data.lastUpdated = new Date().toISOString();

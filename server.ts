@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { SchoolDatabase } from './server/database.js';
 
 async function startServer() {
@@ -25,7 +25,7 @@ async function startServer() {
     next();
   });
 
-  app.use(express.json());
+  app.use(express.json({ limit: '25mb' }));
 
   const db = SchoolDatabase.getInstance();
 
@@ -35,10 +35,15 @@ async function startServer() {
     if (aiClient) return aiClient;
     try {
       const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || '';
+      const httpOptions = {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      };
       if (apiKey) {
-        aiClient = new GoogleGenAI({ apiKey });
+        aiClient = new GoogleGenAI({ apiKey, httpOptions });
       } else {
-        aiClient = new GoogleGenAI();
+        aiClient = new GoogleGenAI({ httpOptions });
       }
       return aiClient;
     } catch (err) {
@@ -360,6 +365,9 @@ async function startServer() {
         date,
         time,
         type,
+        classPeriodId,
+        classPeriodName,
+        classPeriodType,
         reason,
         guardianOrAuthorizedPerson,
         guardianPhone,
@@ -379,6 +387,9 @@ async function startServer() {
         date: date || new Date().toISOString().split('T')[0],
         time,
         type,
+        classPeriodId,
+        classPeriodName,
+        classPeriodType,
         reason,
         guardianOrAuthorizedPerson: guardianOrAuthorizedPerson || 'Não informado',
         guardianPhone,
@@ -1891,6 +1902,164 @@ REGRA CRÍTICA E ABSOLUTA:
         status: 'erro',
         mensagem: 'Erro interno ao salvar agendamento de tablets: ' + err.message,
       });
+    }
+  });
+
+  // --- IMPORTAÇÃO DE HORÁRIO ESCOLAR VIA PDF (EXTRAÇÃO ESTRITA SEM ALUCINAÇÃO) ---
+  app.post('/api/timetable/import-pdf', async (req, res) => {
+    try {
+      const { fileBase64, fileName, classes = [], periods = [], fixedTerms = [] } = req.body || {};
+
+      if (!fileBase64 || typeof fileBase64 !== 'string') {
+        return res.status(400).json({ error: 'Arquivo PDF não recebido ou inválido.' });
+      }
+
+      const cleanBase64 = fileBase64.replace(/^data:application\/pdf;base64,/i, '').trim();
+      if (!cleanBase64) {
+        return res.status(400).json({ error: 'Conteúdo Base64 do PDF está vazio.' });
+      }
+
+      const ai = getGeminiClient();
+      if (!ai) {
+        return res.status(500).json({
+          error: 'Serviço de leitura de PDF indisponível no servidor. Verifique a chave de API configurada no ambiente.',
+        });
+      }
+
+      const classListText = Array.isArray(classes) && classes.length > 0
+        ? classes.map((c: any) => String(c.name || c)).join(', ')
+        : 'Não informadas (extrair exatamente como escrito no PDF)';
+
+      const periodListText = Array.isArray(periods) && periods.length > 0
+        ? periods
+            .filter((p: any) => !p.isBreak && Number(p.number) > 0)
+            .map((p: any) => `${p.number}ª aula (${p.start || p.startTime || ''}-${p.end || p.endTime || ''})`)
+            .join(', ')
+        : '1ª a 9ª aula';
+
+      const fixedTermsText = Array.isArray(fixedTerms) && fixedTerms.length > 0
+        ? fixedTerms.join(', ')
+        : 'TUTORIA, CLUBES, ELETIVAS, EDU PROFISSIONAL, ALMOÇO, INTERVALO';
+
+      const extractionPrompt = `Analise o arquivo PDF do horário escolar em anexo ("${fileName || 'horario.pdf'}") e extraia TODAS as aulas e atividades fixas presentes na grade.
+
+REGRAS ESTRITAS DE FIDELIDADE (ZERO ALUCINAÇÃO):
+1. Extraia EXCLUSIVAMENTE o que está literalmente escrito no documento PDF.
+2. JAMAIS invente, complete ou deduza aulas, professores ou turmas que não estejam visíveis no PDF.
+3. Mapeamento dos dias da semana (dayOfWeek):
+   - 1 = Segunda-feira
+   - 2 = Terça-feira
+   - 3 = Quarta-feira
+   - 4 = Quinta-feira
+   - 5 = Sexta-feira
+4. Mapeamento do número da aula (periodNumber): número inteiro de 1 a 9 correspondente à ordem da aula no dia (${periodListText}). Ignore linhas de intervalo/recreio, exceto se houver atividade fixa marcada (ex.: ALMOÇO, TUTORIA) associada a um número de aula.
+5. Turmas cadastradas na escola para referência de nomenclatura: ${classListText}.
+   - Se a turma no PDF corresponder claramente a uma das turmas da lista (ex.: "6A" ou "6ºA" -> "6º Ano A"), use o nome exato da lista ou mantenha o texto exato do PDF caso seja outra turma.
+6. Para cada célula preenchida (ATENÇÃO MÁXIMA À DIFERENÇA ENTRE PROFESSOR E DISCIPLINA):
+   - Se for atividade fixa institucional (${fixedTermsText}) sem professor individual atribuído, preencha "fixedLabel" com o nome da atividade (em maiúsculas) e deixe "discipline" e "teacherName" vazios.
+   - Disciplinas como PROJETO DE VIDA (PV), ARTE, ED. FÍSICA, TECNOLOGIA, EMA, ORIENTAÇÃO DE ESTUDOS são aulas regulares com professor: extraia SEMPRE o nome do professor em "teacherName" e a disciplina em "discipline" (NUNCA marque Projeto de Vida ou Arte como fixedLabel).
+   - Padrão comum em horários PEI/SEDUC-SP: "NOME DO PROFESSOR (DISCIPLINA)" — ex.: "MARIA (PORT)", "CARLOS (MAT)", "ANA (PROJETO DE VIDA)", "JULIA (ARTE)". Nesse caso, o texto FORA dos parênteses é "teacherName" (a pessoa) e o texto DENTRO dos parênteses é "discipline" (a matéria).
+   - Em outros layouts (duas linhas ou separados por traço/barra), coloque SEMPRE o nome da matéria/componente curricular em "discipline" e SEMPRE o nome da pessoa docente em "teacherName".
+   - REGRA CRÍTICA: JAMAIS coloque o nome de uma disciplina/matéria no campo "teacherName". Se a célula realmente não trouxer nome de professor no PDF, preencha "discipline" e deixe "teacherName" como string vazia "".
+7. Em "warnings", informe brevemente qualquer trecho ilegível, página sem tabela ou ambiguidade encontrada (ou lista vazia se tudo estiver claro).`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                mimeType: 'application/pdf',
+                data: cleanBase64,
+              },
+            },
+            {
+              text: extractionPrompt,
+            },
+          ],
+        },
+        config: {
+          systemInstruction:
+            'Você é um extrator tabular de alta precisão para horários escolares brasileiros (SEDUC-SP / PEI). Retorne exclusivamente JSON fiel ao documento PDF enviado, sem inventar nenhum dado.',
+          responseMimeType: 'application/json',
+          seed: 42,
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              entries: {
+                type: Type.ARRAY,
+                description: 'Lista de todas as células de aula ou atividades fixas encontradas no PDF.',
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    dayOfWeek: {
+                      type: Type.INTEGER,
+                      description: 'Dia da semana: 1=Segunda, 2=Terça, 3=Quarta, 4=Quinta, 5=Sexta',
+                    },
+                    periodNumber: {
+                      type: Type.INTEGER,
+                      description: 'Número da aula no dia (1 a 9)',
+                    },
+                    rawClassName: {
+                      type: Type.STRING,
+                      description: 'Nome da turma conforme consta no PDF (ou correspondência exata da lista de turmas)',
+                    },
+                    discipline: {
+                      type: Type.STRING,
+                      description: 'Nome da disciplina (vazio se for atividade fixa)',
+                    },
+                    teacherName: {
+                      type: Type.STRING,
+                      description: 'Nome do professor (vazio se não constar ou se for atividade fixa)',
+                    },
+                    fixedLabel: {
+                      type: Type.STRING,
+                      description: 'Nome da atividade fixa PEI quando aplicável (ex: TUTORIA, CLUBES, ELETIVAS, ALMOÇO), caso contrário vazio',
+                    },
+                  },
+                },
+              },
+              warnings: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: 'Avisos sobre células ilegíveis ou observações de leitura.',
+              },
+            },
+          },
+        },
+      });
+
+      const rawText = (response.text || '').trim();
+      if (!rawText) {
+        return res.status(422).json({ error: 'Não foi possível extrair conteúdo estruturado deste PDF.' });
+      }
+
+      const parsed = JSON.parse(rawText);
+      const entries = Array.isArray(parsed.entries)
+        ? parsed.entries.filter(
+            (e: any) =>
+              e &&
+              Number(e.dayOfWeek) >= 1 &&
+              Number(e.dayOfWeek) <= 5 &&
+              Number(e.periodNumber) >= 1 &&
+              Number(e.periodNumber) <= 12 &&
+              String(e.rawClassName || '').trim().length > 0 &&
+              (String(e.discipline || '').trim().length > 0 || String(e.fixedLabel || '').trim().length > 0)
+          )
+        : [];
+
+      return res.json({
+        entries,
+        warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+      });
+    } catch (err: any) {
+      console.error('Erro ao processar upload de horário em PDF:', err);
+      const status = err?.status && err.status >= 400 && err.status < 600 ? err.status : 500;
+      const msg =
+        status === 429
+          ? 'Limite de requisições da API atingido ao ler o PDF. Aguarde alguns instantes ou importe o arquivo em formato Excel (.xlsx).'
+          : err?.message || 'Erro ao interpretar o arquivo PDF do horário.';
+      return res.status(status).json({ error: msg });
     }
   });
 

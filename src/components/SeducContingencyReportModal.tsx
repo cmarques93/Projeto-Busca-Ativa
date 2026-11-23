@@ -26,10 +26,12 @@ import {
   CheckCircle2,
   Phone
 } from 'lucide-react';
-import { SeducContingencyReport, SchoolClass, Student, GateRecord, School as SchoolType } from '../types';
+import { SeducContingencyReport, SchoolClass, Student, GateRecord, School as SchoolType, AttendanceRecord, AttendanceStatus } from '../types';
 import { storageService } from '../data/storageService';
+import { firestoreService, isSameDay } from '../lib/firestoreService';
 import { lerCacheOcorrencias } from '../lib/sheetsSyncService';
 import { formatDateBR, getLocalTodayStr } from '../utils/reportCalculator';
+import { findActiveAbsenceForDate } from '../utils/atestadoUtils';
 
 interface SeducContingencyReportModalProps {
   isOpen: boolean;
@@ -87,17 +89,150 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
     return filteredStudents[0] || allStudents[0] || null;
   }, [selectedStudentId, allStudents, filteredStudents]);
 
-  // Busca relatório coletivo do backend
+  // Consolida relatório coletivo diretamente da base real da escola ativa (Firestore + storageService)
   const fetchReport = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/seduc-contingency-report?date=${selectedDate}&classId=${selectedClassId}`);
-      if (res.ok) {
-        const data = await res.json();
-        setReportData(data);
-      }
+      const sId = storageService.getActiveSchoolId();
+      const activeSchool = currentSchool || storageService.getActiveSchool(sId);
+      const effectiveClasses = classes.length > 0 ? classes : storageService.getClasses(sId);
+      const effectiveStudents = (allStudents.length > 0 ? allStudents : storageService.getStudents(undefined, sId))
+        .filter(s => s.status !== 'transferido');
+
+      const [cloudAtt, cloudGate] = await Promise.all([
+        firestoreService.getAttendanceRecords(undefined, sId).catch(() => []),
+        firestoreService.getGateRecords(undefined, sId).catch(() => []),
+      ]);
+
+      const localAtt = storageService.getAttendanceRecords(undefined, undefined, sId);
+      const attMap = new Map<string, AttendanceRecord>();
+      cloudAtt.forEach(r => attMap.set(r.id, r));
+      localAtt.forEach(r => {
+        if (!attMap.has(r.id)) attMap.set(r.id, r);
+      });
+      const allAttendance = Array.from(attMap.values());
+
+      const localGate = storageService.getGateRecords(undefined, undefined, sId);
+      const gateMap = new Map<string, GateRecord>();
+      cloudGate.forEach(g => gateMap.set(g.id, g));
+      localGate.forEach(g => {
+        if (!gateMap.has(g.id)) gateMap.set(g.id, g);
+      });
+      const gateForDate = Array.from(gateMap.values()).filter(g => isSameDay(g.date, selectedDate));
+      const attForDate = allAttendance.filter(r => isSameDay(r.date, selectedDate));
+
+      const targetClasses =
+        selectedClassId === 'todas'
+          ? effectiveClasses
+          : effectiveClasses.filter(c => c.id === selectedClassId || c.name === selectedClassId);
+
+      let totalStudents = 0;
+      let totalPresent = 0;
+      let totalFaltaJustificada = 0;
+      let totalFaltaInjustificada = 0;
+      let totalAtestados = 0;
+      let totalAtrasos = 0;
+
+      const classReports = targetClasses.map(cls => {
+        const cStudents = effectiveStudents.filter(
+          s =>
+            (s.classId || '').trim().toLowerCase() === cls.id.trim().toLowerCase() ||
+            (s.className || '').trim().toLowerCase() === cls.name.trim().toLowerCase()
+        );
+
+        let presentCount = 0;
+        let faltaJustificadaCount = 0;
+        let faltaInjustificadaCount = 0;
+        let atestadoMedicoCount = 0;
+        let atrasoCount = 0;
+        const absentStudents: SeducContingencyReport['classReports'][number]['absentStudents'] = [];
+
+        cStudents.forEach(st => {
+          const rec =
+            attForDate.find(r => r.studentId === st.id) ||
+            findActiveAbsenceForDate(allAttendance, st.id, selectedDate);
+          const status: AttendanceStatus = rec?.status || 'presente';
+
+          if (status === 'presente') {
+            presentCount++;
+          } else if (status === 'atraso') {
+            atrasoCount++;
+            presentCount++;
+          } else {
+            if (status === 'falta_justificada') faltaJustificadaCount++;
+            else if (status === 'falta_injustificada') faltaInjustificadaCount++;
+            else if (status === 'atestado_medico') atestadoMedicoCount++;
+
+            const stGate = gateForDate.find(g => g.studentId === st.id) || null;
+            absentStudents.push({
+              id: st.id,
+              name: st.name,
+              ra: st.ra || '',
+              status,
+              isAbsent: true,
+              isCountedAsAbsence: status !== 'atestado_medico',
+              justification: rec?.justification || '',
+              medicalCertificate: rec?.medicalCertificate || '',
+              consecutiveAbsences: st.consecutiveAbsences || 0,
+              totalAbsences: st.totalAbsences || 0,
+              attendanceRate: st.attendanceRate ?? 100,
+              guardianName: st.guardianName || '',
+              guardianPhone: st.guardianPhone || '',
+              gateRecord: stGate ? { type: stGate.type, time: stGate.time, reason: stGate.reason } : null,
+            });
+          }
+        });
+
+        const totalEnrolled = cStudents.length;
+        totalStudents += totalEnrolled;
+        totalPresent += presentCount;
+        totalFaltaJustificada += faltaJustificadaCount;
+        totalFaltaInjustificada += faltaInjustificadaCount;
+        totalAtestados += atestadoMedicoCount;
+        totalAtrasos += atrasoCount;
+
+        const attendanceRate =
+          totalEnrolled > 0 ? Number(((presentCount / totalEnrolled) * 100).toFixed(1)) : 100;
+
+        return {
+          classId: cls.id,
+          className: cls.name,
+          shift: cls.shift,
+          grade: cls.grade,
+          totalEnrolled,
+          presentCount,
+          faltaJustificadaCount,
+          faltaInjustificadaCount,
+          atestadoMedicoCount,
+          atrasoCount,
+          attendanceRate,
+          absentStudents,
+        };
+      });
+
+      const overallAttendanceRate =
+        totalStudents > 0 ? Number(((totalPresent / totalStudents) * 100).toFixed(1)) : 100;
+
+      setReportData({
+        schoolName: activeSchool?.name || 'Unidade Escolar',
+        officialHeader: 'SECRETARIA DA EDUCAÇÃO DO ESTADO DE SÃO PAULO',
+        subHeader: 'SIGAESCOLA • RELATÓRIO OFICIAL DE ACOMPANHAMENTO E CONTINGÊNCIA',
+        reportTitle: 'Relatório Oficial de Frequência e Contingência Diária',
+        date: selectedDate,
+        formattedDate: formatDateBR(selectedDate),
+        summary: {
+          totalStudents,
+          totalPresent,
+          totalFaltaJustificada,
+          totalFaltaInjustificada,
+          totalAtestados,
+          totalAtrasos,
+          overallAttendanceRate,
+        },
+        classReports,
+      });
     } catch (e) {
-      console.error('Erro ao buscar dados do relatório:', e);
+      console.error('Erro ao consolidar dados do relatório:', e);
     } finally {
       setIsLoading(false);
     }

@@ -45,6 +45,7 @@ import { storageService } from '../data/storageService';
 import { carregarOcorrenciasSeguro, salvarOcorrenciaSeguro, excluirOcorrenciaSeguro, salvarConfigOcorrenciasSeguro } from '../lib/sheetsSyncService';
 import { firestoreService } from '../lib/firestoreService';
 import { formatarRelatoComGemini, limparTextoFormatado, testarChaveGemini, getStoredGeminiKey, saveStoredGeminiKey } from '../lib/geminiClient';
+import { getLocalTodayStr } from '../utils/reportCalculator';
 import ocorrenciasBaseline from '../data/ocorrenciasBaseline.json';
 
 export interface HorarioAula {
@@ -580,14 +581,18 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
   // Estados de Interface
   const [tutoradosExpandidos, setTutoradosExpandidos] = useState<Record<string, boolean>>({});
   const [termoBusca, setTermoBusca] = useState('');
+  const [buscaEstudanteForm, setBuscaEstudanteForm] = useState('');
+
+  const isHorarioMultiTurma = (aulaStr: string) =>
+    /tutoria|intervalo|recreio|almo[cç]o/i.test(String(aulaStr || ''));
 
   // Formulário de Registro
-  const todayIso = new Date().toISOString().split('T')[0];
+  const todayIso = getLocalTodayStr();
   const [form, setForm] = useState<{
     data: string;
     aula: string;
     turma: string;
-    estudantes: Array<{ nome: string; tutor: string }>;
+    estudantes: Array<{ nome: string; tutor: string; turma?: string }>;
     professor: string;
     ocorrencia: string;
     medida: string;
@@ -858,40 +863,69 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     return lista.sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
   }, [classes, students]);
 
-  const alunosDaTurma = useMemo(() => {
-    if (!form.turma) return [];
-    const turmaNormalizada = form.turma.trim().toLowerCase();
-    const turmaObj = (classes || []).find(
-      c => c.name.trim().toLowerCase() === turmaNormalizada || c.id === form.turma
-    );
+  // Lista unificada de aulas/horários garantindo Intervalos e Tutoria sempre disponíveis
+  const horariosAulaOpcoes = useMemo(() => {
+    const baseAulas = (bancoDeDados.aulas || []).map(a => a.trim()).filter(Boolean);
+    const gradeNomes = (gradeHorarios || []).map(g => g.nome.trim()).filter(Boolean);
+    const merged = Array.from(new Set([...baseAulas, ...gradeNomes]));
+    if (!merged.some(a => /intervalo|recreio/i.test(a))) {
+      merged.push('INTERVALO');
+    }
+    if (!merged.some(a => /tutoria/i.test(a))) {
+      merged.push('TUTORIA');
+    }
+    return merged;
+  }, [bancoDeDados.aulas, gradeHorarios]);
 
-    let listaAlunos = (students || []).filter(s => {
-      if (turmaObj && s.classId === turmaObj.id) return true;
-      if (s.className && s.className.trim().toLowerCase() === turmaNormalizada) return true;
-      const sCls = (classes || []).find(c => c.id === s.classId);
-      return sCls && sCls.name.trim().toLowerCase() === turmaNormalizada;
-    });
-
-    if (listaAlunos.length === 0 && storageService) {
+  const todosAlunosComTurma = useMemo(() => {
+    let baseStudents = (students || []).filter(s => s.status !== 'transferido');
+    if (baseStudents.length === 0 && storageService) {
       try {
-        const stStudents = storageService.getStudents();
-        listaAlunos = (stStudents || []).filter(s => {
-          if (turmaObj && s.classId === turmaObj.id) return true;
-          if (s.className && s.className.trim().toLowerCase() === turmaNormalizada) return true;
-          const sCls = (classes || []).find(c => c.id === s.classId);
-          return sCls && sCls.name.trim().toLowerCase() === turmaNormalizada;
-        });
+        baseStudents = (storageService.getStudents() || []).filter(s => s.status !== 'transferido');
       } catch {}
     }
 
-    return listaAlunos
-      .map(s => ({
-        nome: s.name.trim(),
-        turma: form.turma,
-        tutor: s.tutor || (s as any).responsibleTutor || 'Equipe Pedagógica',
-      }))
+    const activeClasses =
+      classes && classes.length > 0
+        ? classes
+        : storageService
+        ? storageService.getClasses() || []
+        : [];
+
+    return baseStudents
+      .map(s => {
+        const cls = activeClasses.find(c => c.id === s.classId);
+        const turmaNome = (cls ? cls.name : s.className || 'Turma Geral').trim();
+        return {
+          nome: (s.name || '').trim(),
+          turma: turmaNome,
+          tutor: s.tutor || (s as any).responsibleTutor || 'Equipe Pedagógica',
+        };
+      })
+      .filter(s => s.nome.length > 0)
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-  }, [form.turma, classes, students]);
+  }, [classes, students]);
+
+  const alunosDaTurma = useMemo(() => {
+    const permiteMultiTurma = isHorarioMultiTurma(form.aula);
+    let lista = todosAlunosComTurma;
+
+    if (!form.turma) {
+      if (!permiteMultiTurma) return [];
+    } else if (form.turma !== 'TODAS') {
+      const turmaNormalizada = form.turma.trim().toLowerCase();
+      lista = lista.filter(a => a.turma.trim().toLowerCase() === turmaNormalizada);
+    }
+
+    const q = buscaEstudanteForm.trim().toLowerCase();
+    if (q) {
+      lista = lista.filter(
+        a => a.nome.toLowerCase().includes(q) || a.turma.toLowerCase().includes(q)
+      );
+    }
+
+    return lista;
+  }, [form.turma, form.aula, todosAlunosComTurma, buscaEstudanteForm]);
 
   const alunosDaTurmaEdicao = useMemo(() => {
     if (!formEdicaoOcorrencia.turma) return [];
@@ -935,7 +969,26 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     const { name, value } = e.target;
     setForm(prev => {
       const novo = { ...prev, [name]: value };
-      if (name === 'turma') novo.estudantes = [];
+      if (name === 'aula') {
+        if (isHorarioMultiTurma(value)) {
+          if (!prev.turma) {
+            novo.turma = 'TODAS';
+          }
+        } else {
+          if (prev.turma === 'TODAS') {
+            novo.turma = '';
+            novo.estudantes = [];
+          } else if (prev.turma) {
+            const turmaNorm = prev.turma.trim().toLowerCase();
+            novo.estudantes = prev.estudantes.filter(
+              est => !est.turma || est.turma.trim().toLowerCase() === turmaNorm
+            );
+          }
+        }
+      }
+      if (name === 'turma' && !isHorarioMultiTurma(prev.aula)) {
+        novo.estudantes = [];
+      }
       return novo;
     });
   };
@@ -969,8 +1022,14 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     const novosRegistrosParaCache: OcorrenciaRecord[] = [];
 
     for (const est of form.estudantes) {
+      const turmaEst =
+        est.turma ||
+        (form.turma && form.turma !== 'TODAS' ? form.turma : '') ||
+        'Turma Geral';
+
       const payload = {
         ...form,
+        turma: turmaEst,
         estudante: est.nome,
         tutor: est.tutor,
         criadoEm: isoAgora,
@@ -991,7 +1050,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         id: `REG-${tsAgora}-${Math.floor(Math.random() * 1000)}`,
         data: form.data,
         aula: form.aula,
-        turma: form.turma,
+        turma: turmaEst,
         estudante: est.nome,
         tutor: est.tutor,
         professor: form.professor,
@@ -1021,6 +1080,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         texto: `✅ ${sucessoCount || form.estudantes.length} ocorrência(s) registrada(s) com sucesso na nuvem!`,
         tipo: 'sucesso',
       });
+      setBuscaEstudanteForm('');
       setForm(prev => ({
         ...prev,
         data: todayIso,
@@ -1755,7 +1815,9 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
   const handleSalvarGradeHorarios = async (novaGrade: HorarioAula[]) => {
     setSalvandoHorarios(true);
     try {
-      const aulasNomes = novaGrade.filter(g => g.tipo === 'aula').map(g => g.nome);
+      const aulasNomes = Array.from(
+        new Set([...novaGrade.map(g => g.nome), 'TUTORIA'])
+      ).filter(Boolean);
       const novoDb: OcorrenciasDatabase = {
         ...bancoDeDados,
         gradeHorarios: novaGrade,
@@ -2021,194 +2083,291 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
   };
 
   // Renderização do Formulário de Registro
-  const renderFormularioRegistro = () => (
-    <form
-      onSubmit={handleSubmit}
-      className="space-y-4 bg-white p-6 rounded-2xl shadow-xs border border-slate-200"
-    >
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-            Data da Ocorrência
-          </label>
-          <input
-            type="date"
-            name="data"
-            value={form.data}
-            onChange={handleChange}
-            required
-            className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800"
-          />
-        </div>
+  const renderFormularioRegistro = () => {
+    const modoMultiTurma = isHorarioMultiTurma(form.aula);
 
-        <div>
-          <label className="block text-xs font-bold text-slate-700 uppercase mb-1 flex items-center justify-between">
-            <span>Professor(a) Relator(a)</span>
-            <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
-              <Lock className="w-3 h-3 text-slate-500" />
-              <span>Login do Docente (Não editável)</span>
-            </span>
-          </label>
-          <div className="flex items-center gap-2 p-2 bg-slate-100/90 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 shadow-inner">
-            <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-black text-xs shrink-0">
-              {userName.slice(0, 2).toUpperCase()}
-            </div>
-            <div className="flex-1 truncate">
-              <span className="text-slate-900">{userName}</span>
-              <span className="ml-2 text-[10px] text-indigo-700 font-semibold bg-indigo-50 px-1.5 py-0.5 rounded">
-                Usuário Autenticado
+    return (
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-4 bg-white p-6 rounded-2xl shadow-xs border border-slate-200"
+      >
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+              Data da Ocorrência
+            </label>
+            <input
+              type="date"
+              name="data"
+              value={form.data}
+              onChange={handleChange}
+              required
+              className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+              Aula / Horário
+            </label>
+            <select
+              name="aula"
+              value={form.aula}
+              onChange={handleChange}
+              required
+              className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800"
+            >
+              <option value="">Selecione o horário/aula...</option>
+              {horariosAulaOpcoes.map(a => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase mb-1 flex items-center justify-between">
+              <span>Professor(a) Relator(a)</span>
+              <span className="text-[10px] font-bold text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-0.5 rounded-md">
+                <Lock className="w-3 h-3 text-slate-500" />
+                <span>Login Fixo</span>
               </span>
+            </label>
+            <div className="flex items-center gap-2 p-2 bg-slate-100/90 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 shadow-inner">
+              <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-black text-xs shrink-0">
+                {userName.slice(0, 2).toUpperCase()}
+              </div>
+              <div className="flex-1 truncate">
+                <span className="text-slate-900">{userName}</span>
+              </div>
+              <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             </div>
-            <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Turma</label>
-          <select
-            name="turma"
-            value={form.turma}
-            onChange={handleChange}
-            required
-            className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800"
-          >
-            <option value="">Selecione a turma...</option>
-            {turmasUnicas.map(t => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-            Estudantes Envolvidos
-          </label>
-          {!form.turma ? (
-            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-400 text-xs">
-              Selecione a turma primeiro para listar os estudantes...
+        {modoMultiTurma && (
+          <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-xs text-indigo-950 flex items-start gap-2.5">
+            <Users className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+            <div>
+              <strong className="font-bold">Modo Multi-Turma Ativado ({form.aula}):</strong>{' '}
+              Em horários de Tutoria ou Intervalo/Almoço, você pode selecionar estudantes de{' '}
+              <strong>turmas diferentes</strong> na mesma ocorrência. Use o filtro de turma ou a busca para marcar os alunos desejados — as seleções anteriores serão mantidas.
             </div>
-          ) : (
-            <div className="border border-slate-300 rounded-xl overflow-hidden flex flex-col">
-              <div className="bg-slate-50 p-2.5 border-b border-slate-200 flex justify-between items-center text-xs">
-                <span className="font-bold text-slate-700">
-                  {form.estudantes.length} de {alunosDaTurma.length} selecionado(s)
-                </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (form.estudantes.length === alunosDaTurma.length) {
-                      setForm(p => ({ ...p, estudantes: [] }));
-                    } else {
-                      const dataFmtBusca = formatarDataBR(form.data || todayIso);
-                      const alunosComOcorrencia: Array<{ nome: string; lista: OcorrenciaRecord[] }> =
-                        [];
+          </div>
+        )}
 
-                      alunosDaTurma.forEach(a => {
-                        const ocorrenciasHoje = bancoDeDados.registros.filter(
-                          r => r.estudante === a.nome && formatarDataBR(r.data) === dataFmtBusca
-                        );
-                        if (ocorrenciasHoje.length > 0) {
-                          alunosComOcorrencia.push({ nome: a.nome, lista: ocorrenciasHoje });
-                        }
-                      });
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+              {modoMultiTurma ? 'Filtrar por Turma' : 'Turma'}
+            </label>
+            <select
+              name="turma"
+              value={form.turma}
+              onChange={handleChange}
+              required={!modoMultiTurma}
+              className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800"
+            >
+              {modoMultiTurma ? (
+                <option value="TODAS">Todas as Turmas (Turmas Diferentes)</option>
+              ) : (
+                <option value="">Selecione a turma...</option>
+              )}
+              {turmasUnicas.map(t => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
 
-                      if (alunosComOcorrencia.length > 0) {
-                        setAlertaOcorrencia({
-                          dataFmt: dataFmtBusca,
-                          alunos: alunosComOcorrencia,
-                        });
+          <div className="md:col-span-2">
+            <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+              Estudantes Envolvidos
+            </label>
+
+            {form.estudantes.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5">
+                {form.estudantes.map(est => (
+                  <span
+                    key={`${est.nome}::${est.turma || ''}`}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-900 border border-indigo-200 text-[11px] font-bold"
+                  >
+                    <span>
+                      {est.nome}
+                      {est.turma ? ` (${est.turma})` : ''}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm(p => ({
+                          ...p,
+                          estudantes: p.estudantes.filter(
+                            item => !(item.nome === est.nome && (item.turma || '') === (est.turma || ''))
+                          ),
+                        }))
                       }
-
-                      setForm(p => ({
-                        ...p,
-                        estudantes: alunosDaTurma.map(a => ({ nome: a.nome, tutor: a.tutor })),
-                      }));
-                    }
-                  }}
-                  className="text-xs text-indigo-600 font-bold hover:underline cursor-pointer"
-                >
-                  {form.estudantes.length === alunosDaTurma.length
-                    ? 'Desmarcar Todos'
-                    : 'Selecionar Todos'}
-                </button>
-              </div>
-
-              <div className="max-h-44 overflow-y-auto p-2 space-y-1">
-                {alunosDaTurma.map(a => {
-                  const isChecked = form.estudantes.some(e => e.nome === a.nome);
-                  return (
-                    <label
-                      key={a.nome}
-                      className="flex items-center space-x-3 p-2 hover:bg-indigo-50/70 rounded-lg cursor-pointer transition-colors"
+                      className="text-indigo-700 hover:text-rose-700 cursor-pointer"
+                      title="Remover estudante selecionado"
                     >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {!form.turma && !modoMultiTurma ? (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-400 text-xs">
+                Selecione a turma primeiro para listar os estudantes (ou escolha Tutoria/Intervalo em "Aula / Horário" para multi-turma)...
+              </div>
+            ) : (
+              <div className="border border-slate-300 rounded-xl overflow-hidden flex flex-col">
+                <div className="bg-slate-50 p-2.5 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2 text-xs">
+                  <span className="font-bold text-slate-700">
+                    {form.estudantes.length} selecionado(s) • {alunosDaTurma.length} exibido(s)
+                  </span>
+
+                  <div className="flex items-center gap-2 flex-1 justify-end">
+                    <div className="relative max-w-[200px] w-full">
+                      <Search className="w-3 h-3 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
                       <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={e => {
-                          const checked = e.target.checked;
-                          if (checked) {
-                            const dataFmtBusca = formatarDataBR(form.data || todayIso);
+                        type="text"
+                        placeholder="Buscar aluno ou turma..."
+                        value={buscaEstudanteForm}
+                        onChange={e => setBuscaEstudanteForm(e.target.value)}
+                        className="w-full pl-7 pr-2 py-1 text-[11px] bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const todosExibidosSelecionados =
+                          alunosDaTurma.length > 0 &&
+                          alunosDaTurma.every(a =>
+                            form.estudantes.some(e => e.nome === a.nome && (!e.turma || e.turma === a.turma))
+                          );
+
+                        if (todosExibidosSelecionados) {
+                          setForm(p => ({
+                            ...p,
+                            estudantes: p.estudantes.filter(
+                              est => !alunosDaTurma.some(a => a.nome === est.nome && (!est.turma || est.turma === a.turma))
+                            ),
+                          }));
+                        } else {
+                          const dataFmtBusca = formatarDataBR(form.data || todayIso);
+                          const alunosComOcorrencia: Array<{ nome: string; lista: OcorrenciaRecord[] }> = [];
+
+                          alunosDaTurma.forEach(a => {
                             const ocorrenciasHoje = bancoDeDados.registros.filter(
                               r => r.estudante === a.nome && formatarDataBR(r.data) === dataFmtBusca
                             );
-
                             if (ocorrenciasHoje.length > 0) {
-                              setAlertaOcorrencia({
-                                dataFmt: dataFmtBusca,
-                                alunos: [{ nome: a.nome, lista: ocorrenciasHoje }],
-                              });
+                              alunosComOcorrencia.push({ nome: a.nome, lista: ocorrenciasHoje });
                             }
+                          });
 
-                            setForm(p => ({
-                              ...p,
-                              estudantes: [...p.estudantes, { nome: a.nome, tutor: a.tutor }],
-                            }));
-                          } else {
-                            setForm(p => ({
-                              ...p,
-                              estudantes: p.estudantes.filter(est => est.nome !== a.nome),
-                            }));
+                          if (alunosComOcorrencia.length > 0) {
+                            setAlertaOcorrencia({
+                              dataFmt: dataFmtBusca,
+                              alunos: alunosComOcorrencia,
+                            });
                           }
-                        }}
-                        className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
-                      />
-                      <span
-                        className={`text-xs ${
-                          isChecked ? 'font-black text-indigo-900' : 'text-slate-700 font-medium'
-                        }`}
-                      >
-                        {a.nome}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Aula</label>
-          <select
-            name="aula"
-            value={form.aula}
-            onChange={handleChange}
-            required
-            className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800"
-          >
-            <option value="">Selecione o horário/aula...</option>
-            {bancoDeDados.aulas.map(a => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
+                          setForm(p => {
+                            const existentes = [...p.estudantes];
+                            alunosDaTurma.forEach(a => {
+                              if (!existentes.some(e => e.nome === a.nome && (!e.turma || e.turma === a.turma))) {
+                                existentes.push({ nome: a.nome, tutor: a.tutor, turma: a.turma });
+                              }
+                            });
+                            return { ...p, estudantes: existentes };
+                          });
+                        }
+                      }}
+                      className="text-xs text-indigo-600 font-bold hover:underline cursor-pointer shrink-0"
+                    >
+                      {alunosDaTurma.length > 0 &&
+                      alunosDaTurma.every(a =>
+                        form.estudantes.some(e => e.nome === a.nome && (!e.turma || e.turma === a.turma))
+                      )
+                        ? 'Desmarcar Lista'
+                        : 'Selecionar Lista'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="max-h-48 overflow-y-auto p-2 space-y-1">
+                  {alunosDaTurma.length === 0 ? (
+                    <div className="py-4 text-center text-xs text-slate-400">
+                      Nenhum estudante encontrado para o filtro informado.
+                    </div>
+                  ) : (
+                    alunosDaTurma.map(a => {
+                      const isChecked = form.estudantes.some(
+                        e => e.nome === a.nome && (!e.turma || e.turma === a.turma)
+                      );
+                      return (
+                        <label
+                          key={`${a.nome}::${a.turma}`}
+                          className="flex items-center justify-between gap-2 p-2 hover:bg-indigo-50/70 rounded-lg cursor-pointer transition-colors"
+                        >
+                          <div className="flex items-center space-x-3 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={e => {
+                                const checked = e.target.checked;
+                                if (checked) {
+                                  const dataFmtBusca = formatarDataBR(form.data || todayIso);
+                                  const ocorrenciasHoje = bancoDeDados.registros.filter(
+                                    r => r.estudante === a.nome && formatarDataBR(r.data) === dataFmtBusca
+                                  );
+
+                                  if (ocorrenciasHoje.length > 0) {
+                                    setAlertaOcorrencia({
+                                      dataFmt: dataFmtBusca,
+                                      alunos: [{ nome: a.nome, lista: ocorrenciasHoje }],
+                                    });
+                                  }
+
+                                  setForm(p => ({
+                                    ...p,
+                                    estudantes: [...p.estudantes, { nome: a.nome, tutor: a.tutor, turma: a.turma }],
+                                  }));
+                                } else {
+                                  setForm(p => ({
+                                    ...p,
+                                    estudantes: p.estudantes.filter(
+                                      est => !(est.nome === a.nome && (!est.turma || est.turma === a.turma))
+                                    ),
+                                  }));
+                                }
+                              }}
+                              className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500"
+                            />
+                            <span
+                              className={`text-xs truncate ${
+                                isChecked ? 'font-black text-indigo-900' : 'text-slate-700 font-medium'
+                              }`}
+                            >
+                              {a.nome}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600 shrink-0">
+                            {a.turma}
+                          </span>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <div>
@@ -2229,7 +2388,6 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             ))}
           </select>
         </div>
-      </div>
 
       <div>
         <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
@@ -2320,7 +2478,8 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         <span>{enviando ? 'Salvando Ocorrência na Nuvem...' : 'Salvar Ocorrência Oficial'}</span>
       </button>
     </form>
-  );
+    );
+  };
 
   // Painel Estratégico (Estatísticas Globais)
   const renderEstatisticasGlobais = () => {
@@ -4587,7 +4746,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
                     className="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden font-semibold text-slate-800 bg-white"
                   >
                     <option value="">Selecione o horário/aula...</option>
-                    {bancoDeDados.aulas.map(a => (
+                    {horariosAulaOpcoes.map(a => (
                       <option key={a} value={a}>
                         {a}
                       </option>

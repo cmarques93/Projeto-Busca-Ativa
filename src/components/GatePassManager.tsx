@@ -12,12 +12,15 @@ import {
   CheckCircle2,
   Calendar,
   AlertCircle,
-  History
+  History,
+  BookOpen
 } from 'lucide-react';
 import { GateRecord, GateMovementType, Student, SchoolClass } from '../types';
 import { InfoTooltip } from './InfoTooltip';
 import { storageService } from '../data/storageService';
+import { firestoreService, isSameDay, normalizeDateStr } from '../lib/firestoreService';
 import { formatDateBR, getLocalTodayStr } from '../utils/reportCalculator';
+import { getSchoolSchedulePeriods, findPeriodByTime, formatPeriodLabel, SchoolPeriod } from '../utils/scheduleUtils';
 
 interface GatePassManagerProps {
   students: Student[];
@@ -75,6 +78,11 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
   const [time, setTime] = useState<string>(
     new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
   );
+  const schoolPeriods: SchoolPeriod[] = React.useMemo(() => getSchoolSchedulePeriods(), [isFormOpen]);
+  const [selectedPeriodId, setSelectedPeriodId] = useState<string>(() => {
+    const initialTime = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    return findPeriodByTime(initialTime, getSchoolSchedulePeriods())?.id || '';
+  });
   const [reason, setReason] = useState<string>('');
   const [guardianOrAuthorizedPerson, setGuardianOrAuthorizedPerson] = useState<string>('');
   const [guardianPhone, setGuardianPhone] = useState<string>('');
@@ -82,146 +90,297 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [recordToDelete, setRecordToDelete] = useState<GateRecord | null>(null);
   const [isDeletingRecord, setIsDeletingRecord] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const isFormRetroactive = recordDate < todayStr;
+  const selectedPeriod = React.useMemo<SchoolPeriod | null>(() => {
+    const found =
+      schoolPeriods.find(p => p.id === selectedPeriodId) ||
+      findPeriodByTime(time, schoolPeriods) ||
+      schoolPeriods[0] ||
+      null;
+    return found;
+  }, [schoolPeriods, selectedPeriodId, time]);
 
-  const fetchRecords = async () => {
-    setIsLoading(true);
-    let loadedFromServer = false;
-    const queryDate = (dateFilterPreset === 'todas' || dateFilterPreset === '7dias') ? 'todas' : selectedDate;
-
-    try {
-      const url = `/api/gate-records?date=${queryDate}&classId=${selectedClassFilter}`;
-      const res = await fetch(url);
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          let filteredData = data;
-          if (dateFilterPreset === '7dias') {
-            const limitDate = getDaysAgoStr(7);
-            filteredData = data.filter(r => r.date >= limitDate);
-          }
-          setRecords(filteredData);
-          loadedFromServer = true;
-        }
-      }
-    } catch (err) {
-      console.warn('API de portaria não disponível, buscando do storageService:', err);
-    } finally {
-      if (!loadedFromServer) {
-        let local = storageService.getGateRecords(
-          queryDate !== 'todas' ? queryDate : undefined,
-          selectedClassFilter !== 'todas' ? selectedClassFilter : undefined
-        );
-        if (dateFilterPreset === '7dias') {
-          const limitDate = getDaysAgoStr(7);
-          local = local.filter(r => r.date >= limitDate);
-        }
-        setRecords(local);
-      }
-      setIsLoading(false);
+  const handleTimeChange = (newTime: string) => {
+    setTime(newTime);
+    const matched = findPeriodByTime(newTime, schoolPeriods);
+    if (matched) {
+      setSelectedPeriodId(matched.id);
     }
   };
 
+  const isFormRetroactive = recordDate < todayStr;
+  const activeSchoolId = storageService.getActiveSchoolId();
+
+  // Helper puro para aplicar os filtros de data e turma sobre uma lista consolidada
+  const applyActiveFilters = React.useCallback(
+    (
+      allList: GateRecord[],
+      preset: 'hoje' | 'ontem' | '7dias' | 'todas' | 'personalizada' = dateFilterPreset,
+      targetDate: string = selectedDate,
+      targetClass: string = selectedClassFilter
+    ): GateRecord[] => {
+      let filtered = [...allList];
+
+      if (preset === '7dias') {
+        const limitDate = getDaysAgoStr(7);
+        filtered = filtered.filter(r => {
+          const d = normalizeDateStr(r.date) || r.date || '';
+          return d >= limitDate;
+        });
+      } else if (preset !== 'todas' && targetDate && targetDate !== 'todas') {
+        filtered = filtered.filter(r => isSameDay(r.date, targetDate));
+      }
+
+      if (targetClass && targetClass !== 'todas') {
+        const normCls = targetClass.trim().toLowerCase();
+        filtered = filtered.filter(
+          r =>
+            (r.classId || '').trim().toLowerCase() === normCls ||
+            (r.className || '').trim().toLowerCase() === normCls
+        );
+      }
+
+      return filtered.sort((a, b) => {
+        const dateA = normalizeDateStr(a.date) || a.date || '';
+        const dateB = normalizeDateStr(b.date) || b.date || '';
+        if (dateB !== dateA) return dateB.localeCompare(dateA);
+        return (b.time || '').localeCompare(a.time || '');
+      });
+    },
+    [dateFilterPreset, selectedDate, selectedClassFilter]
+  );
+
+  // Carrega da base persistente da escola ativa (cache local imediato + sincronização em nuvem Firestore)
+  const fetchRecords = React.useCallback(async () => {
+    const sId = storageService.getActiveSchoolId();
+
+    // 1. Leitura instantânea local para resposta sem latência
+    const localAll = storageService.getGateRecords(undefined, undefined, sId);
+    setRecords(applyActiveFilters(localAll));
+    setIsLoading(localAll.length === 0);
+
+    // 2. Sincronização em nuvem (Firestore) como fonte de verdade multi-dispositivo
+    try {
+      const cloudAll = await firestoreService.getGateRecords(undefined, sId);
+      const localLatest = storageService.getGateRecords(undefined, undefined, sId);
+      const mergedMap = new Map<string, GateRecord>();
+
+      // Nuvem primeiro, preservando registros locais recém-lançados que ainda não retornaram
+      cloudAll.forEach(r => {
+        if (r && r.id) mergedMap.set(r.id, r);
+      });
+      localLatest.forEach(r => {
+        if (r && r.id && !mergedMap.has(r.id)) {
+          mergedMap.set(r.id, r);
+        }
+      });
+
+      const mergedList = Array.from(mergedMap.values()).sort((a, b) => {
+        const dateA = normalizeDateStr(a.date) || a.date || '';
+        const dateB = normalizeDateStr(b.date) || b.date || '';
+        if (dateB !== dateA) return dateB.localeCompare(dateA);
+        return (b.time || '').localeCompare(a.time || '');
+      });
+
+      if (mergedList.length > 0 || cloudAll.length > 0) {
+        storageService.setGateRecords(mergedList, sId);
+      }
+      setRecords(applyActiveFilters(mergedList));
+    } catch (err) {
+      console.warn('Erro ao sincronizar registros de portaria com Firestore:', err);
+      const fallbackLocal = storageService.getGateRecords(undefined, undefined, sId);
+      setRecords(applyActiveFilters(fallbackLocal));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [applyActiveFilters]);
+
   useEffect(() => {
     fetchRecords();
-  }, [selectedDate, selectedClassFilter, dateFilterPreset]);
+  }, [fetchRecords, activeSchoolId]);
 
   // When studentId changes in form, auto-fill student details
   const handleStudentSelect = (id: string) => {
     setStudentId(id);
     const st = students.find(s => s.id === id);
     if (st) {
-      setGuardianOrAuthorizedPerson(st.guardianName + ` (${st.guardianRelationship || 'Responsável'})`);
-      setGuardianPhone(st.guardianPhone);
+      const baseGuardian = (st.guardianName || '').trim();
+      const rel = (st.guardianRelationship || 'Responsável').trim();
+      setGuardianOrAuthorizedPerson(baseGuardian ? `${baseGuardian} (${rel})` : '');
+      setGuardianPhone(st.guardianPhone || '');
     }
   };
 
   const handleCreateRecord = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg(null);
+
     const st = students.find(s => s.id === studentId);
-    if (!st) return;
+    if (!st) {
+      setErrorMsg('Selecione um estudante válido para registrar a movimentação.');
+      return;
+    }
+
+    const cleanReason = reason.trim();
+    if (!cleanReason) {
+      setErrorMsg('Informe o motivo / justificativa da entrada ou saída.');
+      return;
+    }
+
+    const resolvedPeriod: SchoolPeriod =
+      selectedPeriod ||
+      findPeriodByTime(time, schoolPeriods) ||
+      schoolPeriods[0] || {
+        id: 'extra',
+        nome: 'Fora do horário regular',
+        inicio: time || '07:00',
+        fim: time || '07:00',
+        tipo: 'aula',
+      };
 
     setIsSubmitting(true);
-    const isRetro = recordDate < todayStr;
+    const sId = storageService.getActiveSchoolId();
+    const normalizedDate = normalizeDateStr(recordDate) || recordDate || todayStr;
+    const isRetro = normalizedDate < todayStr;
     const nowIso = new Date().toISOString();
 
     const payload: GateRecord = {
-      id: `gate-${Date.now()}`,
+      id: `gate-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       studentId: st.id,
       studentName: st.name,
       classId: st.classId,
       className: st.className,
-      date: recordDate,
-      time,
+      date: normalizedDate,
+      time: time || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
       type,
-      reason,
-      guardianOrAuthorizedPerson,
-      guardianPhone,
+      classPeriodId: resolvedPeriod.id,
+      classPeriodName: formatPeriodLabel(resolvedPeriod),
+      classPeriodType: resolvedPeriod.tipo,
+      reason: cleanReason,
+      guardianOrAuthorizedPerson: guardianOrAuthorizedPerson.trim() || st.guardianName || 'Responsável / Portaria',
+      guardianPhone: guardianPhone.trim() || st.guardianPhone || '',
       recordedBy: operatorName || 'AOE - Portaria',
-      notes,
+      notes: notes.trim(),
       isRetroactive: isRetro,
-      registeredAt: nowIso
+      registeredAt: nowIso,
+      schoolId: sId,
     };
 
     try {
-      const res = await fetch('/api/gate-records', {
+      // 1. Gravação local imediata (garante persistência instantânea)
+      storageService.createGateRecord(payload, sId);
+
+      // 2. Persistência confirmada no Cloud Firestore
+      let cloudSyncFailed = false;
+      try {
+        await firestoreService.saveGateRecord(payload, sId);
+      } catch (cloudErr) {
+        cloudSyncFailed = true;
+        console.warn('Falha ao confirmar registro de portaria na nuvem Firestore:', cloudErr);
+      }
+
+      // 3. Espelhamento não-bloqueante na API local (legado)
+      fetch('/api/gate-records', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-      });
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
+      }).catch(() => {});
+
+      // 4. Garante que o filtro ativo exiba imediatamente o registro recém-salvo
+      let nextPreset = dateFilterPreset;
+      let nextDate = selectedDate;
+      let nextClass = selectedClassFilter;
+
+      const matchesCurrentDate =
+        nextPreset === 'todas' ||
+        (nextPreset === '7dias' && normalizedDate >= getDaysAgoStr(7)) ||
+        (nextDate && nextDate !== 'todas' && isSameDay(normalizedDate, nextDate));
+
+      if (!matchesCurrentDate) {
+        if (isSameDay(normalizedDate, todayStr)) {
+          nextPreset = 'hoje';
+          nextDate = todayStr;
+        } else if (isSameDay(normalizedDate, getYesterdayStr())) {
+          nextPreset = 'ontem';
+          nextDate = getYesterdayStr();
+        } else {
+          nextPreset = 'personalizada';
+          nextDate = normalizedDate;
+        }
+        setDateFilterPreset(nextPreset);
+        setSelectedDate(nextDate);
       }
-    } catch (e) {
-      console.warn('API indisponível, registrando portaria localmente:', e);
+
+      if (
+        nextClass !== 'todas' &&
+        (st.classId || '').trim().toLowerCase() !== nextClass.trim().toLowerCase() &&
+        (st.className || '').trim().toLowerCase() !== nextClass.trim().toLowerCase()
+      ) {
+        nextClass = 'todas';
+        setSelectedClassFilter('todas');
+      }
+
+      const updatedAll = storageService.getGateRecords(undefined, undefined, sId);
+      setRecords(applyActiveFilters(updatedAll, nextPreset, nextDate, nextClass));
+
+      const tipoLabel = type === 'entrada_tardia' ? 'Entrada Tardia' : 'Saída Antecipada';
+      const baseSuccess = isRetro
+        ? `Registro Retroativo (${formatDateBR(normalizedDate)}) de ${tipoLabel} gravado com sucesso!`
+        : `Movimentação de ${tipoLabel} registrada com sucesso para ${st.name}!`;
+
+      setSuccessMsg(
+        cloudSyncFailed
+          ? `${baseSuccess} (Salvo localmente; a sincronização em nuvem será retomada automaticamente.)`
+          : baseSuccess
+      );
+      setTimeout(() => setSuccessMsg(null), 5000);
+
+      // Reset form
+      setStudentId('');
+      setReason('');
+      setNotes('');
+      setGuardianOrAuthorizedPerson('');
+      setGuardianPhone('');
+      setRecordDate(todayStr);
+      setIsFormOpen(false);
+    } catch (err: any) {
+      console.error('Erro ao salvar registro de portaria:', err);
+      setErrorMsg('Não foi possível salvar o registro de portaria. Tente novamente.');
+    } finally {
+      setIsSubmitting(false);
     }
-
-    storageService.createGateRecord(payload);
-    
-    if (isRetro) {
-      setSuccessMsg(`Registro Retroativo (${formatDateBR(recordDate)}) de ${type === 'entrada_tardia' ? 'Entrada Tardia' : 'Saída Antecipada'} gravado com sucesso!`);
-    } else {
-      setSuccessMsg(`Movimentação de ${type === 'entrada_tardia' ? 'Entrada Tardia' : 'Saída Antecipada'} registrada com sucesso!`);
-    }
-
-    setTimeout(() => setSuccessMsg(null), 4500);
-
-    // Reset form
-    setStudentId('');
-    setReason('');
-    setNotes('');
-    setRecordDate(todayStr);
-    setIsFormOpen(false);
-    fetchRecords();
-    setIsSubmitting(false);
   };
 
   const confirmDeleteRecord = async () => {
     if (!recordToDelete) return;
     setIsDeletingRecord(true);
     const id = recordToDelete.id;
+    const sId = storageService.getActiveSchoolId();
+
+    storageService.deleteGateRecord(id, sId);
     try {
-      await fetch(`/api/gate-records/${id}`, { method: 'DELETE' });
+      await firestoreService.deleteGateRecord(id);
     } catch (e) {
-      console.warn('API indisponível:', e);
+      console.warn('Erro ao excluir registro de portaria no Firestore:', e);
     }
-    storageService.deleteGateRecord(id);
+    fetch(`/api/gate-records/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
+
     setRecords(prev => prev.filter(r => r.id !== id));
     setRecordToDelete(null);
     setIsDeletingRecord(false);
   };
 
   const filteredRecords = records.filter(r => {
-    const q = searchQuery.toLowerCase();
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
     return (
-      r.studentName.toLowerCase().includes(q) ||
-      r.className.toLowerCase().includes(q) ||
-      r.reason.toLowerCase().includes(q) ||
-      r.guardianOrAuthorizedPerson.toLowerCase().includes(q)
+      (r.studentName || '').toLowerCase().includes(q) ||
+      (r.className || '').toLowerCase().includes(q) ||
+      (r.reason || '').toLowerCase().includes(q) ||
+      (r.guardianOrAuthorizedPerson || '').toLowerCase().includes(q) ||
+      (r.classPeriodName || '').toLowerCase().includes(q)
     );
   });
 
@@ -443,10 +602,42 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
                   <input
                     type="time"
                     value={time}
-                    onChange={e => setTime(e.target.value)}
+                    onChange={e => handleTimeChange(e.target.value)}
                     required
                     className="w-full text-xs py-2 px-2.5 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">
+                    {type === 'entrada_tardia' ? 'Aula / Intervalo em que Chegou *:' : 'Aula / Intervalo em que Foi Embora *:'}
+                  </label>
+                  <select
+                    value={selectedPeriod?.id || ''}
+                    onChange={e => setSelectedPeriodId(e.target.value)}
+                    required
+                    className="w-full text-xs py-2 px-2.5 bg-blue-50/70 border border-blue-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-hidden font-bold text-slate-800"
+                  >
+                    {schoolPeriods.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.tipo === 'intervalo' ? '☕ ' : '📚 '}
+                        {p.nome} ({p.inicio} – {p.fim})
+                      </option>
+                    ))}
+                  </select>
+                  {selectedPeriod && (
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold mt-1 px-2 py-0.5 rounded-md ${
+                      selectedPeriod.tipo === 'intervalo'
+                        ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                        : 'bg-indigo-50 text-indigo-800 border border-indigo-200'
+                    }`}>
+                      <BookOpen className="w-3 h-3" />
+                      <span>
+                        {type === 'entrada_tardia' ? 'Entrada vinculada a: ' : 'Saída vinculada a: '}
+                        <strong>{selectedPeriod.nome}</strong>
+                      </span>
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -519,6 +710,13 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
               </div>
             </div>
 
+            {errorMsg && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg text-xs font-semibold flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 type="button"
@@ -529,11 +727,11 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
               </button>
               <button
                 type="submit"
-                disabled={isSubmitting || !studentId || !reason}
+                disabled={isSubmitting || !studentId || !reason.trim()}
                 className="px-5 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
               >
                 <CheckCircle2 className="w-4 h-4" />
-                <span>Salvar Registro de Portaria</span>
+                <span>{isSubmitting ? 'Salvando...' : 'Salvar Registro de Portaria'}</span>
               </button>
             </div>
           </form>
@@ -701,7 +899,7 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
                             </span>
                           )}
                         </div>
-                        <div>
+                        <div className="flex flex-wrap items-center gap-1">
                           {record.type === 'entrada_tardia' ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
                               <ArrowRightCircle className="w-3 h-3 text-amber-600" />
@@ -714,6 +912,27 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
                             </span>
                           )}
                         </div>
+                        {(() => {
+                          const resolvedFallback = !record.classPeriodName ? findPeriodByTime(record.time, schoolPeriods) : null;
+                          const periodText = record.classPeriodName || (resolvedFallback ? formatPeriodLabel(resolvedFallback) : null);
+                          const isBreak = record.classPeriodType === 'intervalo' || resolvedFallback?.tipo === 'intervalo';
+                          if (!periodText) return null;
+                          return (
+                            <span
+                              className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border w-fit ${
+                                isBreak
+                                  ? 'bg-amber-50 text-amber-900 border-amber-200'
+                                  : 'bg-blue-50 text-blue-800 border-blue-200'
+                              }`}
+                            >
+                              <BookOpen className="w-3 h-3 shrink-0" />
+                              <span>
+                                {record.type === 'entrada_tardia' ? 'Chegou na: ' : 'Saiu na: '}
+                                {periodText}
+                              </span>
+                            </span>
+                          );
+                        })()}
                       </div>
                     </td>
                     <td className="py-3.5 px-4">

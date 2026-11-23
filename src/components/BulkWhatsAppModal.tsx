@@ -106,16 +106,19 @@ export const BulkWhatsAppModal: React.FC<BulkWhatsAppModalProps> = ({
     }
   };
 
-  // Inicializa a seleção ao abrir
+  // Inicializa a seleção apenas ao abrir o modal (evita resetar o índice durante o envio)
+  const wasOpenRef = useRef<boolean>(false);
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpenRef.current) {
       setSelectedIds(whatsappAlerts.map(a => a.id));
       setCurrentIndex(0);
       setIsAutoSending(false);
+      setSendLogs({});
       isCancelledRef.current = false;
       loadGatewayConfig();
     }
-  }, [isOpen, whatsappAlerts.length]);
+    wasOpenRef.current = isOpen;
+  }, [isOpen, whatsappAlerts]);
 
   if (!isOpen) return null;
 
@@ -369,7 +372,7 @@ export const BulkWhatsAppModal: React.FC<BulkWhatsAppModalProps> = ({
               }`}
             >
               <Smartphone className="w-4 h-4 text-emerald-600" />
-              <span>1. Fila Assistida WhatsApp Web (Recomendado • Imediato & 100% Gratuito)</span>
+              <span>1. Envio Manual Guiado (WhatsApp Web • 1 Clique por Aluno)</span>
             </button>
 
             <button
@@ -382,7 +385,7 @@ export const BulkWhatsAppModal: React.FC<BulkWhatsAppModalProps> = ({
               }`}
             >
               <Zap className="w-4 h-4 text-blue-600" />
-              <span>2. Disparo Automático em Segundo Plano (Requer Conexão API)</span>
+              <span>2. Disparo Automático Contínuo (Requer Bot / Gateway API)</span>
             </button>
           </div>
 
@@ -434,11 +437,11 @@ export const BulkWhatsAppModal: React.FC<BulkWhatsAppModalProps> = ({
                   <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
                   <div className="space-y-0.5 leading-relaxed">
                     <span className="font-bold block text-emerald-900">
-                      Como funciona o Envio Rápido Assistido no WhatsApp da Vice-Diretora:
+                      Envio 1-a-1 Assistido pelo Navegador (WhatsApp Web):
                     </span>
                     <p className="text-[11px] text-slate-700">
-                      1. O WhatsApp Web deve estar aberto no computador. Ao clicar em <strong>"Abrir no WhatsApp Web e Avançar"</strong>, a conversa do responsável abre instantaneamente com o texto pronto.<br />
-                      2. Basta apertar <strong>Enter (Enviar)</strong> no WhatsApp. O sistema registra a entrega e já pula para o próximo aluno da fila! Em menos de 2 minutos você envia toda a lista com 100% de certeza.
+                      Por segurança da Meta e bloqueio de pop-ups dos navegadores, o WhatsApp Web abre <strong>1 conversa por clique</strong> (o sistema abre o 1º aluno, grava como entregue e avança a seleção para o próximo).<br />
+                      Para envio em lote <strong>100% automático sem cliques</strong>, conecte um Bot/Gateway (Evolution API, Z-API ou Meta Cloud API) na aba <strong>"2. Disparo Automático Contínuo"</strong>.
                     </p>
                   </div>
                 </div>

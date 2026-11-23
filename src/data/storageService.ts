@@ -9,7 +9,10 @@ import {
   Student,
   ParentAlert,
   InterventionCase,
-  MonthlyPedagogicalReport
+  MonthlyPedagogicalReport,
+  SchoolCalendarConfig,
+  TeacherScheduleSlot,
+  TimetableWorkspace
 } from '../types';
 import {
   DEFAULT_SCHOOL_ID,
@@ -26,6 +29,19 @@ import {
 } from './fallbackData';
 import { firestoreService, isSameDay, normalizeDateStr } from '../lib/firestoreService';
 import { generateAtestadoRecordsSequence, generateJustifiedAbsenceSequence } from '../utils/atestadoUtils';
+import { createDefaultSchoolCalendar, getCalendarMetricsSummary, calculateCalendarAttendanceRate } from '../utils/calendarUtils';
+
+function getLocalTodayIso(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+import {
+  createDefaultTimetableWorkspace,
+  convertTimetableCellsToTeacherSchedules
+} from '../utils/timetableEngine';
 
 export function getRoleLabel(role: UserRole): string {
   switch (role) {
@@ -46,12 +62,114 @@ export function getRoleLabel(role: UserRole): string {
   }
 }
 
+// Cache em memória de alta performance: preserva 100% dos registros na sessão mesmo se o localStorage do navegador atingir o limite de 5MB
+const memoryGlobalCache = new Map<string, any>();
+const memorySchoolCache = new Map<string, any>();
+
+const LEGACY_SCHOOL_DUPLICATE_KEYS = [
+  'school_attendance',
+  'school_gate_records',
+  'school_students',
+  'school_classes',
+  'school_alerts',
+  'school_interventions',
+  'school_monthly_report',
+  'school_calendar',
+  'school_teacher_schedules',
+];
+
+function isQuotaError(err: unknown): boolean {
+  if (!err) return false;
+  const e = err as { name?: string; code?: number; message?: string };
+  return (
+    e.name === 'QuotaExceededError' ||
+    e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+    e.code === 22 ||
+    e.code === 1014 ||
+    String(e.message || '').toLowerCase().includes('quota')
+  );
+}
+
+function purgeLegacyDuplicateStorageKeys(): void {
+  try {
+    for (const legacyKey of LEGACY_SCHOOL_DUPLICATE_KEYS) {
+      localStorage.removeItem(legacyKey);
+    }
+  } catch {}
+}
+
+function sortRecordsMostRecentFirst<T extends Record<string, any>>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const da = String(b?.date || b?.sentAt || b?.recordedAt || b?.createdAt || '');
+    const db = String(a?.date || a?.sentAt || a?.recordedAt || a?.createdAt || '');
+    return da.localeCompare(db);
+  });
+}
+
+function tryWriteLocalStorageWithCompaction(scopedKey: string, baseKey: string, data: any): void {
+  try {
+    localStorage.setItem(scopedKey, JSON.stringify(data));
+    return;
+  } catch (err) {
+    if (!isQuotaError(err)) {
+      return;
+    }
+  }
+
+  // 1. Remove cópias duplicadas legadas (`school_*`) para liberar ~50% do espaço imediatamente
+  purgeLegacyDuplicateStorageKeys();
+  try {
+    localStorage.setItem(scopedKey, JSON.stringify(data));
+    return;
+  } catch {}
+
+  // 2. Se for log histórico volumoso (frequência, portaria ou alertas), grava no cache local apenas a janela recente
+  // (100% dos dados seguem preservados em memorySchoolCache durante a sessão e no Firebase Firestore na nuvem)
+  const isHeavyHistoryKey = baseKey === 'attendance' || baseKey === 'gate_records' || baseKey === 'alerts';
+  if (isHeavyHistoryKey && Array.isArray(data)) {
+    const sorted = sortRecordsMostRecentFirst(data);
+    const limits = [2000, 800, 300, 100];
+    for (const limit of limits) {
+      if (sorted.length <= limit) continue;
+      try {
+        localStorage.setItem(scopedKey, JSON.stringify(sorted.slice(0, limit)));
+        return;
+      } catch {}
+    }
+    try {
+      localStorage.removeItem(scopedKey);
+    } catch {}
+    return;
+  }
+
+  // 3. Para dados cadastrais essenciais (turmas, estudantes, calendário, grade), libera espaço de caches voláteis se necessário
+  try {
+    const activeSchoolId = localStorage.getItem('sigaescola_active_school_id') || DEFAULT_SCHOOL_ID;
+    const volatileKeys = [
+      `sigaescola_${activeSchoolId}_attendance`,
+      `sigaescola_${activeSchoolId}_gate_records`,
+      `sigaescola_${activeSchoolId}_alerts`,
+    ];
+    for (const vk of volatileKeys) {
+      if (vk !== scopedKey) {
+        localStorage.removeItem(vk);
+      }
+    }
+    localStorage.setItem(scopedKey, JSON.stringify(data));
+  } catch {}
+}
+
 // Helper to safely access localStorage (handles SSR, disabled cookies, etc.)
 function getStored<T>(key: string, fallback: T): T {
+  if (memoryGlobalCache.has(key)) {
+    return memoryGlobalCache.get(key) as T;
+  }
   try {
     const val = localStorage.getItem(key);
     if (!val) return fallback;
-    return JSON.parse(val);
+    const parsed = JSON.parse(val) as T;
+    memoryGlobalCache.set(key, parsed);
+    return parsed;
   } catch (e) {
     console.warn(`Erro ao ler ${key} do localStorage:`, e);
     return fallback;
@@ -59,10 +177,18 @@ function getStored<T>(key: string, fallback: T): T {
 }
 
 function setStored<T>(key: string, data: T): void {
+  memoryGlobalCache.set(key, data);
   try {
     localStorage.setItem(key, JSON.stringify(data));
   } catch (e) {
-    console.warn(`Erro ao salvar ${key} no localStorage:`, e);
+    if (isQuotaError(e)) {
+      purgeLegacyDuplicateStorageKeys();
+      try {
+        localStorage.setItem(key, JSON.stringify(data));
+      } catch {}
+    } else {
+      console.warn(`Erro ao salvar ${key} no localStorage:`, e);
+    }
   }
 }
 
@@ -70,13 +196,37 @@ function setStored<T>(key: string, data: T): void {
 function getStoredSchool<T>(baseKey: string, fallback: T, schoolId?: string): T {
   const sId = schoolId || storageService.getActiveSchoolId();
   const scopedKey = `sigaescola_${sId}_${baseKey}`;
+
+  if (memorySchoolCache.has(scopedKey)) {
+    return memorySchoolCache.get(scopedKey) as T;
+  }
+
   try {
     const val = localStorage.getItem(scopedKey);
-    if (val) return JSON.parse(val);
-    // Retrocompatibilidade: Se não há valor na chave com prefixo da escola e é a escola padrão, usa chave legada
+    if (val) {
+      const parsed = JSON.parse(val) as T;
+      memorySchoolCache.set(scopedKey, parsed);
+      // Limpa chave legada duplicada se já migrada para scopedKey
+      if (sId === DEFAULT_SCHOOL_ID && localStorage.getItem(`school_${baseKey}`) !== null) {
+        try {
+          localStorage.removeItem(`school_${baseKey}`);
+        } catch {}
+      }
+      return parsed;
+    }
+    // Retrocompatibilidade: Se não há valor na chave com prefixo da escola e é a escola padrão, migra chave legada uma única vez
     if (sId === DEFAULT_SCHOOL_ID) {
-      const legacyVal = localStorage.getItem(`school_${baseKey}`);
-      if (legacyVal) return JSON.parse(legacyVal);
+      const legacyKey = `school_${baseKey}`;
+      const legacyVal = localStorage.getItem(legacyKey);
+      if (legacyVal) {
+        const parsed = JSON.parse(legacyVal) as T;
+        memorySchoolCache.set(scopedKey, parsed);
+        tryWriteLocalStorageWithCompaction(scopedKey, baseKey, parsed);
+        try {
+          localStorage.removeItem(legacyKey);
+        } catch {}
+        return parsed;
+      }
     }
     return fallback;
   } catch (e) {
@@ -88,14 +238,18 @@ function getStoredSchool<T>(baseKey: string, fallback: T, schoolId?: string): T 
 function setStoredSchool<T>(baseKey: string, data: T, schoolId?: string): void {
   const sId = schoolId || storageService.getActiveSchoolId();
   const scopedKey = `sigaescola_${sId}_${baseKey}`;
-  try {
-    localStorage.setItem(scopedKey, JSON.stringify(data));
-    if (sId === DEFAULT_SCHOOL_ID) {
-      localStorage.setItem(`school_${baseKey}`, JSON.stringify(data));
-    }
-  } catch (e) {
-    console.warn(`Erro ao salvar ${scopedKey} no localStorage:`, e);
+
+  // Mantém 100% dos registros íntegros em memória durante toda a sessão
+  memorySchoolCache.set(scopedKey, data);
+
+  // Remove chave legada duplicada para evitar consumir o dobro do limite do navegador
+  if (sId === DEFAULT_SCHOOL_ID) {
+    try {
+      localStorage.removeItem(`school_${baseKey}`);
+    } catch {}
   }
+
+  tryWriteLocalStorageWithCompaction(scopedKey, baseKey, data);
 }
 
 export interface MasterPasswordValidation {
@@ -304,6 +458,131 @@ export const storageService = {
     setStoredSchool('gate_records', records, schoolId);
   },
 
+  // === CALENDÁRIO ESCOLAR LETIVO ===
+  getSchoolCalendar: (schoolId?: string): SchoolCalendarConfig => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const fallback = createDefaultSchoolCalendar(new Date().getFullYear() || 2026, sId);
+    const stored = getStoredSchool<SchoolCalendarConfig | null>('calendar', null, sId);
+    if (stored && Array.isArray(stored.bimesters)) {
+      return { ...stored, schoolId: sId };
+    }
+    return fallback;
+  },
+
+  setSchoolCalendar: (calendar: SchoolCalendarConfig, schoolId?: string): void => {
+    const sId = schoolId || calendar.schoolId || storageService.getActiveSchoolId();
+    setStoredSchool('calendar', { ...calendar, schoolId: sId }, sId);
+  },
+
+  saveSchoolCalendar: (calendar: SchoolCalendarConfig, schoolId?: string): SchoolCalendarConfig => {
+    const sId = schoolId || calendar.schoolId || storageService.getActiveSchoolId();
+    const updated: SchoolCalendarConfig = {
+      ...calendar,
+      schoolId: sId,
+      updatedAt: new Date().toISOString(),
+    };
+    setStoredSchool('calendar', updated, sId);
+
+    // Recalcula métricas dos estudantes ativos considerando os dias letivos transcorridos no calendário
+    const summary = getCalendarMetricsSummary(updated);
+    const effectiveDays = Math.max(1, summary.elapsedSchoolDays);
+    const students = storageService.getStudents(undefined, sId);
+    const changedStudents: Student[] = [];
+    const updatedStudents = students.map(st => {
+      const absences = st.totalAbsences || 0;
+      const newRate = Math.max(0, Math.min(100, Math.round(((effectiveDays - absences) / effectiveDays) * 100)));
+      const next: Student = {
+        ...st,
+        totalSchoolDays: effectiveDays,
+        attendanceRate: st.attendanceRate !== undefined ? newRate : 100,
+      };
+      if (st.status !== 'transferido') {
+        if (next.consecutiveAbsences >= 4 || next.attendanceRate < 75) {
+          next.riskLevel = 'critico';
+          next.status = 'evasao_iminente';
+        } else if (next.consecutiveAbsences >= 2 || next.attendanceRate < 80) {
+          next.riskLevel = 'alto';
+          next.status = 'alerta';
+        } else {
+          next.riskLevel = 'baixo';
+          next.status = 'regular';
+        }
+      }
+      if (next.totalSchoolDays !== st.totalSchoolDays || next.attendanceRate !== st.attendanceRate) {
+        changedStudents.push(next);
+      }
+      return next;
+    });
+
+    if (changedStudents.length > 0) {
+      setStoredSchool('students', updatedStudents, sId);
+      firestoreService.batchSaveStudents(changedStudents, sId).catch(err => console.warn('Erro ao recalcular estudantes pelo calendário no Firestore:', err));
+    }
+
+    firestoreService.saveSchoolCalendar(updated, sId).catch(err => console.warn('Erro ao salvar calendário no Firestore:', err));
+    return updated;
+  },
+
+  // === GRADE HORÁRIA DOCENTE ===
+  getTeacherSchedules: (schoolId?: string): TeacherScheduleSlot[] => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    return getStoredSchool<TeacherScheduleSlot[]>('teacher_schedules', [], sId);
+  },
+
+  setTeacherSchedules: (slots: TeacherScheduleSlot[], schoolId?: string): void => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    setStoredSchool('teacher_schedules', Array.isArray(slots) ? slots : [], sId);
+  },
+
+  saveTeacherSchedules: (slots: TeacherScheduleSlot[], schoolId?: string): TeacherScheduleSlot[] => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const normalized = (slots || []).map(s => ({ ...s, schoolId: sId }));
+    setStoredSchool('teacher_schedules', normalized, sId);
+    firestoreService.saveTeacherSchedules(normalized, sId).catch(err => console.warn('Erro ao salvar grade docente no Firestore:', err));
+    return normalized;
+  },
+
+  // === WORKSPACE DE GRADE CURRICULAR & GERADOR DE HORÁRIOS ===
+  getTimetableWorkspace: (schoolId?: string): TimetableWorkspace => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const stored = getStoredSchool<TimetableWorkspace | null>('timetable_workspace', null, sId);
+    if (stored && stored.criteriaByYear && Array.isArray(stored.periods)) {
+      return { ...stored, schoolId: sId };
+    }
+    const classes = storageService.getClasses(sId);
+    const users = storageService.getUsers(sId);
+    const existingSlots = storageService.getTeacherSchedules(sId);
+    return createDefaultTimetableWorkspace(sId, classes, users, existingSlots);
+  },
+
+  setTimetableWorkspace: (workspace: TimetableWorkspace, schoolId?: string): void => {
+    const sId = schoolId || workspace.schoolId || storageService.getActiveSchoolId();
+    setStoredSchool('timetable_workspace', { ...workspace, schoolId: sId }, sId);
+  },
+
+  saveTimetableWorkspace: (
+    workspace: TimetableWorkspace,
+    syncToTeacherSchedules: boolean = true,
+    schoolId?: string
+  ): TimetableWorkspace => {
+    const sId = schoolId || workspace.schoolId || storageService.getActiveSchoolId();
+    const updated: TimetableWorkspace = {
+      ...workspace,
+      schoolId: sId,
+      updatedAt: new Date().toISOString(),
+    };
+    setStoredSchool('timetable_workspace', updated, sId);
+    firestoreService
+      .saveTimetableWorkspace(updated, sId)
+      .catch(err => console.warn('Erro ao salvar workspace de horários no Firestore:', err));
+
+    if (syncToTeacherSchedules) {
+      const syncedSlots = convertTimetableCellsToTeacherSchedules(updated);
+      storageService.saveTeacherSchedules(syncedSlots, sId);
+    }
+    return updated;
+  },
+
   // === USUÁRIOS & ACESSOS ===
   getUsers: (schoolId?: string): UserAccount[] => {
     let storedUsers = getStored<UserAccount[]>('school_users', []);
@@ -332,7 +611,9 @@ export const storageService = {
     }
 
     const allUsers = Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-    setStored('school_users', allUsers);
+    if (storedUsers.length !== allUsers.length) {
+      setStored('school_users', allUsers);
+    }
 
     if (schoolId) {
       // Lista APENAS os operadores vinculados à unidade escolar selecionada (sem misturar o Painel Master Global)
@@ -585,6 +866,18 @@ export const storageService = {
     const classes = storageService.getClasses(sId).filter(c => c.id !== clsId);
     setStoredSchool('classes', classes, sId);
 
+    // Remove apenas a matrícula ativa dos estudantes da turma excluída, preservando estudantes transferidos e todo o histórico de chamadas, alertas e busca ativa para arquivo escolar
+    const classStudents = storageService.getStudents(undefined, sId).filter(s => s.classId === clsId && s.status !== 'transferido');
+    if (classStudents.length > 0) {
+      const idsToRemove = new Set(classStudents.map(s => s.id));
+      const remainingStudents = storageService.getStudents(undefined, sId).filter(s => !idsToRemove.has(s.id));
+      setStoredSchool('students', remainingStudents, sId);
+
+      for (const st of classStudents) {
+        firestoreService.deleteStudent(st.id).catch(() => {});
+      }
+    }
+
     // Sincroniza em nuvem no Firestore
     firestoreService.deleteClass(clsId).catch(err => console.warn('Erro ao deletar turma no Firestore:', err));
   },
@@ -643,12 +936,12 @@ export const storageService = {
       neighborhood: data.neighborhood || '',
       status: data.status || 'regular',
       riskLevel: data.riskLevel || 'baixo',
-      totalSchoolDays: data.totalSchoolDays ?? 45,
+      totalSchoolDays: data.totalSchoolDays ?? Math.max(1, getCalendarMetricsSummary(storageService.getSchoolCalendar(sId)).elapsedSchoolDays),
       totalAbsences: data.totalAbsences ?? 0,
       consecutiveAbsences: data.consecutiveAbsences ?? 0,
       attendanceRate: data.attendanceRate ?? 100,
       vulnerabilityFactors: data.vulnerabilityFactors || [],
-      lastAttendanceDate: data.lastAttendanceDate || new Date().toISOString().split('T')[0],
+      lastAttendanceDate: data.lastAttendanceDate || getLocalTodayIso(),
       notes: data.notes || '',
       schoolId: sId
     };
@@ -680,8 +973,80 @@ export const storageService = {
     const students = storageService.getStudents(undefined, sId).filter(s => s.id !== studentId);
     setStoredSchool('students', students, sId);
 
-    // Sincroniza em nuvem no Firestore
+    // Histórico de alertas, chamadas, ocorrências e casos de busca ativa permanece preservado para consultas futuras da escola (ex: transferências)
+
+    // Sincroniza remoção do cadastro ativo em nuvem no Firestore
     firestoreService.deleteStudent(studentId).catch(err => console.warn('Erro ao deletar estudante no Firestore:', err));
+  },
+
+  transferStudent: (
+    studentId: string,
+    details?: { transferredAt?: string; transferDestination?: string; transferReason?: string },
+    schoolId?: string
+  ): Student | null => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const students = storageService.getStudents(undefined, sId);
+    const idx = students.findIndex(s => s.id === studentId);
+    if (idx === -1) return null;
+
+    const current = students[idx];
+    const today = getLocalTodayIso();
+    const updated: Student = {
+      ...current,
+      status: 'transferido',
+      previousClassId: current.previousClassId || current.classId,
+      previousClassName: current.previousClassName || current.className,
+      transferredAt: details?.transferredAt || today,
+      transferDestination: details?.transferDestination?.trim() || '',
+      transferReason: details?.transferReason?.trim() || '',
+      schoolId: sId,
+    };
+
+    students[idx] = updated;
+    setStoredSchool('students', students, sId);
+
+    firestoreService.saveStudent(updated, sId).catch(err => console.warn('Erro ao registrar transferência no Firestore:', err));
+    return updated;
+  },
+
+  reactivateStudent: (
+    studentId: string,
+    targetClassId?: string,
+    schoolId?: string
+  ): Student | null => {
+    const sId = schoolId || storageService.getActiveSchoolId();
+    const students = storageService.getStudents(undefined, sId);
+    const idx = students.findIndex(s => s.id === studentId);
+    if (idx === -1) return null;
+
+    const current = students[idx];
+    const classes = storageService.getClasses(sId);
+    const desiredClassId = targetClassId || current.previousClassId || current.classId;
+    const matchedClass = classes.find(c => c.id === desiredClassId) || classes[0];
+
+    const newStatus =
+      current.consecutiveAbsences >= 4 || current.attendanceRate < 75
+        ? 'evasao_iminente'
+        : current.consecutiveAbsences >= 2 || current.attendanceRate < 80
+        ? 'alerta'
+        : 'reintegrado';
+
+    const updated: Student = {
+      ...current,
+      status: newStatus,
+      classId: matchedClass ? matchedClass.id : desiredClassId,
+      className: matchedClass ? matchedClass.name : (current.previousClassName || current.className),
+      transferredAt: undefined,
+      transferDestination: undefined,
+      transferReason: undefined,
+      schoolId: sId,
+    };
+
+    students[idx] = updated;
+    setStoredSchool('students', students, sId);
+
+    firestoreService.saveStudent(updated, sId).catch(err => console.warn('Erro ao reativar estudante no Firestore:', err));
+    return updated;
   },
 
   batchCreateStudents: (newStudents: Partial<Student>[], schoolId?: string): number => {
@@ -705,12 +1070,12 @@ export const storageService = {
         neighborhood: data.neighborhood || '',
         status: data.status || 'regular',
         riskLevel: data.riskLevel || 'baixo',
-        totalSchoolDays: data.totalSchoolDays ?? 45,
+        totalSchoolDays: data.totalSchoolDays ?? Math.max(1, getCalendarMetricsSummary(storageService.getSchoolCalendar(sId)).elapsedSchoolDays),
         totalAbsences: data.totalAbsences ?? 0,
         consecutiveAbsences: data.consecutiveAbsences ?? 0,
         attendanceRate: data.attendanceRate ?? 100,
         vulnerabilityFactors: data.vulnerabilityFactors || [],
-        lastAttendanceDate: data.lastAttendanceDate || new Date().toISOString().split('T')[0],
+        lastAttendanceDate: data.lastAttendanceDate || getLocalTodayIso(),
         notes: data.notes || '',
         schoolId: sId
       };
@@ -753,7 +1118,7 @@ export const storageService = {
     date?: string
   ): Promise<any> => {
     const records = storageService.getAttendanceRecords();
-    const recordDate = date || new Date().toISOString().split('T')[0];
+    const recordDate = date || getLocalTodayIso();
     const allStudents = storageService.getStudents();
     const allClasses = storageService.getClasses();
     const targetClass = allClasses.find(c => c.id === classId || c.name === classId);
@@ -834,6 +1199,7 @@ export const storageService = {
     }
 
     // Replace existing records for same student & dates of newRecords
+    const sId = storageService.getActiveSchoolId();
     const datesAndStudents = new Set(newRecords.map(nr => `${nr.studentId}__${nr.date}`));
     const filteredRecords = records.filter(r => {
       const key = `${r.studentId}__${r.date}`;
@@ -842,7 +1208,7 @@ export const storageService = {
       return true;
     });
     filteredRecords.push(...newRecords);
-    setStored('school_attendance', filteredRecords);
+    setStoredSchool('attendance', filteredRecords, sId);
 
     // Update students absence counts based on real filteredRecords
     const updatedStudents: Student[] = [];
@@ -877,29 +1243,38 @@ export const storageService = {
           st.lastAttendanceDate = lastPres.date;
         }
 
-        st.attendanceRate = Math.max(0, Math.round(((st.totalSchoolDays - st.totalAbsences) / st.totalSchoolDays) * 100));
-        if (st.consecutiveAbsences >= 4 || st.attendanceRate < 75) {
-          st.riskLevel = 'critico';
-          st.status = 'evasao_iminente';
-        } else if (st.consecutiveAbsences >= 2 || st.attendanceRate < 80) {
-          st.riskLevel = 'alto';
-          st.status = 'alerta';
-        } else {
-          st.riskLevel = 'baixo';
-          st.status = 'regular';
+        const activeCalendar = storageService.getSchoolCalendar(sId);
+        const { attendanceRate, effectiveSchoolDays } = calculateCalendarAttendanceRate(
+          st.totalAbsences,
+          activeCalendar,
+          st.totalSchoolDays
+        );
+        st.totalSchoolDays = effectiveSchoolDays;
+        st.attendanceRate = attendanceRate;
+        if (st.status !== 'transferido') {
+          if (st.consecutiveAbsences >= 4 || st.attendanceRate < 75) {
+            st.riskLevel = 'critico';
+            st.status = 'evasao_iminente';
+          } else if (st.consecutiveAbsences >= 2 || st.attendanceRate < 80) {
+            st.riskLevel = 'alto';
+            st.status = 'alerta';
+          } else {
+            st.riskLevel = 'baixo';
+            st.status = 'regular';
+          }
         }
         updatedStudents.push(st);
       }
     });
     if (updatedStudents.length > 0) {
-      setStored('school_students', allStudents);
+      setStoredSchool('students', allStudents, sId);
     }
 
     // Sincroniza em nuvem no Firestore de forma garantida e aguardada
     try {
-      await firestoreService.batchSaveAttendance(newRecords);
+      await firestoreService.batchSaveAttendance(newRecords, sId);
       if (updatedStudents.length > 0) {
-        await firestoreService.batchSaveStudents(updatedStudents);
+        await firestoreService.batchSaveStudents(updatedStudents, sId);
       }
     } catch (err) {
       console.warn('Erro ao sincronizar chamadas no Firestore:', err);
@@ -923,8 +1298,9 @@ export const storageService = {
 
   deleteAttendanceByDate: async (dateStr: string, classId?: string): Promise<{ deletedCount: number }> => {
     if (!dateStr) return { deletedCount: 0 };
-    const allRecords = getStored<AttendanceRecord[]>('school_attendance', []);
-    const allStudents = getStored<Student[]>('school_students', []);
+    const sId = storageService.getActiveSchoolId();
+    const allRecords = storageService.getAttendanceRecords(undefined, undefined, sId);
+    const allStudents = storageService.getStudents(undefined, sId);
     const affectedStudentIds = new Set<string>();
     const cleanDate = normalizeDateStr(dateStr);
     const cleanClass = classId ? classId.trim().toLowerCase() : null;
@@ -962,7 +1338,7 @@ export const storageService = {
     });
 
     const deletedCount = allRecords.length - remainingRecords.length;
-    setStored('school_attendance', remainingRecords);
+    setStoredSchool('attendance', remainingRecords, sId);
 
     // Recalcula totais dos estudantes afetados
     const updatedStudents: Student[] = [];
@@ -992,30 +1368,39 @@ export const storageService = {
           st.lastAttendanceDate = lastPres.date;
         }
 
-        st.attendanceRate = Math.max(0, Math.round(((st.totalSchoolDays - st.totalAbsences) / st.totalSchoolDays) * 100));
-        if (st.consecutiveAbsences >= 4 || st.attendanceRate < 75) {
-          st.riskLevel = 'critico';
-          st.status = 'evasao_iminente';
-        } else if (st.consecutiveAbsences >= 2 || st.attendanceRate < 80) {
-          st.riskLevel = 'alto';
-          st.status = 'alerta';
-        } else {
-          st.riskLevel = 'baixo';
-          st.status = 'regular';
+        const activeCalendar = storageService.getSchoolCalendar(sId);
+        const { attendanceRate, effectiveSchoolDays } = calculateCalendarAttendanceRate(
+          st.totalAbsences,
+          activeCalendar,
+          st.totalSchoolDays
+        );
+        st.totalSchoolDays = effectiveSchoolDays;
+        st.attendanceRate = attendanceRate;
+        if (st.status !== 'transferido') {
+          if (st.consecutiveAbsences >= 4 || st.attendanceRate < 75) {
+            st.riskLevel = 'critico';
+            st.status = 'evasao_iminente';
+          } else if (st.consecutiveAbsences >= 2 || st.attendanceRate < 80) {
+            st.riskLevel = 'alto';
+            st.status = 'alerta';
+          } else {
+            st.riskLevel = 'baixo';
+            st.status = 'regular';
+          }
         }
         updatedStudents.push(st);
       }
     });
 
     if (updatedStudents.length > 0) {
-      setStored('school_students', allStudents);
+      setStoredSchool('students', allStudents, sId);
     }
 
-    // Sincroniza exclusão no Firestore
+    // Sincroniza exclusão no Firestore (isolada pela unidade escolar ativa)
     try {
-      await firestoreService.deleteAttendanceByDate(dateStr, classId);
+      await firestoreService.deleteAttendanceByDate(dateStr, classId, sId);
       if (updatedStudents.length > 0) {
-        await firestoreService.batchSaveStudents(updatedStudents);
+        await firestoreService.batchSaveStudents(updatedStudents, sId);
       }
     } catch (e) {
       console.warn('Erro ao sincronizar exclusão de chamadas no Firestore:', e);
@@ -1029,13 +1414,20 @@ export const storageService = {
     const sId = schoolId || storageService.getActiveSchoolId();
     let list = getStoredSchool<GateRecord[]>('gate_records', [], sId);
     if (date && date !== 'todas') {
-      list = list.filter(r => r.date === date);
+      list = list.filter(r => isSameDay(r.date, date));
     }
     if (classId && classId !== 'todas') {
-      list = list.filter(r => r.classId === classId);
+      const normCls = classId.trim().toLowerCase();
+      list = list.filter(
+        r =>
+          (r.classId || '').trim().toLowerCase() === normCls ||
+          (r.className || '').trim().toLowerCase() === normCls
+      );
     }
     return list.sort((a, b) => {
-      if (b.date !== a.date) return (b.date || '').localeCompare(a.date || '');
+      const dateA = normalizeDateStr(a.date) || a.date || '';
+      const dateB = normalizeDateStr(b.date) || b.date || '';
+      if (dateB !== dateA) return dateB.localeCompare(dateA);
       return (b.time || '').localeCompare(a.time || '');
     });
   },
@@ -1043,12 +1435,19 @@ export const storageService = {
   createGateRecord: (record: GateRecord, schoolId?: string): GateRecord => {
     const sId = schoolId || record.schoolId || storageService.getActiveSchoolId();
     const list = storageService.getGateRecords(undefined, undefined, sId);
-    const newRecord = {
+    const normalizedDate = normalizeDateStr(record.date) || record.date || getLocalTodayIso();
+    const newRecord: GateRecord = {
       ...record,
       id: record.id || `gate-${Date.now()}`,
+      date: normalizedDate,
       schoolId: sId
     };
-    list.push(newRecord);
+    const existingIdx = list.findIndex(r => r.id === newRecord.id);
+    if (existingIdx >= 0) {
+      list[existingIdx] = newRecord;
+    } else {
+      list.unshift(newRecord);
+    }
     setStoredSchool('gate_records', list, sId);
 
     // Sincroniza em nuvem no Firestore
@@ -1125,12 +1524,24 @@ export const storageService = {
     const list = storageService.getInterventions(sId);
     const item = list.find(i => i.id === caseId);
     if (item) {
+      const today = getLocalTodayIso();
       item.actionLog = item.actionLog || [];
       item.actionLog.push({
-        ...action,
-        id: action.id || `act-${Date.now()}`
+        id: action.id || `act-${Date.now()}`,
+        date: action.date || today,
+        action: action.action || action.type || 'Registro de Acompanhamento',
+        author: action.author || action.responsibleParty || 'Coordenação Pedagógica / PAAC',
+        notes: action.notes || action.description || '',
+        result: action.result || action.outcome || '',
       });
-      item.lastUpdatedAt = new Date().toISOString().split('T')[0];
+      const nextStage = action.advanceStageTo || action.newStage;
+      if (nextStage) {
+        item.stage = nextStage;
+        if (nextStage === 'reintegrado' || nextStage === 'encerrado') {
+          item.resolvedDate = today;
+        }
+      }
+      item.lastUpdatedAt = today;
       item.schoolId = sId;
       setStoredSchool('interventions', list, sId);
 
@@ -1141,15 +1552,24 @@ export const storageService = {
 
   deleteOpenInterventions: (schoolId?: string): void => {
     const sId = schoolId || storageService.getActiveSchoolId();
-    const list = storageService.getInterventions(sId).filter(i => i.stage === 'reintegrado' || i.stage === 'encerrado');
-    setStoredSchool('interventions', list, sId);
+    const all = storageService.getInterventions(sId);
+    const toDelete = all.filter(i => i.stage !== 'reintegrado' && i.stage !== 'encerrado');
+    const kept = all.filter(i => i.stage === 'reintegrado' || i.stage === 'encerrado');
+    setStoredSchool('interventions', kept, sId);
+
+    // Sincroniza exclusão dos casos abertos no Firestore
+    toDelete.forEach(c => {
+      firestoreService.deleteIntervention(c.id).catch(err =>
+        console.warn('Erro ao excluir caso de intervenção no Firestore:', err)
+      );
+    });
   },
 
   // === INFORMAÇÕES ESCOLARES & RELATÓRIOS (Multi-Tenant) ===
   getSchoolInfo: (schoolId?: string): any => {
     const sId = schoolId || storageService.getActiveSchoolId();
     const school = storageService.getActiveSchool(sId);
-    const students = storageService.getStudents(undefined, sId);
+    const students = storageService.getStudents(undefined, sId).filter(s => s.status !== 'transferido');
     const classes = storageService.getClasses(sId);
     const alerts = storageService.getAlerts(sId);
     const interventions = storageService.getInterventions(sId);
@@ -1171,10 +1591,10 @@ export const storageService = {
 
   getMonthlyReport: (monthIndex?: number, startDate?: string, endDate?: string): MonthlyPedagogicalReport => {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalTodayIso();
       const start = startDate || today;
       const end = endDate || start;
-      const students = storageService.getStudents();
+      const students = storageService.getStudents().filter(s => s.status !== 'transferido');
       const classes = storageService.getClasses();
       const attendanceRecords = storageService.getAttendanceRecords();
       const alerts = storageService.getAlerts();
@@ -1264,6 +1684,10 @@ export const storageService = {
 
   // === RESET TOTAL (Wipe All Data) ===
   wipeAllData: (currentUser?: any): void => {
+    const sId = storageService.getActiveSchoolId();
+    memorySchoolCache.clear();
+    memoryGlobalCache.clear();
+    purgeLegacyDuplicateStorageKeys();
     localStorage.removeItem('school_classes');
     localStorage.removeItem('school_students');
     localStorage.removeItem('school_attendance');
@@ -1271,6 +1695,11 @@ export const storageService = {
     localStorage.removeItem('school_alerts');
     localStorage.removeItem('school_interventions');
     localStorage.removeItem('school_monthly_report');
+    ['classes', 'students', 'attendance', 'gate_records', 'alerts', 'interventions', 'school_calendar', 'teacher_schedules', 'timetable_workspace'].forEach(k => {
+      try {
+        localStorage.removeItem(`sigaescola_${sId}_${k}`);
+      } catch {}
+    });
 
     // Keep only the master admin
     const masterAdmin: UserAccount = {

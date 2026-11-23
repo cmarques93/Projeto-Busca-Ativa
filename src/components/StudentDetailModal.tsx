@@ -19,7 +19,10 @@ import {
   Users,
   ExternalLink,
   MessageSquare,
-  Trash2
+  Trash2,
+  ArrowRightLeft,
+  RotateCcw,
+  Archive
 } from 'lucide-react';
 import { Student, AttendanceRecord, ParentAlert, InterventionCase } from '../types';
 import { storageService } from '../data/storageService';
@@ -27,6 +30,7 @@ import { firestoreService } from '../lib/firestoreService';
 import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
 import { carregarOcorrenciasSeguro } from '../lib/sheetsSyncService';
 import { ordenarOcorrenciasPorMaisRecentes, parseDataOcorrenciaToTimestamp, obterInfoPreenchimento } from './OcorrenciasManager';
+import { calculateCalendarAttendanceRate, getCalendarMetricsSummary } from '../utils/calendarUtils';
 
 interface OcorrenciaItem {
   id: string;
@@ -80,6 +84,51 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deletingStudent, setDeletingStudent] = useState(false);
+  const [confirmingTransfer, setConfirmingTransfer] = useState(false);
+  const [processingTransfer, setProcessingTransfer] = useState(false);
+
+  const handleTransferCurrentStudent = async () => {
+    if (!data?.student) return;
+    setProcessingTransfer(true);
+    try {
+      const updated = storageService.transferStudent(data.student.id);
+      if (updated) {
+        fetch(`/api/students/${encodeURIComponent(data.student.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated),
+        }).catch(() => null);
+        setData(prev => (prev ? { ...prev, student: updated } : prev));
+      }
+      setConfirmingTransfer(false);
+      if (onStudentDeleted) onStudentDeleted();
+    } catch (e) {
+      console.error('Erro ao transferir estudante:', e);
+    } finally {
+      setProcessingTransfer(false);
+    }
+  };
+
+  const handleReactivateCurrentStudent = async () => {
+    if (!data?.student) return;
+    setProcessingTransfer(true);
+    try {
+      const updated = storageService.reactivateStudent(data.student.id);
+      if (updated) {
+        fetch(`/api/students/${encodeURIComponent(data.student.id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated),
+        }).catch(() => null);
+        setData(prev => (prev ? { ...prev, student: updated } : prev));
+      }
+      if (onStudentDeleted) onStudentDeleted();
+    } catch (e) {
+      console.error('Erro ao reativar estudante:', e);
+    } finally {
+      setProcessingTransfer(false);
+    }
+  };
 
   const handleDeleteCurrentStudent = async () => {
     if (!data?.student) return;
@@ -126,13 +175,14 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
         const listaRegs = res.data.registros || [];
         const listaTrat = res.data.tratativasFamilia || [];
 
+        const nomeNorm = (nomeEstudante || '').trim().toLowerCase();
         const filtradasOcorr = listaRegs.filter(
-          (r: any) => r.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
+          (r: any) => (r.estudante || '').trim().toLowerCase() === nomeNorm
         );
         ocorrencias = ordenarOcorrenciasPorMaisRecentes(filtradasOcorr) as unknown as OcorrenciaItem[];
         
         const filtradasTrat = listaTrat.filter(
-          (t: any) => t.estudante?.trim().toLowerCase() === nomeEstudante.trim().toLowerCase()
+          (t: any) => (t.estudante || '').trim().toLowerCase() === nomeNorm
         );
         tratativas = filtradasTrat.sort(
           (a: any, b: any) => parseDataOcorrenciaToTimestamp(b.data) - parseDataOcorrenciaToTimestamp(a.data)
@@ -153,38 +203,10 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     setError(null);
 
     const loadStudentData = async () => {
-      let fetchedData: {
-        student: Student;
-        attendanceHistory: AttendanceRecord[];
-        alerts: ParentAlert[];
-        intervention?: InterventionCase;
-      } | null = null;
+      const sId = storageService.getActiveSchoolId();
 
-      try {
-        const res = await fetch(`/api/students/${studentId}`);
-        const contentType = res.headers.get('content-type');
-        if (res.ok && contentType && contentType.includes('application/json')) {
-          fetchedData = await res.json();
-        }
-      } catch (err) {
-        console.warn('Backend indisponível ao buscar estudante, consultando banco local:', err);
-      }
-
-      if (fetchedData && fetchedData.student) {
-        const extras = await carregarOcorrenciasETratativas(fetchedData.student.name);
-        if (isMounted) {
-          setData({
-            ...fetchedData,
-            ocorrencias: extras.ocorrencias,
-            tratativas: extras.tratativas,
-          });
-          setLoading(false);
-        }
-        return;
-      }
-
-      // Fallback 1: Buscar do storageService (detalhes completos com histórico e alertas)
-      const localData = storageService.getStudentDetails(studentId);
+      // 1. Fonte de verdade da escola ativa (storageService já sincronizado com Firestore)
+      const localData = storageService.getStudentDetails(studentId, sId);
       if (localData && localData.student) {
         const extras = await carregarOcorrenciasETratativas(localData.student.name);
         if (isMounted) {
@@ -198,21 +220,119 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
         return;
       }
 
-      // Fallback 2: Buscar pelo ID direto no catálogo de estudantes
-      const studentObj = storageService.getStudentById(studentId);
+      // 2. Fallback: consultar catálogo de estudantes no Firestore caso ainda não esteja em cache
+      try {
+        const [cloudStudents, cloudAtt, cloudAlerts, cloudInterv] = await Promise.all([
+          firestoreService.getStudents(sId),
+          firestoreService.getAttendanceRecords(undefined, sId),
+          firestoreService.getAlerts(sId),
+          firestoreService.getInterventions(sId),
+        ]);
+        const foundSt = cloudStudents.find(s => s.id === studentId);
+        if (foundSt) {
+          const extras = await carregarOcorrenciasETratativas(foundSt.name);
+          if (isMounted) {
+            setData({
+              student: foundSt,
+              attendanceHistory: cloudAtt
+                .filter(r => r.studentId === studentId)
+                .sort((a, b) => (b.date || '').localeCompare(a.date || '')),
+              alerts: cloudAlerts
+                .filter(a => a.studentId === studentId)
+                .sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || '')),
+              intervention: cloudInterv.find(i => i.studentId === studentId),
+              ocorrencias: extras.ocorrencias,
+              tratativas: extras.tratativas,
+            });
+            setLoading(false);
+          }
+          return;
+        }
+      } catch (err) {
+        console.warn('Erro ao consultar detalhes do estudante no Firestore:', err);
+      }
+
+      // Fallback 3: Buscar pelo ID direto no catálogo de estudantes
+      const studentObj = storageService.getStudentById(studentId, sId);
       if (studentObj) {
         const history = storageService.getAttendanceRecords()
           .filter(r => r.studentId === studentId)
-          .sort((a, b) => b.date.localeCompare(a.date));
+          .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
         const studentAlerts = storageService.getAlerts()
           .filter(a => a.studentId === studentId)
-          .sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+          .sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
         const studentIntervention = storageService.getInterventions().find(i => i.studentId === studentId);
         const extras = await carregarOcorrenciasETratativas(studentObj.name);
 
         if (isMounted) {
           setData({
             student: studentObj,
+            attendanceHistory: history,
+            alerts: studentAlerts,
+            intervention: studentIntervention,
+            ocorrencias: extras.ocorrencias,
+            tratativas: extras.tratativas,
+          });
+          setLoading(false);
+        }
+        return;
+      }
+
+      // Fallback 4: Reconstrução de Dossiê Histórico (estudante transferido ou removido da lista ativa, mas com registros salvos)
+      const history = storageService.getAttendanceRecords(undefined, undefined, sId)
+        .filter(r => r.studentId === studentId)
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      const studentAlerts = storageService.getAlerts(sId)
+        .filter(a => a.studentId === studentId)
+        .sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
+      const studentIntervention = storageService.getInterventions(sId).find(i => i.studentId === studentId);
+
+      if (history.length > 0 || studentAlerts.length > 0 || studentIntervention) {
+        const inferredName =
+          studentIntervention?.studentName ||
+          studentAlerts[0]?.studentName ||
+          history[0]?.studentName ||
+          'Estudante (Registro Histórico)';
+        const inferredClassId =
+          studentIntervention?.classId ||
+          studentAlerts[0]?.classId ||
+          history[0]?.classId ||
+          '';
+        const inferredClassName =
+          studentIntervention?.className ||
+          studentAlerts[0]?.className ||
+          history[0]?.className ||
+          'Turma anterior';
+
+        const archivedStudent: Student = {
+          id: studentId,
+          name: inferredName,
+          ra: 'Arquivo / Transferido',
+          classId: inferredClassId,
+          className: inferredClassName,
+          guardianName: studentIntervention?.guardianName || studentAlerts[0]?.guardianName || 'Responsável',
+          guardianPhone: studentIntervention?.guardianPhone || studentAlerts[0]?.guardianPhone || '',
+          guardianRelationship: 'Responsável',
+          address: '',
+          neighborhood: '',
+          status: 'transferido',
+          riskLevel: 'baixo',
+          totalSchoolDays: 45,
+          totalAbsences: 0,
+          consecutiveAbsences: 0,
+          attendanceRate: 100,
+          vulnerabilityFactors: [],
+          lastAttendanceDate: history[0]?.date || '',
+          notes: 'Registro histórico preservado após transferência ou desligamento da matrícula ativa.',
+          schoolId: sId,
+          previousClassId: inferredClassId,
+          previousClassName: inferredClassName,
+        };
+
+        const extras = await carregarOcorrenciasETratativas(inferredName);
+        if (isMounted) {
+          setData({
+            student: archivedStudent,
             attendanceHistory: history,
             alerts: studentAlerts,
             intervention: studentIntervention,
@@ -245,6 +365,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
         consecutiveAbsences: 0,
         lastPresenceDate: null,
         attendanceRate: 100,
+        effectiveSchoolDays: 1,
       };
     }
 
@@ -252,11 +373,13 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
 
     // Se ainda não houver histórico de chamadas no diário, utiliza os dados cadastrais
     if (history.length === 0) {
+      const calSummary = getCalendarMetricsSummary(storageService.getSchoolCalendar());
       return {
         totalAbsences: data.student.totalAbsences || 0,
         consecutiveAbsences: data.student.consecutiveAbsences || 0,
         lastPresenceDate: data.student.lastAttendanceDate || null,
         attendanceRate: data.student.attendanceRate ?? 100,
+        effectiveSchoolDays: calSummary.elapsedSchoolDays || data.student.totalSchoolDays || 1,
       };
     }
 
@@ -285,16 +408,21 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     );
     const lastPresenceDate = lastPresenceRecord ? lastPresenceRecord.date : null;
 
-    // Taxa de presença calculada sobre os dias letivos e faltas reais registradas
-    const totalSchoolDays = data.student.totalSchoolDays || 46;
-    const finalAbsences = calculatedTotalAbsences;
-    const calculatedRate = Math.max(0, Math.min(100, Math.round(((totalSchoolDays - finalAbsences) / totalSchoolDays) * 100)));
+    const activeCalendar = storageService.getSchoolCalendar();
+    const calSummary = getCalendarMetricsSummary(activeCalendar);
+    const { attendanceRate: calculatedRate, effectiveSchoolDays } = calculateCalendarAttendanceRate(
+      calculatedTotalAbsences,
+      activeCalendar,
+      data.student.totalSchoolDays
+    );
 
     return {
-      totalAbsences: finalAbsences,
+      totalAbsences: calculatedTotalAbsences,
       consecutiveAbsences: calculatedConsecutive,
       lastPresenceDate,
       attendanceRate: calculatedRate,
+      effectiveSchoolDays,
+      totalPlannedSchoolDays: calSummary.totalPlannedSchoolDays,
     };
   }, [data]);
 
@@ -346,31 +474,73 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
             <div className="py-12 text-center text-rose-500">Erro: {error || 'Estudante não encontrado'}</div>
           ) : (
             <>
+              {/* Transferred Banner if student is transferred */}
+              {data.student.status === 'transferido' && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                      <Archive className="w-5 h-5" />
+                    </div>
+                    <div className="text-xs space-y-1">
+                      <div className="font-bold text-amber-950 text-sm flex items-center gap-2">
+                        <span>Estudante Transferido — Arquivo Histórico Preservado</span>
+                      </div>
+                      <div className="text-amber-900 flex flex-wrap gap-x-3 gap-y-1">
+                        {data.student.transferredAt && (
+                          <span>
+                            Data da Transferência: <strong>{formatarDataBR(data.student.transferredAt)}</strong>
+                          </span>
+                        )}
+                        {(data.student.previousClassName || data.student.className) && (
+                          <span>
+                            Turma de Origem: <strong>{data.student.previousClassName || data.student.className}</strong>
+                          </span>
+                        )}
+                        {data.student.transferDestination && (
+                          <span>
+                            Destino: <strong>{data.student.transferDestination}</strong>
+                          </span>
+                        )}
+                      </div>
+                      {data.student.transferReason && (
+                        <p className="text-amber-800 italic">Observação: {data.student.transferReason}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Student Overview Strip */}
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-lg font-bold text-slate-900">{data.student.name}</span>
                     <span className="text-xs font-semibold px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">
-                      {data.student.className}
+                      {data.student.previousClassName || data.student.className}
                     </span>
-                    <span
-                      className={`text-[11px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                        data.student.riskLevel === 'critico'
-                          ? 'bg-rose-100 text-rose-800'
-                          : data.student.riskLevel === 'alto'
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-emerald-100 text-emerald-800'
-                      }`}
-                    >
-                      {data.student.riskLevel === 'critico' ? 'Evasão Crítica' : `Risco ${data.student.riskLevel}`}
-                    </span>
+                    {data.student.status === 'transferido' ? (
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full uppercase bg-amber-100 text-amber-900 border border-amber-300">
+                        Transferido
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded-full uppercase ${
+                          data.student.riskLevel === 'critico'
+                            ? 'bg-rose-100 text-rose-800'
+                            : data.student.riskLevel === 'alto'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-emerald-100 text-emerald-800'
+                        }`}
+                      >
+                        {data.student.riskLevel === 'critico' ? 'Evasão Crítica' : `Risco ${data.student.riskLevel || 'baixo'}`}
+                      </span>
+                    )}
                   </div>
 
                   <div className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-3">
-                    <span>RA: <strong className="text-slate-700">{data.student.ra}</strong></span>
+                    <span>RA: <strong className="text-slate-700">{data.student.ra || 'S/N'}</strong></span>
                     <span>•</span>
-                    <span>Status: <strong className="capitalize text-slate-700">{data.student.status.replace('_', ' ')}</strong></span>
+                    <span>Status: <strong className="capitalize text-slate-700">{(data.student.status || 'regular').replace(/_/g, ' ')}</strong></span>
                     {data.student.tutor && (
                       <>
                         <span>•</span>
@@ -380,7 +550,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                   </div>
                 </div>
 
-                {!isProfessor && (
+                {!isProfessor && data.student.status !== 'transferido' && (
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => {
@@ -409,7 +579,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                 <div className="bg-white border border-slate-200 rounded-lg p-3">
                   <div className="text-slate-500">Faltas Acumuladas</div>
                   <div className="text-xl font-extrabold text-slate-900 mt-0.5">{computedStats.totalAbsences}</div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">Em {data.student.totalSchoolDays} dias letivos</div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">Em {computedStats.effectiveSchoolDays} dias letivos</div>
                 </div>
 
                 <div className="bg-white border border-slate-200 rounded-lg p-3">
@@ -516,7 +686,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                       <span>Caso de Busca Ativa em Andamento</span>
                     </div>
                     <span className="bg-indigo-600 text-white font-bold text-[10px] px-2 py-0.5 rounded uppercase tracking-wider">
-                      Fase: {data.intervention.stage.replace('_', ' ')}
+                      Fase: {(data.intervention.stage || '').replace(/_/g, ' ')}
                     </span>
                   </div>
 
@@ -542,10 +712,10 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               <div>
                 <div className="font-bold text-slate-900 text-sm mb-2 flex items-center gap-1.5">
                   <Send className="w-4 h-4 text-amber-600" />
-                  <span>Histórico de Alertas aos Responsáveis ({data.alerts.length})</span>
+                  <span>Histórico de Alertas aos Responsáveis ({(data.alerts || []).length})</span>
                 </div>
 
-                {data.alerts.length === 0 ? (
+                {!data.alerts || data.alerts.length === 0 ? (
                   <div className="text-xs text-slate-400 p-3 bg-slate-50 rounded-lg">
                     Nenhum alerta foi emitido para este aluno até o momento.
                   </div>
@@ -556,7 +726,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-slate-900">{alt.triggerLabel}</span>
                           <span className="text-[11px] text-slate-400 font-medium">
-                            {new Date(alt.sentAt).toLocaleString('pt-BR')} • {alt.status.toUpperCase()}
+                            {alt.sentAt ? new Date(alt.sentAt).toLocaleString('pt-BR') : '—'} • {(alt.status || 'enviado').toUpperCase()}
                           </span>
                         </div>
                         <p className="text-slate-600 text-[11px] line-clamp-2">{alt.messageContent}</p>
@@ -594,7 +764,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {data.attendanceHistory.slice(0, 8).map(att => (
+                      {(data.attendanceHistory || []).slice(0, 8).map(att => (
                         <tr key={att.id}>
                           <td className="p-2.5 font-medium text-slate-800">{att.date}</td>
                           <td className="p-2.5">
@@ -609,7 +779,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                                   : 'bg-rose-100 text-rose-800'
                               }`}
                             >
-                              {att.status === 'atestado_medico' ? 'Atestado Médico' : att.status.replace('_', ' ')}
+                              {att.status === 'atestado_medico' ? 'Atestado Médico' : (att.status || '').replace(/_/g, ' ')}
                             </span>
                           </td>
                           <td className="p-2.5 text-slate-500">{att.recordedBy}</td>
@@ -649,7 +819,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                 ) : (
                   <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
                     {data.ocorrencias.map(oc => {
-                      const phones = getStudentPhones(data.student);
+                      const phones = getStudentPhones(data.student.guardianPhone);
                       const primaryPhone = phones.length > 0 ? phones[0] : null;
                       const msgTexto = `Prezado(a) responsável pelo(a) estudante ${data.student.name} (${data.student.className}), informamos o registro de ocorrência escolar em ${formatarDataBR(oc.data)} (${oc.aula}): "${oc.ocorrencia}". Medida aplicada: "${oc.medida}". Docente: ${oc.professor}. Estamos à disposição na escola para alinhamento pedagógico.`;
                       const waUrl = primaryPhone ? `https://wa.me/${cleanPhoneForWhatsApp(primaryPhone.digits)}?text=${encodeURIComponent(msgTexto)}` : '#';
@@ -774,13 +944,61 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
 
         {/* Modal Footer */}
         <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            {isGestaoOrAdmin && data?.student && !confirmingDelete && (
+          <div className="flex flex-wrap items-center gap-2">
+            {isGestaoOrAdmin && data?.student && data.student.ra !== 'Arquivo / Transferido' && data.student.status !== 'transferido' && !confirmingDelete && !confirmingTransfer && (
+              <button
+                type="button"
+                onClick={() => setConfirmingTransfer(true)}
+                className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold rounded-lg cursor-pointer transition-colors flex items-center gap-1.5"
+                title="Mover estudante para a sessão de transferidos preservando o histórico"
+              >
+                <ArrowRightLeft className="w-3.5 h-3.5" />
+                <span>Transferir Estudante</span>
+              </button>
+            )}
+
+            {isGestaoOrAdmin && data?.student && data.student.ra !== 'Arquivo / Transferido' && data.student.status === 'transferido' && !confirmingDelete && (
+              <button
+                type="button"
+                disabled={processingTransfer}
+                onClick={handleReactivateCurrentStudent}
+                className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-xs font-bold rounded-lg cursor-pointer transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                title="Reativar matrícula na turma de origem"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>{processingTransfer ? 'Reativando...' : 'Reativar Matrícula'}</span>
+              </button>
+            )}
+
+            {isGestaoOrAdmin && data?.student && confirmingTransfer && (
+              <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg">
+                <span className="text-xs font-bold text-amber-900">
+                  Mover {data.student.name} para Transferidos?
+                </span>
+                <button
+                  type="button"
+                  disabled={processingTransfer}
+                  onClick={handleTransferCurrentStudent}
+                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded cursor-pointer disabled:opacity-50"
+                >
+                  {processingTransfer ? 'Movendo...' : 'Sim, Transferir'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingTransfer(false)}
+                  className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 text-xs font-semibold rounded cursor-pointer"
+                >
+                  Cancelar
+                </button>
+              </div>
+            )}
+
+            {isGestaoOrAdmin && data?.student && data.student.ra !== 'Arquivo / Transferido' && !confirmingDelete && !confirmingTransfer && (
               <button
                 type="button"
                 onClick={() => setConfirmingDelete(true)}
                 className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-lg cursor-pointer transition-colors flex items-center gap-1.5"
-                title="Excluir estudante do sistema"
+                title="Remover estudante da lista ativa (preservando o histórico escolar)"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Excluir Estudante</span>
@@ -813,6 +1031,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
           <button
             onClick={() => {
               setConfirmingDelete(false);
+              setConfirmingTransfer(false);
               onClose();
             }}
             className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold rounded-lg cursor-pointer transition-colors"

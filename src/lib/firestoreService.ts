@@ -18,7 +18,10 @@ import {
   AttendanceRecord,
   ParentAlert,
   InterventionCase,
-  GateRecord
+  GateRecord,
+  SchoolCalendarConfig,
+  TeacherScheduleSlot,
+  TimetableWorkspace
 } from '../types';
 import { DEFAULT_SCHOOL_ID, DEFAULT_SCHOOLS } from '../data/fallbackData';
 
@@ -131,7 +134,7 @@ export const firestoreService = {
         // Inicializa com a escola padrão se ainda não gravado no Firestore
         for (const s of DEFAULT_SCHOOLS) {
           const cleanId = sanitizeDocId(s.id);
-          await setDoc(doc(db, 'schools', cleanId), s, { merge: true });
+          await setDoc(doc(db, 'schools', cleanId), sanitizeForFirestore({ ...s, id: cleanId }), { merge: true });
         }
         return DEFAULT_SCHOOLS;
       }
@@ -368,7 +371,7 @@ export const firestoreService = {
     }
   },
 
-  async deleteAttendanceByDate(dateStr: string, classId?: string): Promise<number> {
+  async deleteAttendanceByDate(dateStr: string, classId?: string, schoolId?: string): Promise<number> {
     if (!dateStr) return 0;
     try {
       const snap = await getDocs(collection(db, 'attendance_records'));
@@ -378,6 +381,10 @@ export const firestoreService = {
 
       snap.forEach(d => {
         const data = d.data() as AttendanceRecord;
+        // Isolamento multi-tenant: não apaga registros de outras escolas
+        if (schoolId && (data.schoolId || DEFAULT_SCHOOL_ID) !== schoolId) {
+          return;
+        }
         const recordDate = normalizeDateStr(data.date) || data.date;
         const idMatchesDate = d.id.includes(cleanDate) || d.id.includes(dateStr);
         const dateMatches = isSameDay(recordDate, dateStr) || idMatchesDate;
@@ -494,6 +501,15 @@ export const firestoreService = {
     }
   },
 
+  async deleteIntervention(id: string): Promise<void> {
+    const path = `interventions/${id}`;
+    try {
+      await deleteDoc(doc(db, 'interventions', id));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, path);
+    }
+  },
+
   // === GATE RECORDS ===
   async getGateRecords(date?: string, schoolId?: string): Promise<GateRecord[]> {
     try {
@@ -508,7 +524,12 @@ export const firestoreService = {
       if (date) {
         filtered = filtered.filter(g => isSameDay(g.date, date));
       }
-      return filtered.sort((a, b) => (b.time || '').localeCompare(a.time || ''));
+      return filtered.sort((a, b) => {
+        const dateA = normalizeDateStr(a.date) || a.date || '';
+        const dateB = normalizeDateStr(b.date) || b.date || '';
+        if (dateB !== dateA) return dateB.localeCompare(dateA);
+        return (b.time || '').localeCompare(a.time || '');
+      });
     } catch (e) {
       console.warn('Erro ao buscar registros de portaria do Firestore:', e);
       return [];
@@ -560,11 +581,15 @@ export const firestoreService = {
   async saveOcorrencias(data: any, schoolId?: string): Promise<void> {
     const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `ocorrencias_${sanitizeDocId(schoolId)}` : 'ocorrencias';
     try {
-      await setDoc(doc(db, 'system_data', docId), {
-        ...data,
-        schoolId: schoolId || DEFAULT_SCHOOL_ID,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
+      await setDoc(
+        doc(db, 'system_data', docId),
+        sanitizeForFirestore({
+          ...data,
+          schoolId: schoolId || DEFAULT_SCHOOL_ID,
+          updatedAt: new Date().toISOString()
+        }),
+        { merge: true }
+      );
     } catch (e) {
       console.warn(`Erro ao salvar ocorrências (${docId}) no Firestore:`, e);
     }
@@ -592,13 +617,110 @@ export const firestoreService = {
   async saveTablets(data: any, schoolId?: string): Promise<void> {
     const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `tablets_${sanitizeDocId(schoolId)}` : 'tablets';
     try {
-      await setDoc(doc(db, 'system_data', docId), {
-        ...data,
-        schoolId: schoolId || DEFAULT_SCHOOL_ID,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
+      await setDoc(
+        doc(db, 'system_data', docId),
+        sanitizeForFirestore({
+          ...data,
+          schoolId: schoolId || DEFAULT_SCHOOL_ID,
+          updatedAt: new Date().toISOString()
+        }),
+        { merge: true }
+      );
     } catch (e) {
       console.warn(`Erro ao salvar tablets (${docId}) no Firestore:`, e);
+    }
+  },
+
+  // === CALENDÁRIO ESCOLAR LETIVO (Nuvem isolada por escola) ===
+  async getSchoolCalendar(schoolId?: string): Promise<SchoolCalendarConfig | null> {
+    const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `calendario_${sanitizeDocId(schoolId)}` : 'calendario';
+    try {
+      const snap = await getDoc(doc(db, 'system_data', docId));
+      if (snap.exists()) {
+        return snap.data() as SchoolCalendarConfig;
+      }
+      if (schoolId === DEFAULT_SCHOOL_ID) {
+        const legacySnap = await getDoc(doc(db, 'system_data', 'calendario'));
+        if (legacySnap.exists()) return legacySnap.data() as SchoolCalendarConfig;
+      }
+      return null;
+    } catch (e) {
+      console.warn(`Erro ao carregar calendário escolar (${docId}) do Firestore:`, e);
+      return null;
+    }
+  },
+
+  async saveSchoolCalendar(calendar: SchoolCalendarConfig, schoolId?: string): Promise<void> {
+    const sId = schoolId || calendar.schoolId || DEFAULT_SCHOOL_ID;
+    const docId = sId && sId !== DEFAULT_SCHOOL_ID ? `calendario_${sanitizeDocId(sId)}` : 'calendario';
+    try {
+      await setDoc(doc(db, 'system_data', docId), sanitizeForFirestore({
+        ...calendar,
+        schoolId: sId,
+        updatedAt: new Date().toISOString()
+      }), { merge: true });
+    } catch (e) {
+      console.warn(`Erro ao salvar calendário escolar (${docId}) no Firestore:`, e);
+    }
+  },
+
+  // === GRADE HORÁRIA DOCENTE (Preparado para sincronia com módulo de Grade Horária) ===
+  async getTeacherSchedules(schoolId?: string): Promise<TeacherScheduleSlot[]> {
+    const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `grade_docente_${sanitizeDocId(schoolId)}` : 'grade_docente';
+    try {
+      const snap = await getDoc(doc(db, 'system_data', docId));
+      if (snap.exists()) {
+        const data = snap.data();
+        return Array.isArray(data?.slots) ? data.slots : [];
+      }
+      return [];
+    } catch (e) {
+      console.warn(`Erro ao carregar grade docente (${docId}) do Firestore:`, e);
+      return [];
+    }
+  },
+
+  async saveTeacherSchedules(slots: TeacherScheduleSlot[], schoolId?: string): Promise<void> {
+    const sId = schoolId || DEFAULT_SCHOOL_ID;
+    const docId = sId && sId !== DEFAULT_SCHOOL_ID ? `grade_docente_${sanitizeDocId(sId)}` : 'grade_docente';
+    try {
+      await setDoc(doc(db, 'system_data', docId), sanitizeForFirestore({
+        slots,
+        schoolId: sId,
+        updatedAt: new Date().toISOString()
+      }), { merge: true });
+    } catch (e) {
+      console.warn(`Erro ao salvar grade docente (${docId}) no Firestore:`, e);
+    }
+  },
+
+  // === WORKSPACE DE GRADE CURRICULAR & GERADOR DE HORÁRIOS (Critérios Anuais + Matrizes + Grade Completa) ===
+  async getTimetableWorkspace(schoolId?: string): Promise<TimetableWorkspace | null> {
+    const sId = schoolId || DEFAULT_SCHOOL_ID;
+    const docId = sId && sId !== DEFAULT_SCHOOL_ID ? `timetable_workspace_${sanitizeDocId(sId)}` : 'timetable_workspace';
+    try {
+      const snap = await getDoc(doc(db, 'system_data', docId));
+      if (snap.exists()) {
+        return snap.data() as TimetableWorkspace;
+      }
+      return null;
+    } catch (e) {
+      console.warn(`Erro ao carregar workspace de horários (${docId}) do Firestore:`, e);
+      return null;
+    }
+  },
+
+  async saveTimetableWorkspace(workspace: TimetableWorkspace, schoolId?: string): Promise<void> {
+    const sId = schoolId || workspace.schoolId || DEFAULT_SCHOOL_ID;
+    const docId = sId && sId !== DEFAULT_SCHOOL_ID ? `timetable_workspace_${sanitizeDocId(sId)}` : 'timetable_workspace';
+    try {
+      await setDoc(doc(db, 'system_data', docId), sanitizeForFirestore({
+        ...workspace,
+        schoolId: sId,
+        updatedAt: new Date().toISOString(),
+      }), { merge: true });
+    } catch (e) {
+      console.warn(`Erro ao salvar workspace de horários (${docId}) no Firestore:`, e);
     }
   },
 
@@ -638,12 +760,29 @@ export const firestoreService = {
     gate: GateRecord[];
     ocorrencias: any | null;
     tablets: any | null;
+    calendar: SchoolCalendarConfig | null;
+    teacherSchedules: TeacherScheduleSlot[];
+    timetableWorkspace: TimetableWorkspace | null;
     latencyMs: number;
     source: 'firebase_direct';
   }> {
     const start = performance.now();
     const targetSchoolId = schoolId || DEFAULT_SCHOOL_ID;
     try {
+      // Validação rápida de conectividade antes de disparar leituras paralelas
+      await getDocFromServer(doc(db, 'test', 'connection')).catch((err: any) => {
+        const msg = String(err?.message || '').toLowerCase();
+        if (
+          msg.includes('offline') ||
+          msg.includes('did not respond') ||
+          msg.includes('unavailable') ||
+          msg.includes('failed to get document from server')
+        ) {
+          throw err;
+        }
+        // Erros como permission-denied ou not-found indicam que o backend respondeu
+      });
+
       const [
         schools,
         classes,
@@ -654,7 +793,10 @@ export const firestoreService = {
         interventions,
         gate,
         ocorrencias,
-        tablets
+        tablets,
+        calendar,
+        teacherSchedules,
+        timetableWorkspace
       ] = await Promise.all([
         firestoreService.getSchools(),
         firestoreService.getClasses(targetSchoolId),
@@ -665,7 +807,10 @@ export const firestoreService = {
         firestoreService.getInterventions(targetSchoolId),
         firestoreService.getGateRecords(undefined, targetSchoolId),
         firestoreService.getOcorrencias(targetSchoolId),
-        firestoreService.getTablets(targetSchoolId)
+        firestoreService.getTablets(targetSchoolId),
+        firestoreService.getSchoolCalendar(targetSchoolId),
+        firestoreService.getTeacherSchedules(targetSchoolId),
+        firestoreService.getTimetableWorkspace(targetSchoolId)
       ]);
 
       const latencyMs = Math.round(performance.now() - start);
@@ -681,6 +826,9 @@ export const firestoreService = {
         gate,
         ocorrencias,
         tablets,
+        calendar,
+        teacherSchedules,
+        timetableWorkspace,
         latencyMs,
         source: 'firebase_direct'
       };
@@ -699,6 +847,9 @@ export const firestoreService = {
         gate: [],
         ocorrencias: null,
         tablets: null,
+        calendar: null,
+        teacherSchedules: [],
+        timetableWorkspace: null,
         latencyMs,
         source: 'firebase_direct'
       };

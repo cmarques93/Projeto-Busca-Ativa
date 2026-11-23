@@ -63,6 +63,8 @@ import {
 } from '../lib/geminiClient';
 import ocorrenciasBaseline from '../data/ocorrenciasBaseline.json';
 import tabletsBaseline from '../data/tabletsBaseline.json';
+import { ScheduleGridManager } from './ScheduleGridManager';
+import { CurriculumCalendarModule } from './CurriculumCalendarModule';
 
 export type SystemConfigSubTab =
   | 'escolas'
@@ -147,6 +149,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
     busca_ativa: true,
     ocorrencias: true,
     tablets: true,
+    grade_calendario: true,
     relatorios: true,
   });
 
@@ -178,6 +181,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
       busca_ativa: true,
       ocorrencias: true,
       tablets: true,
+      grade_calendario: true,
       relatorios: true,
     });
     setIsSchoolModalOpen(true);
@@ -199,6 +203,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
       busca_ativa: true,
       ocorrencias: true,
       tablets: true,
+      grade_calendario: true,
       relatorios: true,
     });
     setIsSchoolModalOpen(true);
@@ -331,7 +336,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
   // ==========================================
   // ESTADOS: SUB-ABA 2 - OCORRÊNCIAS ESCOLARES
   // ==========================================
-  const [abaOcorrenciasSub, setAbaOcorrenciasSub] = useState<'motivos' | 'medidas' | 'horarios' | 'ia_gemini'>('motivos');
+  const [abaOcorrenciasSub, setAbaOcorrenciasSub] = useState<'motivos' | 'medidas' | 'horarios' | 'grade_docente' | 'ia_gemini'>('motivos');
   const [ocorrenciasDb, setOcorrenciasDb] = useState<OcorrenciasDatabase>(() => {
     try {
       const cached = localStorage.getItem('CACHE_OCORRENCIAS_APP');
@@ -724,7 +729,9 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
   const handleSalvarGradeHorarios = async (novaGrade: HorarioAula[]) => {
     setSalvandoHorarios(true);
     try {
-      const aulasNomes = novaGrade.filter(g => g.tipo === 'aula').map(g => g.nome);
+      const aulasNomes = Array.from(
+        new Set([...novaGrade.map(g => g.nome), 'TUTORIA'])
+      ).filter(Boolean);
       const novoDb: OcorrenciasDatabase = {
         ...ocorrenciasDb,
         gradeHorarios: novaGrade,
@@ -1387,8 +1394,8 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
           }`}
         >
           <Tablet className="w-4 h-4" />
-          <span>📱 Agendamento de Tablets</span>
-          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+          <span>📱 Agendamento de Equipamentos</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold font-mono ${
             activeSubTab === 'tablets' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
           }`}>
             {tabletsDb.horarios.length} Aulas
@@ -1927,6 +1934,27 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
                           <span className="text-[10px] text-slate-500">Relatório Oficial com assinaturas</span>
                         </div>
                       </label>
+
+                      {/* Grade Curricular & Calendário Letivo */}
+                      <label className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs transition-colors ${
+                        isUniversalMaster ? 'cursor-pointer' : 'cursor-default'
+                      } ${
+                        schoolFormModules.grade_calendario !== false
+                          ? 'border-indigo-300 bg-indigo-50/60 text-indigo-950 font-semibold'
+                          : 'border-slate-200 bg-white text-slate-400 opacity-60'
+                      }`}>
+                        <input
+                          type="checkbox"
+                          disabled={!isUniversalMaster}
+                          checked={schoolFormModules.grade_calendario !== false}
+                          onChange={e => setSchoolFormModules(prev => ({ ...prev, grade_calendario: e.target.checked }))}
+                          className="mt-0.5 rounded text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <div>
+                          <strong className="block text-slate-800">Grade Curricular & Calendário</strong>
+                          <span className="text-[10px] text-slate-500">Gerador de horários, critérios anuais e calendário</span>
+                        </div>
+                      </label>
                     </div>
                   </div>
 
@@ -2257,6 +2285,19 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
             >
               <Clock className="w-3.5 h-3.5" />
               <span>⏰ Grade de Horários (Aulas & Intervalos) ({gradeHorarios.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAbaOcorrenciasSub('grade_docente')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                abaOcorrenciasSub === 'grade_docente'
+                  ? 'bg-purple-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>📚 Grade Horária das Aulas & Plataformas</span>
             </button>
 
             <button
@@ -2594,6 +2635,15 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
             </div>
           )}
 
+          {/* GRADE HORÁRIA DAS AULAS, CRITÉRIOS ANUAIS & CALENDÁRIO */}
+          {abaOcorrenciasSub === 'grade_docente' && (
+            <CurriculumCalendarModule
+              classes={classes}
+              currentUser={currentUser}
+              onRefresh={() => onRefresh()}
+            />
+          )}
+
           {/* IA GOOGLE GEMINI */}
           {abaOcorrenciasSub === 'ia_gemini' && (
             <div className="bg-purple-50/70 border border-purple-200 rounded-2xl p-6 space-y-4">
@@ -2711,16 +2761,16 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
               <div className="flex items-center gap-2">
                 <Tablet className="w-5 h-5 text-sky-600" />
                 <h2 className="text-base font-black text-slate-900">
-                  Gerenciador de Tablets, Turmas & Grade Semanal
+                  Gerenciador de Equipamentos, Turmas & Grade Semanal
                 </h2>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Cadastre e edite turmas autorizadas, configure horários de aula e bloqueios de feriados.
+                Cadastre e edite turmas autorizadas, configure horários de aula, capacidade e bloqueios de feriados.
               </p>
             </div>
             <div className="flex items-center gap-2">
               <span className="bg-sky-50 text-sky-800 text-xs font-bold px-3 py-1 rounded-xl border border-sky-200">
-                Capacidade: {tabletsDb.maxTablets || 23} Tablets / Aula
+                Capacidade padrão: {tabletsDb.maxTablets || 23} unid. / Aula
               </span>
             </div>
           </div>

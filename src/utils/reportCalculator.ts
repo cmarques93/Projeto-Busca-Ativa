@@ -4,10 +4,17 @@ import {
   AttendanceRecord,
   ParentAlert,
   InterventionCase,
-  MonthlyPedagogicalReport
+  MonthlyPedagogicalReport,
+  SchoolCalendarConfig
 } from '../types';
 import { isRecordInClass } from '../components/RealTimeAttendance';
 import { normalizeDateStr, isSameDay } from '../lib/firestoreService';
+import {
+  countSchoolDaysInRange,
+  getCalendarDayStatus,
+  getCalendarMetricsSummary,
+  readCalendarFromLocalStorage
+} from './calendarUtils';
 
 export interface ReportCalculationOptions {
   startDate: string; // YYYY-MM-DD
@@ -17,6 +24,7 @@ export interface ReportCalculationOptions {
   attendanceRecords: AttendanceRecord[];
   alerts: ParentAlert[];
   interventions: InterventionCase[];
+  calendar?: SchoolCalendarConfig | null;
 }
 
 export function getLocalTodayStr(): string {
@@ -28,44 +36,21 @@ export function getLocalTodayStr(): string {
 }
 
 /**
- * Retorna true se a data informada (YYYY-MM-DD) for um dia útil escolar (Segunda a Sexta).
- * Garante que fins de semana nunca sejam penalizados ou computados indevidamente como ausência.
+ * Retorna true se a data informada (YYYY-MM-DD) for um dia letivo conforme o Calendário Escolar configurado.
+ * Exclui fins de semana (salvo sábados letivos), feriados, recessos e férias.
  */
-export function isBusinessDay(dateStr: string): boolean {
+export function isBusinessDay(dateStr: string, calendar?: SchoolCalendarConfig | null): boolean {
   if (!dateStr) return false;
-  const clean = normalizeDateStr(dateStr);
-  const parts = clean.split('-');
-  if (parts.length !== 3) return false;
-  const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0);
-  const dayOfWeek = d.getDay(); // 0 = Domingo, 6 = Sábado
-  return dayOfWeek >= 1 && dayOfWeek <= 5;
+  const cal = calendar || readCalendarFromLocalStorage();
+  return getCalendarDayStatus(dateStr, cal).isSchoolDay;
 }
 
 /**
- * Calcula a quantidade de dias úteis escolares (Segunda a Sexta) contidos no intervalo de datas.
+ * Calcula a quantidade de dias letivos efetivos contidos no intervalo de datas considerando o Calendário Escolar.
  */
-export function countBusinessDays(startDate: string, endDate: string): number {
-  const s = normalizeDateStr(startDate);
-  const e = normalizeDateStr(endDate) || s;
-  const minDate = s <= e ? s : e;
-  const maxDate = s <= e ? e : s;
-
-  const minParts = minDate.split('-').map(Number);
-  const maxParts = maxDate.split('-').map(Number);
-  if (minParts.length !== 3 || maxParts.length !== 3) return 1;
-
-  const current = new Date(minParts[0], minParts[1] - 1, minParts[2], 12, 0, 0);
-  const finish = new Date(maxParts[0], maxParts[1] - 1, maxParts[2], 12, 0, 0);
-
-  let count = 0;
-  while (current <= finish) {
-    const day = current.getDay();
-    if (day >= 1 && day <= 5) {
-      count++;
-    }
-    current.setDate(current.getDate() + 1);
-  }
-  return Math.max(1, count);
+export function countBusinessDays(startDate: string, endDate: string, calendar?: SchoolCalendarConfig | null): number {
+  const cal = calendar || readCalendarFromLocalStorage();
+  return countSchoolDaysInRange(startDate, endDate, cal, true);
 }
 
 /**
@@ -112,20 +97,22 @@ export function calculatePedagogicalReport(options: ReportCalculationOptions): M
     startDate,
     endDate,
     classes = [],
-    students = [],
+    students: rawStudents = [],
     attendanceRecords = [],
     alerts = [],
     interventions = []
   } = options;
 
+  const students = rawStudents.filter(s => s.status !== 'transferido');
+
   const startNorm = normalizeDateStr(startDate);
   const endNorm = normalizeDateStr(endDate) || startNorm;
 
-  // Garante ordenação cronológica correta de datas
+  const cal = options.calendar || readCalendarFromLocalStorage();
   const minDate = startNorm <= endNorm ? startNorm : endNorm;
   const maxDate = startNorm <= endNorm ? endNorm : startNorm;
   const isSingleDay = minDate === maxDate;
-  const businessDaysCount = countBusinessDays(minDate, maxDate);
+  const businessDaysCount = countSchoolDaysInRange(minDate, maxDate, cal, false);
 
   // 1. Filtra registros de frequência no intervalo [minDate, maxDate]
   const periodRecords = attendanceRecords.filter(r => {
@@ -386,12 +373,14 @@ export function calculatePedagogicalReport(options: ReportCalculationOptions): M
   const bestClass = sortedClasses[0] || { className: 'Geral', averageAttendance: 100 };
   const worstClass = sortedClasses[sortedClasses.length - 1] || { className: 'Geral', averageAttendance: 100 };
 
+  const calSummary = getCalendarMetricsSummary(cal);
+  const dayStatusSingle = getCalendarDayStatus(minDate, cal);
   const periodDescription = isSingleDay
-    ? `no dia ${formatDateBR(minDate)} (${isBusinessDay(minDate) ? 'dia letivo' : 'fim de semana'})`
-    : `no período de ${formatDateBR(minDate)} a ${formatDateBR(maxDate)} (${businessDaysCount} ${businessDaysCount === 1 ? 'dia útil letivo' : 'dias úteis letivos'})`;
+    ? `no dia ${formatDateBR(minDate)} (${dayStatusSingle.reason})`
+    : `no período de ${formatDateBR(minDate)} a ${formatDateBR(maxDate)} (${businessDaysCount} ${businessDaysCount === 1 ? 'dia letivo' : 'dias letivos'} no calendário escolar)`;
 
   const pedagogicalInsights = [
-    `Diagnóstico Geral: ${periodDescription}, a taxa média de frequência escolar consolidou-se em ${averageAttendanceRate}%, com ${turmasComChamada} de ${turmasTotal} turmas registradas no sistema.`,
+    `Diagnóstico Geral: ${periodDescription}, a taxa média de frequência escolar consolidou-se em ${averageAttendanceRate}%, com ${turmasComChamada} de ${turmasTotal} turmas registradas no sistema (Calendário Letivo: ${calSummary.elapsedSchoolDays} de ${calSummary.totalPlannedSchoolDays} dias letivos transcorridos).`,
     `Atenção Prioritária: Foram identificados ${studentsWithCriticalAbsence} estudantes em situação crítica de infrequência (< 75% ou com faltas consecutivas), exigindo acionamento imediato da Busca Ativa.`,
     `Destaque por Turma: A turma com maior assiduidade foi ${bestClass.className} (${bestClass.averageAttendance}%), enquanto a turma ${worstClass.className} (${worstClass.averageAttendance}%) requer intervenção pedagógica focal para recomposição de vínculo.`,
     `Monitoramento de Alertas e Busca Ativa: Foram expedidos ${alertsDispatched} alertas automáticos com taxa de retorno/interação de ${alertsDispatched > 0 ? Math.round((alertsResponded / alertsDispatched) * 100) : 0}%, sustentando ${successfulReintegrations} reintegrações de alunos infrequentes com sucesso.`,
