@@ -75,12 +75,34 @@ const DEFAULT_TABLETS_COUNT = 23;
 
 const SUGGESTED_EQUIPMENT_TYPES = [
   'Tablet',
+  'Computador',
   'Chromebook',
   'Notebook',
   'Projetor / Data Show',
   'Caixa de Som',
   'Kit Robótica',
 ];
+
+/**
+ * Aulas com plataformas digitais utilizam computadores/notebooks/chromebooks — NÃO tablets.
+ * Portanto, a trava de plataforma aplica-se exclusivamente a equipamentos da categoria computador.
+ */
+function isComputerEquipmentType(equipmentType?: string): boolean {
+  const norm = (equipmentType || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+  if (!norm || norm.includes('tablet')) return false;
+  return (
+    norm.includes('computador') ||
+    norm.includes('notebook') ||
+    norm.includes('chromebook') ||
+    norm.includes('desktop') ||
+    norm.includes('laptop') ||
+    /\bpc\b/.test(norm)
+  );
+}
 
 const CONDITION_META: Record<
   EquipmentCondition,
@@ -521,18 +543,29 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
     return Array.from(new Set([...doSheets, ...daPlataforma])).filter(Boolean).sort();
   }, [baseDeDados.turmas, classes]);
 
-  // Verifica trava de plataforma para o agendamento atual dentro do Modal
+  // A trava de plataforma aplica-se apenas a computadores/notebooks/chromebooks (Tablets ficam livres)
+  const selectedTypeUsesPlatformLock = useMemo(
+    () => isComputerEquipmentType(selectedEquipmentType),
+    [selectedEquipmentType]
+  );
+
+  const formTypeUsesPlatformLock = useMemo(
+    () => isComputerEquipmentType(formAgendar.equipmentType),
+    [formAgendar.equipmentType]
+  );
+
+  // Verifica trava de plataforma para o agendamento atual dentro do Modal (somente para computadores)
   const modalPlatformSlotsForPeriod = useMemo(() => {
-    if (!modalContext) return [];
+    if (!modalContext || !formTypeUsesPlatformLock) return [];
     return findPlatformSlotsForDateAndPeriod({
       dateStr: modalContext.dataIso,
       aulaLabel: modalContext.aula,
       teacherSchedules,
     });
-  }, [modalContext, teacherSchedules]);
+  }, [modalContext, formTypeUsesPlatformLock, teacherSchedules]);
 
   const activePlatformLock = useMemo(() => {
-    if (!modalContext) return null;
+    if (!modalContext || !formTypeUsesPlatformLock) return null;
     const professorAtual =
       modoAdminOutroUsuario && formAgendar.professor === '__OUTRO__'
         ? professorCustomizado.trim()
@@ -544,7 +577,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
       teacherName: professorAtual,
       teacherSchedules,
     });
-  }, [modalContext, formAgendar.turma, formAgendar.professor, modoAdminOutroUsuario, professorCustomizado, teacherSchedules]);
+  }, [modalContext, formTypeUsesPlatformLock, formAgendar.turma, formAgendar.professor, modoAdminOutroUsuario, professorCustomizado, teacherSchedules]);
 
   const modalAvailableQty = useMemo(() => {
     if (!modalContext) return 0;
@@ -623,18 +656,20 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
       return;
     }
 
-    // Trava de segurança para aulas que contêm plataformas na Grade Horária
-    const platformLock = findPlatformLockForBooking({
-      dateStr: modalContext.dataIso,
-      aulaLabel: modalContext.aula,
-      className: formAgendar.turma,
-      teacherName: professorFinal,
-      teacherSchedules,
-    });
+    // Trava de segurança para aulas com plataformas na Grade Horária (aplicada apenas a computadores; Tablets liberados)
+    const platformLock = isComputerEquipmentType(formAgendar.equipmentType)
+      ? findPlatformLockForBooking({
+          dateStr: modalContext.dataIso,
+          aulaLabel: modalContext.aula,
+          className: formAgendar.turma,
+          teacherName: professorFinal,
+          teacherSchedules,
+        })
+      : null;
 
     if (platformLock) {
       setMensagem({
-        texto: `🔒 Agendamento bloqueado: a turma ${formAgendar.turma} possui aula com plataforma digital (${platformLock.platformName || 'Plataforma'}) cadastrada na Grade Horária para este horário.`,
+        texto: `🔒 Agendamento de ${formAgendar.equipmentType} bloqueado: a turma ${formAgendar.turma} possui aula com plataforma digital (${platformLock.platformName || 'Plataforma'}) cadastrada na Grade Horária para este horário.`,
         tipo: 'erro',
       });
       return;
@@ -942,7 +977,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium mt-0.5">
-              Reserva por tipo de equipamento, controle de condição (1. Em Uso / 2. Quebrado / 3. Em manutenção) e trava automática em aulas com plataformas digitais.
+              Reserva por tipo de equipamento, controle de condição (1. Em Uso / 2. Quebrado / 3. Em manutenção) e trava automática de plataformas para computadores (Tablets liberados).
             </p>
           </div>
         </div>
@@ -1133,12 +1168,14 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
               <span className="w-3 h-3 rounded-full bg-rose-500" />
               <span className="font-medium text-slate-700">Esgotado / Indisponível</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-amber-700" />
-              <span className="font-medium text-slate-700">
-                Trava de Plataforma (Bloqueado para turmas em aula c/ plataforma na Grade Horária)
-              </span>
-            </div>
+            {selectedTypeUsesPlatformLock && (
+              <div className="flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-amber-700" />
+                <span className="font-medium text-slate-700">
+                  Trava de Plataforma (Bloqueado para computadores em aula c/ plataforma na Grade Horária)
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Grade Semanal */}
@@ -1256,11 +1293,13 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                               activeCapacitySelectedType > 0 && disponiveis === activeCapacitySelectedType;
                             const isEsgotado = disponiveis === 0;
 
-                            const platformSlotsHere = findPlatformSlotsForDateAndPeriod({
-                              dateStr: strData,
-                              aulaLabel: aulaStr,
-                              teacherSchedules,
-                            });
+                            const platformSlotsHere = selectedTypeUsesPlatformLock
+                              ? findPlatformSlotsForDateAndPeriod({
+                                  dateStr: strData,
+                                  aulaLabel: aulaStr,
+                                  teacherSchedules,
+                                })
+                              : [];
 
                             return (
                               <td
@@ -2043,12 +2082,14 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                     >
                       <option value="">Selecione a turma...</option>
                       {listaTurmas.map(t => {
-                        const slotPlat = findPlatformLockForBooking({
-                          dateStr: modalContext.dataIso,
-                          aulaLabel: modalContext.aula,
-                          className: t,
-                          teacherSchedules,
-                        });
+                        const slotPlat = formTypeUsesPlatformLock
+                          ? findPlatformLockForBooking({
+                              dateStr: modalContext.dataIso,
+                              aulaLabel: modalContext.aula,
+                              className: t,
+                              teacherSchedules,
+                            })
+                          : null;
                         return (
                           <option key={t} value={t}>
                             {t}
@@ -2059,12 +2100,12 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                     </select>
                   </div>
 
-                  {/* Aviso de Trava de Uso em Aula com Plataforma */}
+                  {/* Aviso de Trava de Uso em Aula com Plataforma (apenas para computadores) */}
                   {activePlatformLock && (
                     <div className="bg-rose-50 border-2 border-rose-300 rounded-xl p-3.5 text-xs text-rose-950 space-y-1">
                       <div className="font-extrabold flex items-center gap-1.5 text-rose-800">
                         <Lock className="w-4 h-4 text-rose-600 shrink-0" />
-                        <span>Trava de Uso Ativada — Aula com Plataforma</span>
+                        <span>Trava de Uso Ativada — Aula com Plataforma (Computadores)</span>
                       </div>
                       <p className="leading-relaxed text-rose-900">
                         A Grade Horária indica que nesta aula a turma{' '}
@@ -2074,7 +2115,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
                         <strong>{activePlatformLock.teacherName}</strong>.
                       </p>
                       <p className="text-[11px] font-bold text-rose-700">
-                        Não é possível realizar agendamento de equipamentos neste horário para esta turma/aula.
+                        Não é possível agendar {formAgendar.equipmentType} neste horário para esta turma/aula. Para Tablets, o agendamento permanece liberado.
                       </p>
                     </div>
                   )}
