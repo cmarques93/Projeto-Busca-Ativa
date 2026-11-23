@@ -13,9 +13,15 @@ import {
   X,
   Clock,
   Sparkles,
-  Server
+  Server,
+  ExternalLink,
+  AlertTriangle
 } from 'lucide-react';
-import { firestoreService } from '../lib/firestoreService';
+import {
+  firestoreService,
+  FIRESTORE_UPGRADE_URL,
+  FIRESTORE_PRICING_URL
+} from '../lib/firestoreService';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 interface FirebaseStatusModalProps {
@@ -45,12 +51,14 @@ export const FirebaseStatusModal: React.FC<FirebaseStatusModalProps> = ({
   const [pingResult, setPingResult] = useState<{
     tested: boolean;
     success: boolean;
+    quotaExceeded?: boolean;
     latencyMs: number;
     error?: string;
     timestamp?: string;
   }>({
     tested: false,
     success: true,
+    quotaExceeded: false,
     latencyMs: 38,
   });
 
@@ -61,6 +69,7 @@ export const FirebaseStatusModal: React.FC<FirebaseStatusModalProps> = ({
       setPingResult({
         tested: true,
         success: res.success,
+        quotaExceeded: res.quotaExceeded,
         latencyMs: res.latencyMs,
         error: res.error,
         timestamp: new Date().toLocaleTimeString('pt-BR'),
@@ -69,6 +78,7 @@ export const FirebaseStatusModal: React.FC<FirebaseStatusModalProps> = ({
       setPingResult({
         tested: true,
         success: false,
+        quotaExceeded: false,
         latencyMs: 0,
         error: err?.message || String(err),
         timestamp: new Date().toLocaleTimeString('pt-BR'),
@@ -108,10 +118,22 @@ export const FirebaseStatusModal: React.FC<FirebaseStatusModalProps> = ({
             <div>
               <h2 className="text-lg font-bold flex items-center gap-2">
                 Conexão Direta ao Banco Firebase
-                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Ativo na Nuvem
-                </span>
+                {pingResult.quotaExceeded ? (
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-200 border border-rose-400/40 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                    Cota Diária Atingida
+                  </span>
+                ) : !pingResult.success && pingResult.tested ? (
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-400/40 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    Atenção na Conexão
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Ativo na Nuvem
+                  </span>
+                )}
               </h2>
               <p className="text-xs text-slate-300">
                 Garantia de acesso universal para todas as máquinas, navegadores e redes
@@ -133,21 +155,27 @@ export const FirebaseStatusModal: React.FC<FirebaseStatusModalProps> = ({
           <div className={`p-4 rounded-xl border flex items-start justify-between gap-4 ${
             pingResult.success
               ? 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
-              : 'bg-amber-50/80 border-amber-200 text-amber-900'
+              : pingResult.quotaExceeded
+                ? 'bg-rose-50/90 border-rose-200 text-rose-950'
+                : 'bg-amber-50/80 border-amber-200 text-amber-900'
           }`}>
             <div className="flex items-start gap-3">
               {pingResult.success ? (
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 mt-0.5 shrink-0" />
+              ) : pingResult.quotaExceeded ? (
+                <AlertTriangle className="w-5 h-5 text-rose-600 mt-0.5 shrink-0" />
               ) : (
                 <XCircle className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
               )}
-              <div>
+              <div className="space-y-1.5">
                 <p className="font-bold text-sm">
                   {pingResult.success
                     ? 'Conexão Direta com Google Cloud Firestore Confirmada'
-                    : 'Aviso de Conexão com Firebase'}
+                    : pingResult.quotaExceeded
+                      ? 'Cota Diária Gratuita do Firebase Firestore Excedida'
+                      : 'Aviso de Conexão com Firebase'}
                 </p>
-                <p className="text-xs mt-0.5 text-slate-600">
+                <p className="text-xs text-slate-700 leading-relaxed">
                   {pingResult.success ? (
                     <>
                       Comunicação direta via SDK HTTPS (Porta 443). Resposta em{' '}
@@ -158,6 +186,28 @@ export const FirebaseStatusModal: React.FC<FirebaseStatusModalProps> = ({
                     pingResult.error || 'Não foi possível confirmar o ping ao servidor.'
                   )}
                 </p>
+                {pingResult.quotaExceeded && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <a
+                      href={FIRESTORE_UPGRADE_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-2xs transition-colors"
+                    >
+                      <span>Fazer Upgrade do Banco no Firebase</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                    <a
+                      href={FIRESTORE_PRICING_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-rose-300 hover:bg-rose-50 text-rose-900 text-xs font-semibold transition-colors"
+                    >
+                      <span>Ver Limites do Plano Spark (Enterprise)</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                )}
               </div>
             </div>
 

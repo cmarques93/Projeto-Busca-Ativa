@@ -146,20 +146,91 @@ function getCurrentSchoolId(): string {
   }
 }
 
+function isStaleSeptemberOcorrencias(data: any): boolean {
+  if (!data || !Array.isArray(data.registros) || data.registros.length === 0) return true;
+  if (data.registros.length > 65) return false;
+  let maxTs = 0;
+  for (const r of data.registros) {
+    const ts = parseDataOcorrenciaToTimestamp(r.data);
+    if (ts > maxTs) maxTs = ts;
+  }
+  const cutoff = new Date('2026-09-25T23:59:59').getTime();
+  return maxTs > 0 && maxTs <= cutoff;
+}
+
+function isStaleSeptemberTablets(data: any): boolean {
+  if (!data || !Array.isArray(data.agendamentos) || data.agendamentos.length === 0) return true;
+  if (data.agendamentos.length > 85) return false;
+  let maxDate = '';
+  for (const a of data.agendamentos) {
+    const d = String(a.data || '').trim();
+    if (d > maxDate) maxDate = d;
+  }
+  return !!maxDate && maxDate <= '2026-09-30';
+}
+
+function mergeUniqueOcorrencias(primary: any[], secondary: any[]): any[] {
+  const seen = new Set<string>();
+  const merged: any[] = [];
+  for (const list of [primary, secondary]) {
+    for (const r of (list || [])) {
+      const key = r.id
+        ? `id:${String(r.id).trim()}`
+        : `k:${String(r.data || '').trim()}|${String(r.aula || '').trim()}|${String(r.estudante || '').trim()}|${String(r.ocorrencia || '').trim()}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(r);
+      }
+    }
+  }
+  return ordenarOcorrenciasPorMaisRecentes(merged);
+}
+
+function mergeUniqueAgendamentos(primary: any[], secondary: any[]): any[] {
+  const seen = new Set<string>();
+  const merged: any[] = [];
+  for (const list of [primary, secondary]) {
+    for (const ag of (list || [])) {
+      const tipo = (ag.equipmentType || 'Tablet').trim().toLowerCase();
+      const qty = Number(ag.quantity ?? ag.tablets ?? 0);
+      const key = ag.id
+        ? `id:${String(ag.id).trim()}`
+        : `k:${String(ag.data || '').trim()}|${String(ag.aula || '').trim()}|${String(ag.professor || '').trim()}|${String(ag.turma || '').trim()}|${tipo}|${qty}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(ag);
+      }
+    }
+  }
+  return merged;
+}
+
 export async function carregarOcorrenciasSeguro(
   classes: any[] = [],
   students: any[] = []
 ): Promise<SyncResult<any>> {
   const schoolId = getCurrentSchoolId();
   const isDefaultSchool = schoolId === 'ee-arlindo-silvestre';
+  const cached = lerCacheOcorrencias(schoolId);
 
-  // 1. Tenta Firestore Cloud (Ideal e 100% compatível com Google Sites/iframes sem restrição de cookies)
+  // 1. Tenta Firestore Cloud (NUNCA sobrescreve a nuvem a partir de fallback em caso de erro de leitura)
   try {
     const cloudData = await firestoreService.getOcorrencias(schoolId);
     if (cloudData && Array.isArray(cloudData.registros)) {
+      let registrosFinais = ordenarOcorrenciasPorMaisRecentes(cloudData.registros);
+      // Proteção extra: se o cache local tiver registros mais recentes que um documento regredido para o baseline antigo, preserva-os
+      if (
+        cached &&
+        Array.isArray(cached.registros) &&
+        cached.registros.length > registrosFinais.length &&
+        isStaleSeptemberOcorrencias(cloudData) &&
+        !isStaleSeptemberOcorrencias(cached)
+      ) {
+        registrosFinais = mergeUniqueOcorrencias(cached.registros, registrosFinais);
+      }
       const sortedCloudData = {
         ...cloudData,
-        registros: ordenarOcorrenciasPorMaisRecentes(cloudData.registros),
+        registros: registrosFinais,
       };
       salvarCacheOcorrencias(sortedCloudData, schoolId);
       return {
@@ -175,7 +246,6 @@ export async function carregarOcorrenciasSeguro(
 
   // Para escolas novas (diferentes da EE Professor Arlindo Silvestre), usa apenas cache próprio ou base limpa da própria escola
   if (!isDefaultSchool) {
-    const cached = lerCacheOcorrencias(schoolId);
     if (cached && Array.isArray(cached.registros)) {
       return {
         success: true,
@@ -188,7 +258,6 @@ export async function carregarOcorrenciasSeguro(
       };
     }
     const cleanFallback = gerarFallbackOcorrencias(classes, students);
-    salvarCacheOcorrencias(cleanFallback, schoolId);
     return {
       success: true,
       data: cleanFallback,
@@ -197,42 +266,46 @@ export async function carregarOcorrenciasSeguro(
     };
   }
 
-  // 2. Tenta API do Backend (Exclusivo EE Professor Arlindo Silvestre)
+  // 2. Firestore indisponível/cota excedida: preserva cache local e, se existir backup mais recente na planilha (/api/sheets-ocorrencias), mescla somente em leitura (SEM sobrescrever Firestore)
+  const hasRichLocalCache =
+    cached && Array.isArray(cached.registros) && cached.registros.length > 0 && !isStaleSeptemberOcorrencias(cached);
+
+  if (hasRichLocalCache) {
+    const sortedCached = {
+      ...cached,
+      registros: ordenarOcorrenciasPorMaisRecentes(cached.registros),
+    };
+    return {
+      success: true,
+      data: sortedCached,
+      source: 'cache',
+      message: 'Operando com os registros salvos localmente no navegador (aguardando liberação do Firebase)',
+    };
+  }
+
+  // 3. Tenta API do Backend (Google Sheets backup — somente leitura, NUNCA sobrescreve Firestore)
   const apiRes = await safeFetchJson('/api/sheets-ocorrencias');
-  if (apiRes.ok && apiRes.data && !apiRes.data.erro) {
-    const sortedApiData = {
+  if (apiRes.ok && apiRes.data && !apiRes.data.erro && Array.isArray(apiRes.data.registros)) {
+    const mergedRegistros = mergeUniqueOcorrencias(
+      cached?.registros || [],
+      apiRes.data.registros || []
+    );
+    const mergedData = {
       ...apiRes.data,
-      registros: ordenarOcorrenciasPorMaisRecentes(apiRes.data.registros || []),
+      ...(cached || {}),
+      registros: mergedRegistros,
     };
-    salvarCacheOcorrencias(sortedApiData, schoolId);
-    firestoreService.saveOcorrencias(sortedApiData, schoolId).catch(() => {});
+    salvarCacheOcorrencias(mergedData, schoolId);
     return {
       success: true,
-      data: sortedApiData,
+      data: mergedData,
       source: 'api',
-      message: 'Conectado via servidor do sistema',
+      message: 'Conectado via backup da planilha do servidor (Firebase temporariamente indisponível)',
     };
   }
 
-  // 3. Base Oficial Embutida Garantida (Exclusivo EE Professor Arlindo Silvestre)
-  if (ocorrenciasBaseline && (ocorrenciasBaseline as any).registros && (ocorrenciasBaseline as any).registros.length > 0) {
-    const sortedBaseline = {
-      ...ocorrenciasBaseline,
-      registros: ordenarOcorrenciasPorMaisRecentes((ocorrenciasBaseline as any).registros),
-    };
-    salvarCacheOcorrencias(sortedBaseline, schoolId);
-    firestoreService.saveOcorrencias(sortedBaseline, schoolId).catch(() => {});
-    return {
-      success: true,
-      data: sortedBaseline,
-      source: 'fallback',
-      message: 'Base oficial de ocorrências carregada com sucesso!',
-    };
-  }
-
-  // 4. Fallback para Cache Local
-  const cached = lerCacheOcorrencias(schoolId);
-  if (cached && cached.registros && cached.registros.length > 0) {
+  // 4. Usa cache local existente mesmo que parcial (sem sobrescrever com baseline antigo)
+  if (cached && Array.isArray(cached.registros) && cached.registros.length > 0) {
     const sortedCached = {
       ...cached,
       registros: ordenarOcorrenciasPorMaisRecentes(cached.registros),
@@ -245,7 +318,20 @@ export async function carregarOcorrenciasSeguro(
     };
   }
 
-  // 5. Fallback mínimo com dados escolares da plataforma
+  // 5. Último recurso somente em memória (NÃO grava em Firestore nem sobrescreve cache existente)
+  if (ocorrenciasBaseline && (ocorrenciasBaseline as any).registros && (ocorrenciasBaseline as any).registros.length > 0) {
+    const sortedBaseline = {
+      ...ocorrenciasBaseline,
+      registros: ordenarOcorrenciasPorMaisRecentes((ocorrenciasBaseline as any).registros),
+    };
+    return {
+      success: true,
+      data: sortedBaseline,
+      source: 'fallback',
+      message: 'Base inicial de referência carregada em modo somente leitura',
+    };
+  }
+
   const fallback = gerarFallbackOcorrencias(classes, students);
   return {
     success: true,
@@ -256,24 +342,43 @@ export async function carregarOcorrenciasSeguro(
 }
 
 /**
- * Carrega a base de Agendamento de Tablets com quadrupla redundância:
- * 1. Firestore Cloud (Ideal para Google Sites / iframes sem cookies de terceiros)
- * 2. API do Backend (/api/sheets-tablets)
- * 3. Base Oficial Integrada (81 agendamentos)
- * 4. Cache local offline (localStorage)
+ * Carrega a base de Agendamento de Equipamentos de forma segura e não-destrutiva:
+ * 1. Firestore Cloud
+ * 2. Cache local rico do navegador (preserva dados recentes sem regredir)
+ * 3. Backup somente leitura do servidor (/api/sheets-tablets)
+ * 4. Baseline em memória apenas se não houver nenhum dado prévio (NUNCA sobrescreve o Firestore)
  */
 export async function carregarTabletsSeguro(classes: any[] = []): Promise<SyncResult<any>> {
   const schoolId = getCurrentSchoolId();
   const isDefaultSchool = schoolId === 'ee-arlindo-silvestre';
+  const cached = lerCacheTablets(schoolId);
 
-  // 1. Tenta Firestore Cloud (Ideal para Google Sites)
+  // 1. Tenta Firestore Cloud
   try {
     const cloudData = await firestoreService.getTablets(schoolId);
     if (cloudData && Array.isArray(cloudData.agendamentos)) {
-      salvarCacheTablets(cloudData, schoolId);
+      let agendamentosFinais = cloudData.agendamentos;
+      if (
+        cached &&
+        Array.isArray(cached.agendamentos) &&
+        cached.agendamentos.length > agendamentosFinais.length &&
+        isStaleSeptemberTablets(cloudData) &&
+        !isStaleSeptemberTablets(cached)
+      ) {
+        agendamentosFinais = mergeUniqueAgendamentos(cached.agendamentos, agendamentosFinais);
+      }
+      const mergedCloud = {
+        ...cloudData,
+        agendamentos: agendamentosFinais,
+        equipamentos:
+          Array.isArray(cloudData.equipamentos) && cloudData.equipamentos.length > 0
+            ? cloudData.equipamentos
+            : cached?.equipamentos,
+      };
+      salvarCacheTablets(mergedCloud, schoolId);
       return {
         success: true,
-        data: cloudData,
+        data: mergedCloud,
         source: 'firestore',
         message: 'Grade sincronizada diretamente com o Firebase Firestore',
       };
@@ -283,7 +388,6 @@ export async function carregarTabletsSeguro(classes: any[] = []): Promise<SyncRe
   }
 
   if (!isDefaultSchool) {
-    const cached = lerCacheTablets(schoolId);
     if (cached && Array.isArray(cached.agendamentos)) {
       return {
         success: true,
@@ -293,7 +397,6 @@ export async function carregarTabletsSeguro(classes: any[] = []): Promise<SyncRe
       };
     }
     const cleanFallback = gerarFallbackTablets(classes);
-    salvarCacheTablets(cleanFallback, schoolId);
     return {
       success: true,
       data: cleanFallback,
@@ -302,34 +405,46 @@ export async function carregarTabletsSeguro(classes: any[] = []): Promise<SyncRe
     };
   }
 
-  // 2. Tenta API do Backend (Exclusivo EE Professor Arlindo Silvestre)
+  // 2. Firestore indisponível/cota excedida: preserva cache local rico antes de recorrer ao servidor/baseline
+  const hasRichLocalCache =
+    cached && Array.isArray(cached.agendamentos) && cached.agendamentos.length > 0 && !isStaleSeptemberTablets(cached);
+
+  if (hasRichLocalCache) {
+    return {
+      success: true,
+      data: cached,
+      source: 'cache',
+      message: 'Operando com a grade salva localmente no navegador (aguardando liberação do Firebase)',
+    };
+  }
+
+  // 3. Tenta API do Backend (Google Sheets backup — somente leitura, NUNCA sobrescreve Firestore)
   const apiRes = await safeFetchJson('/api/sheets-tablets');
-  if (apiRes.ok && apiRes.data && !apiRes.data.erro) {
-    salvarCacheTablets(apiRes.data, schoolId);
-    firestoreService.saveTablets(apiRes.data, schoolId).catch(() => {});
+  if (apiRes.ok && apiRes.data && !apiRes.data.erro && Array.isArray(apiRes.data.agendamentos)) {
+    const mergedAgendamentos = mergeUniqueAgendamentos(
+      cached?.agendamentos || [],
+      apiRes.data.agendamentos || []
+    );
+    const mergedData = {
+      ...apiRes.data,
+      ...(cached || {}),
+      agendamentos: mergedAgendamentos,
+      equipamentos:
+        Array.isArray(cached?.equipamentos) && cached.equipamentos.length > 0
+          ? cached.equipamentos
+          : apiRes.data.equipamentos,
+    };
+    salvarCacheTablets(mergedData, schoolId);
     return {
       success: true,
-      data: apiRes.data,
+      data: mergedData,
       source: 'api',
-      message: 'Grade sincronizada via servidor',
+      message: 'Grade carregada via backup da planilha do servidor (Firebase temporariamente indisponível)',
     };
   }
 
-  // 3. Base Oficial Embutida Garantida (Exclusivo EE Professor Arlindo Silvestre)
-  if (tabletsBaseline && (tabletsBaseline as any).agendamentos && (tabletsBaseline as any).agendamentos.length > 0) {
-    salvarCacheTablets(tabletsBaseline, schoolId);
-    firestoreService.saveTablets(tabletsBaseline, schoolId).catch(() => {});
-    return {
-      success: true,
-      data: tabletsBaseline,
-      source: 'fallback',
-      message: 'Grade oficial de tablets carregada com sucesso!',
-    };
-  }
-
-  // 4. Fallback para Cache Local
-  const cached = lerCacheTablets(schoolId);
-  if (cached && cached.agendamentos && cached.agendamentos.length > 0) {
+  // 4. Usa cache local existente mesmo que parcial (sem sobrescrever com baseline antigo)
+  if (cached && Array.isArray(cached.agendamentos) && cached.agendamentos.length > 0) {
     return {
       success: true,
       data: cached,
@@ -338,7 +453,16 @@ export async function carregarTabletsSeguro(classes: any[] = []): Promise<SyncRe
     };
   }
 
-  // 5. Fallback padrão
+  // 5. Último recurso somente em memória (NÃO grava em Firestore nem sobrescreve cache existente)
+  if (tabletsBaseline && (tabletsBaseline as any).agendamentos && (tabletsBaseline as any).agendamentos.length > 0) {
+    return {
+      success: true,
+      data: tabletsBaseline,
+      source: 'fallback',
+      message: 'Grade inicial de referência carregada em modo somente leitura',
+    };
+  }
+
   const fallback = gerarFallbackTablets(classes);
   return {
     success: true,
@@ -435,8 +559,10 @@ export async function salvarOcorrenciaSeguro(payload: any, currentDb?: any): Pro
         const registros = [novaOcorr, ...(base.registros || [])];
         base = { ...base, registros };
       }
-      await firestoreService.saveOcorrencias(base, schoolId);
       salvarCacheOcorrencias(base, schoolId);
+      if (!firestoreService.isQuotaCurrentlyExceeded()) {
+        await firestoreService.saveOcorrencias(base, schoolId);
+      }
     }
   } catch (err) {
     console.warn('Erro ao atualizar ocorrência no Firestore:', err);
@@ -486,8 +612,10 @@ export async function salvarConfigOcorrenciasSeguro(
         gradeHorarios: config.gradeHorarios !== undefined ? config.gradeHorarios : base.gradeHorarios,
         geminiApiKey: config.geminiApiKey !== undefined ? config.geminiApiKey : base.geminiApiKey,
       };
-      await firestoreService.saveOcorrencias(updatedBase, schoolId);
       salvarCacheOcorrencias(updatedBase, schoolId);
+      if (!firestoreService.isQuotaCurrentlyExceeded()) {
+        await firestoreService.saveOcorrencias(updatedBase, schoolId);
+      }
     }
   } catch (err) {
     console.warn('Erro ao salvar config no Firestore:', err);
@@ -560,8 +688,10 @@ export async function salvarReservaTabletsSeguro(payload: any, currentDb?: any):
         const agendamentos = [novoAg, ...(base.agendamentos || [])];
         base = { ...base, agendamentos };
       }
-      await firestoreService.saveTablets(base, schoolId);
       salvarCacheTablets(base, schoolId);
+      if (!firestoreService.isQuotaCurrentlyExceeded()) {
+        await firestoreService.saveTablets(base, schoolId);
+      }
     }
   } catch (err) {
     console.warn('Erro ao atualizar tablets no Firestore:', err);

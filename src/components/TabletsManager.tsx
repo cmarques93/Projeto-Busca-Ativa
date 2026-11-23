@@ -158,7 +158,7 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
     firestoreService
       .getTeacherSchedules(sId)
       .then(cloud => {
-        if (Array.isArray(cloud)) {
+        if (Array.isArray(cloud) && cloud.length > 0) {
           storageService.setTeacherSchedules(cloud, sId);
           setTeacherSchedules(cloud);
         }

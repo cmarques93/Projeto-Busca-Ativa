@@ -114,14 +114,14 @@ export default function App() {
   const [selectedMonthIndex, setSelectedMonthIndex] = useState<number>(9);
 
   // Carregamento direto, completo e em tempo real da base de dados do Firebase Firestore
-  const loadAllFromFirebaseDirectly = useCallback(async (isExplicitLogin = false, targetSchoolId?: string): Promise<boolean> => {
+  const loadAllFromFirebaseDirectly = useCallback(async (isExplicitLogin = false, targetSchoolId?: string, forceRefresh = false): Promise<boolean> => {
     setIsRefreshing(true);
     if (isExplicitLogin) {
       setFirebaseLoginSyncing(true);
     }
     const sId = targetSchoolId || storageService.getActiveSchoolId();
     try {
-      const res = await firestoreService.getAllDataDirectly(sId);
+      const res = await firestoreService.getAllDataDirectly(sId, forceRefresh);
       if (res.success) {
         if (res.schools && res.schools.length > 0) {
           setSchools(res.schools);
@@ -179,15 +179,15 @@ export default function App() {
           storageService.setGateRecords(mergedGate, sId);
         }
         if (res.ocorrencias) {
-          salvarCacheOcorrencias(res.ocorrencias);
+          salvarCacheOcorrencias(res.ocorrencias, sId);
         }
         if (res.tablets) {
-          salvarCacheTablets(res.tablets);
+          salvarCacheTablets(res.tablets, sId);
         }
         if (res.calendar) {
           storageService.setSchoolCalendar(res.calendar, sId);
         }
-        if (res.teacherSchedules) {
+        if (res.teacherSchedules && res.teacherSchedules.length > 0) {
           storageService.setTeacherSchedules(res.teacherSchedules, sId);
         }
         if (res.timetableWorkspace) {
@@ -210,6 +210,14 @@ export default function App() {
           setTimeout(() => setSyncNotification(null), 7000);
         }
         return true;
+      } else if (res.quotaExceeded) {
+        setSyncNotification({
+          type: 'warning',
+          message: 'Cota diária gratuita do Firebase Firestore atingida',
+          details: 'O Google Cloud bloqueou temporariamente leituras/gravações na nuvem hoje (limite diário gratuito). Clique no botão Firebase no topo para ver o link de upgrade ou aguarde a renovação automática amanhã.'
+        });
+        setTimeout(() => setSyncNotification(null), 12000);
+        return false;
       }
     } catch (err) {
       console.warn('Erro ao carregar dados diretamente do Firebase:', err);
@@ -239,9 +247,11 @@ export default function App() {
     setIsSyncing(true);
     setSyncMessage('Carregando do Firebase...');
     try {
-      const ok = await loadAllFromFirebaseDirectly(true);
+      const ok = await loadAllFromFirebaseDirectly(true, undefined, true);
       if (ok) {
         setSyncMessage('Firebase sincronizado!');
+      } else if (firestoreService.isQuotaCurrentlyExceeded()) {
+        setSyncMessage('Cota diária do Firebase atingida.');
       } else {
         setSyncMessage('Conectado à base local.');
       }
@@ -311,83 +321,30 @@ export default function App() {
     }
   }, []);
 
-  // Fetch all base data (Otimizado: atualiza estado imediatamente via storageService e sincroniza com Firestore sem chamadas duplicadas)
+  // Atualiza estado da interface imediatamente a partir do armazenamento sincronizado local,
+  // evitando varreduras completas repetidas de 8 coleções no Firestore a cada cadastro ou edição.
+  // Para forçar recarga completa da nuvem, utiliza-se loadAllFromFirebaseDirectly(..., true).
   const fetchData = useCallback(async () => {
     setIsRefreshing(true);
-    const sId = storageService.getActiveSchoolId();
-
-    // 1. Atualização instantânea a partir do cache local da escola ativa (Zero latência na UI após cadastros/exclusões)
-    const localClasses = storageService.getClasses(sId);
-    const localStudents = storageService.getStudents(undefined, sId);
-    const localAlerts = storageService.getAlerts(sId);
-    const localInterventions = storageService.getInterventions(sId);
-
-    setSchools(storageService.getSchools());
-    setCurrentSchool(storageService.getActiveSchool(sId));
-    setClasses(localClasses);
-    setStudents(localStudents);
-    setAlerts(localAlerts);
-    setInterventions(localInterventions);
-    setSchoolInfo(storageService.getSchoolInfo(sId));
-    setMonthlyReport(storageService.getMonthlyReport(selectedMonthIndex));
-    setSelectedClassId(prev => {
-      if (localClasses.length === 0) return '';
-      return !prev || !localClasses.some(c => c.id === prev) ? localClasses[0].id : prev;
-    });
-
-    // 2. Sincronização em nuvem (Firestore) isolada por unidade escolar
     try {
-      const [cloudClasses, cloudStudents, cloudAlerts, cloudAttendance, cloudInterventions, cloudGate, cloudCalendar, cloudSchedules] = await Promise.all([
-        firestoreService.getClasses(sId),
-        firestoreService.getStudents(sId),
-        firestoreService.getAlerts(sId),
-        firestoreService.getAttendanceRecords(undefined, sId),
-        firestoreService.getInterventions(sId),
-        firestoreService.getGateRecords(undefined, sId),
-        firestoreService.getSchoolCalendar(sId),
-        firestoreService.getTeacherSchedules(sId),
-      ]);
+      const sId = storageService.getActiveSchoolId();
+      const localClasses = storageService.getClasses(sId);
+      const localStudents = storageService.getStudents(undefined, sId);
+      const localAlerts = storageService.getAlerts(sId);
+      const localInterventions = storageService.getInterventions(sId);
 
-      if (cloudClasses && cloudClasses.length > 0) {
-        setClasses(cloudClasses);
-        storageService.setClasses(cloudClasses, sId);
-        setSelectedClassId(prev => (!prev || !cloudClasses.some(c => c.id === prev) ? cloudClasses[0].id : prev));
-      }
-      if (cloudStudents && cloudStudents.length > 0) {
-        setStudents(cloudStudents);
-        storageService.setStudents(cloudStudents, sId);
-      }
-      if (cloudAlerts && cloudAlerts.length > 0) {
-        setAlerts(cloudAlerts);
-        storageService.setAlerts(cloudAlerts, sId);
-      }
-      if (cloudAttendance && cloudAttendance.length > 0) {
-        const localAttendance = storageService.getAttendanceRecords(undefined, undefined, sId);
-        const cloudIds = new Set(cloudAttendance.map(a => a.id));
-        const localOnly = localAttendance.filter(a => !cloudIds.has(a.id));
-        storageService.setAttendanceRecords([...cloudAttendance, ...localOnly], sId);
-      }
-      if (cloudInterventions && cloudInterventions.length > 0) {
-        setInterventions(cloudInterventions);
-        storageService.setInterventions(cloudInterventions, sId);
-      }
-      if (cloudGate && cloudGate.length > 0) {
-        const localGate = storageService.getGateRecords(undefined, undefined, sId);
-        const cloudIds = new Set(cloudGate.map(g => g.id));
-        const mergedGate = [...cloudGate, ...localGate.filter(g => !cloudIds.has(g.id))];
-        storageService.setGateRecords(mergedGate, sId);
-      }
-      if (cloudCalendar) {
-        storageService.setSchoolCalendar(cloudCalendar, sId);
-      }
-      if (cloudSchedules && cloudSchedules.length > 0) {
-        storageService.setTeacherSchedules(cloudSchedules, sId);
-      }
-
+      setSchools(storageService.getSchools());
+      setCurrentSchool(storageService.getActiveSchool(sId));
+      setClasses(localClasses);
+      setStudents(localStudents);
+      setAlerts(localAlerts);
+      setInterventions(localInterventions);
       setSchoolInfo(storageService.getSchoolInfo(sId));
       setMonthlyReport(storageService.getMonthlyReport(selectedMonthIndex));
-    } catch (cloudErr) {
-      console.warn('Erro ao sincronizar dados do Firestore em fetchData:', cloudErr);
+      setSelectedClassId(prev => {
+        if (localClasses.length === 0) return '';
+        return !prev || !localClasses.some(c => c.id === prev) ? localClasses[0].id : prev;
+      });
     } finally {
       fetchQuotaStatus();
       setIsRefreshing(false);
@@ -1754,7 +1711,7 @@ export default function App() {
         isOpen={isFirebaseStatusModalOpen}
         onClose={() => setIsFirebaseStatusModalOpen(false)}
         onForceReload={async () => {
-          await loadAllFromFirebaseDirectly(true);
+          await loadAllFromFirebaseDirectly(true, undefined, true);
         }}
         counts={{
           classesCount: classes.length,

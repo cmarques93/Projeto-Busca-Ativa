@@ -439,7 +439,7 @@
     },
     {
       "roleLabel": "Proprietário / Admin Universal (SaaS)",
-      "name": "Proprietário (Acesso Universal)",
+      "name": "Proprietário",
       "active": true,
       "role": "super_admin",
       "pin": "Master@2026",
