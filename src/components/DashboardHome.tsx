@@ -48,6 +48,7 @@ interface DashboardHomeProps {
   onOpenStudentRegistration?: () => void;
   onOpenSeducReport?: () => void;
   onOpenFirebaseStatus?: () => void;
+  syncVersion?: number;
 }
 
 export const DashboardHome: React.FC<DashboardHomeProps> = ({
@@ -61,6 +62,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
   onNavigate,
   onSelectStudent,
   onOpenStudentRegistration,
+  syncVersion = 0,
 }) => {
   const isAdmin = currentUser.role === 'admin' || currentUser.role === 'admin_escola' || currentUser.role === 'super_admin';
   const isGestao = currentUser.role === 'gestao_paac';
@@ -102,12 +104,14 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
     } catch {
       return '';
     }
-  }, [isProfessor, isGestao, currentSchool?.id, currentUser.schoolId, currentUser.id, currentUser.name, multiplicaVersion]);
+  }, [isProfessor, isGestao, currentSchool?.id, currentUser.schoolId, currentUser.id, currentUser.name, multiplicaVersion, syncVersion]);
 
-  // Carrega contagens de ocorrências do cache
+  // Carrega contagens de ocorrências do cache (atualiza automaticamente assim que o Firebase sincroniza)
   const { totalOcorrencias, ocorrenciasSemMediacao, minhasSemMediacao, minhasComDevolutiva } = useMemo(() => {
     try {
-      const raw = localStorage.getItem('CACHE_OCORRENCIAS_APP');
+      const sId = currentSchool?.id || currentUser.schoolId || storageService.getActiveSchoolId();
+      const cacheKey = sId === 'ee-arlindo-silvestre' ? 'CACHE_OCORRENCIAS_APP' : `CACHE_OCORRENCIAS_APP_${sId}`;
+      const raw = localStorage.getItem(cacheKey) || (sId === 'ee-arlindo-silvestre' ? localStorage.getItem('CACHE_OCORRENCIAS_APP') : null);
       if (raw) {
         const parsed = JSON.parse(raw);
         const registros: any[] = parsed.registros || [];
@@ -130,7 +134,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({
       minhasSemMediacao: 0,
       minhasComDevolutiva: 0,
     };
-  }, [currentUser.name]);
+  }, [currentUser.name, currentSchool?.id, currentUser.schoolId, syncVersion]);
 
   // Filtro de alunos para a barra de pesquisa
   const filteredStudents = useMemo(() => {

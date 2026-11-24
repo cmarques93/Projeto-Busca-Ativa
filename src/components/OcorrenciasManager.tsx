@@ -837,6 +837,11 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
   useEffect(() => {
     carregarDados();
+    const handleAutoSync = () => {
+      carregarDados();
+    };
+    window.addEventListener('sigaescola-data-synced', handleAutoSync);
+    return () => window.removeEventListener('sigaescola-data-synced', handleAutoSync);
   }, []);
 
   // Turmas e Estudantes disponíveis - buscados EXCLUSIVAMENTE no cadastro de Turmas do sistema de Busca Ativa

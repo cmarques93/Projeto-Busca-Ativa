@@ -433,6 +433,11 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
 
   useEffect(() => {
     carregarDadosDoSheets();
+    const handleAutoSync = () => {
+      carregarDadosDoSheets();
+    };
+    window.addEventListener('sigaescola-data-synced', handleAutoSync);
+    return () => window.removeEventListener('sigaescola-data-synced', handleAutoSync);
   }, []);
 
   // Lista de Equipamentos Consolidada

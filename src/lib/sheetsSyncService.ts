@@ -215,7 +215,7 @@ export async function carregarOcorrenciasSeguro(
 
   // 1. Tenta Firestore Cloud (NUNCA sobrescreve a nuvem a partir de fallback em caso de erro de leitura)
   try {
-    const cloudData = await firestoreService.getOcorrencias(schoolId);
+    const cloudData = await firestoreService.getOcorrencias(schoolId, true);
     if (cloudData && Array.isArray(cloudData.registros)) {
       let registrosFinais = ordenarOcorrenciasPorMaisRecentes(cloudData.registros);
       // Proteção extra: se o cache local tiver registros mais recentes que um documento regredido para o baseline antigo, preserva-os
@@ -355,7 +355,7 @@ export async function carregarTabletsSeguro(classes: any[] = []): Promise<SyncRe
 
   // 1. Tenta Firestore Cloud
   try {
-    const cloudData = await firestoreService.getTablets(schoolId);
+    const cloudData = await firestoreService.getTablets(schoolId, true);
     if (cloudData && Array.isArray(cloudData.agendamentos)) {
       let agendamentosFinais = cloudData.agendamentos;
       if (

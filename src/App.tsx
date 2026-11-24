@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { migrateToFirebase } from './data/migration';
 import { Header, MainTabType, MainModuleType } from './components/Header';
 import { RealTimeAttendance } from './components/RealTimeAttendance';
@@ -85,6 +85,8 @@ export default function App() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncVersion, setSyncVersion] = useState(0);
+  const lastAutoSyncRef = useRef<number>(0);
   const [isFirebaseStatusModalOpen, setIsFirebaseStatusModalOpen] = useState(false);
   const [firebaseLoginSyncing, setFirebaseLoginSyncing] = useState(false);
   const [syncNotification, setSyncNotification] = useState<{
@@ -206,6 +208,10 @@ export default function App() {
           totalClasses: res.classes?.length || prev.totalClasses,
           lastUpdated: new Date().toISOString()
         }));
+
+        lastAutoSyncRef.current = Date.now();
+        setSyncVersion(v => v + 1);
+        window.dispatchEvent(new CustomEvent('sigaescola-data-synced'));
 
         if (isExplicitLogin) {
           setSyncNotification({
@@ -608,6 +614,8 @@ export default function App() {
       }
 
       await fetchData();
+      setSyncVersion(v => v + 1);
+      window.dispatchEvent(new CustomEvent('sigaescola-data-synced'));
 
       setIsRestoreBackupModalOpen(false);
       setRestoreDraft({ ocorrencias: null, tablets: null });
@@ -692,12 +700,51 @@ export default function App() {
       return !prev || !localClasses.some(c => c.id === prev) ? localClasses[0].id : prev;
     });
 
-    loadAllFromFirebaseDirectly(false).then((loaded) => {
+    loadAllFromFirebaseDirectly(false, undefined, true).then((loaded) => {
       if (!loaded) {
         fetchQuotaStatus();
       }
     });
   }, [loadAllFromFirebaseDirectly, fetchQuotaStatus]);
+
+  // Sincronização automática ao voltar para a aba no celular/computador, sair do modo standby ou reconectar à internet
+  useEffect(() => {
+    const AUTO_SYNC_MIN_INTERVAL_MS = 45 * 1000;
+    const triggerBackgroundSyncIfStale = () => {
+      if (document.visibilityState && document.visibilityState !== 'visible') return;
+      const elapsed = Date.now() - lastAutoSyncRef.current;
+      if (elapsed < AUTO_SYNC_MIN_INTERVAL_MS) return;
+      lastAutoSyncRef.current = Date.now();
+      loadAllFromFirebaseDirectly(false, undefined, true);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        triggerBackgroundSyncIfStale();
+      }
+    };
+
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        lastAutoSyncRef.current = 0;
+        triggerBackgroundSyncIfStale();
+      }
+    };
+
+    const handleOnline = () => {
+      triggerBackgroundSyncIfStale();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [loadAllFromFirebaseDirectly]);
 
   // Recalcula o relatório mensal localmente quando o mês selecionado muda
   useEffect(() => {
@@ -716,7 +763,7 @@ export default function App() {
     if (currentUser) {
       setCurrentUser(prev => prev ? { ...prev, schoolId: active.id, schoolName: active.name } : null);
     }
-    await loadAllFromFirebaseDirectly(false, schoolId);
+    await loadAllFromFirebaseDirectly(false, schoolId, true);
   };
 
   // Role selection & Login success handlers (direciona Painel Master para Central Global e usuários escolares para Tela Inicial)
@@ -732,8 +779,8 @@ export default function App() {
       }));
     }
 
-    // Carrega dados diretamente do Firebase no exato momento que o usuário loga
-    loadAllFromFirebaseDirectly(true, session.schoolId);
+    // Carrega dados frescos diretamente do Firebase no exato momento que o usuário loga
+    loadAllFromFirebaseDirectly(true, session.schoolId, true);
 
     // Se for o Painel Master Global, abre diretamente a Central Global de Unidades Escolares
     if (session.role === 'super_admin' || session.isUniversal) {
@@ -1381,6 +1428,7 @@ export default function App() {
             onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
             onOpenSeducReport={() => setIsSeducReportModalOpen(true)}
             onOpenFirebaseStatus={() => setIsFirebaseStatusModalOpen(true)}
+            syncVersion={syncVersion}
           />
         )}
 

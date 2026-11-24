@@ -772,11 +772,13 @@ export const firestoreService = {
   },
 
   // === OCORRÊNCIAS & MEDIAÇÃO (Nuvem compartilhada e isolada por escola) ===
-  async getOcorrencias(schoolId?: string): Promise<any | null> {
+  async getOcorrencias(schoolId?: string, forceRefresh = false): Promise<any | null> {
     const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `ocorrencias_${sanitizeDocId(schoolId)}` : 'ocorrencias';
     const cacheKey = `system_data/${docId}`;
-    const cached = getCachedDoc<any>(cacheKey);
-    if (cached.hit) return cached.data;
+    if (!forceRefresh) {
+      const cached = getCachedDoc<any>(cacheKey);
+      if (cached.hit) return cached.data;
+    }
     if (isWithinQuotaCooldown()) return null;
 
     return runDeduplicated(`doc:${cacheKey}`, async () => {
@@ -815,11 +817,13 @@ export const firestoreService = {
   },
 
   // === TABLETS & AGENDAMENTOS (Nuvem compartilhada e isolada por escola) ===
-  async getTablets(schoolId?: string): Promise<any | null> {
+  async getTablets(schoolId?: string, forceRefresh = false): Promise<any | null> {
     const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `tablets_${sanitizeDocId(schoolId)}` : 'tablets';
     const cacheKey = `system_data/${docId}`;
-    const cached = getCachedDoc<any>(cacheKey);
-    if (cached.hit) return cached.data;
+    if (!forceRefresh) {
+      const cached = getCachedDoc<any>(cacheKey);
+      if (cached.hit) return cached.data;
+    }
     if (isWithinQuotaCooldown()) return null;
 
     return runDeduplicated(`doc:${cacheKey}`, async () => {
