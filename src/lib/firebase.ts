@@ -18,7 +18,7 @@ function createFirestoreInstance(firebaseApp: FirebaseApp): Firestore {
     return initializeFirestore(
       firebaseApp,
       {
-        experimentalForceLongPolling: true,
+        experimentalAutoDetectLongPolling: true,
         ignoreUndefinedProperties: true,
       },
       databaseId
@@ -43,5 +43,3 @@ export async function validateFirestoreStartupConnection(): Promise<void> {
     }
   }
 }
-
-validateFirestoreStartupConnection();

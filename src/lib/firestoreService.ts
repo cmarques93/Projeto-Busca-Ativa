@@ -1023,8 +1023,20 @@ export const firestoreService = {
     }
   },
 
-  // === CARREGAMENTO TOTAL DIRETO DO FIREBASE (Ao efetuar Login, Inicializar ou Alternar Escola) ===
-  async getAllDataDirectly(schoolId?: string, forceRefresh = false): Promise<{
+  // === CARREGAMENTO TOTAL DIRETO DO FIREBASE (Progressivo em 2 Ondas Paralelas — Ultra-Rápido) ===
+  async getAllDataDirectly(
+    schoolId?: string,
+    forceRefresh = false,
+    onPriorityDataReady?: (priority: {
+      schools: School[];
+      classes: SchoolClass[];
+      users: UserAccount[];
+      alerts: ParentAlert[];
+      interventions: InterventionCase[];
+      ocorrencias: any | null;
+      tablets: any | null;
+    }) => void
+  ): Promise<{
     success: boolean;
     quotaExceeded?: boolean;
     error?: string;
@@ -1070,61 +1082,113 @@ export const firestoreService = {
         source: 'firebase_direct'
       };
     }
-    try {
-      // Validação rápida de conectividade e cota antes de disparar leituras paralelas
-      await getDocFromServer(doc(db, 'test', 'connection')).catch((err: any) => {
-        if (isQuotaExceededError(err)) {
-          markQuotaExceededIfApplicable(err);
-          throw err;
-        }
-        const msg = String(err?.message || '').toLowerCase();
-        if (
-          msg.includes('offline') ||
-          msg.includes('did not respond') ||
-          msg.includes('unavailable') ||
-          msg.includes('failed to get document from server')
-        ) {
-          throw err;
-        }
-        // Erros como permission-denied ou not-found indicam que o backend respondeu
-      });
 
-      const [
-        schools,
-        classes,
-        students,
-        users,
-        alerts,
-        attendance,
-        interventions,
-        gate,
-        ocorrencias,
-        tablets,
-        calendar,
-        teacherSchedules,
-        timetableWorkspace
-      ] = await Promise.all([
-        firestoreService.getSchools(),
-        firestoreService.getClasses(targetSchoolId),
-        firestoreService.getStudents(targetSchoolId),
-        firestoreService.getUsers(),
-        firestoreService.getAlerts(targetSchoolId),
-        firestoreService.getAttendanceRecords(undefined, targetSchoolId),
-        firestoreService.getInterventions(targetSchoolId),
-        firestoreService.getGateRecords(undefined, targetSchoolId),
-        firestoreService.getOcorrencias(targetSchoolId),
-        firestoreService.getTablets(targetSchoolId),
-        firestoreService.getSchoolCalendar(targetSchoolId),
-        firestoreService.getTeacherSchedules(targetSchoolId),
-        firestoreService.getTimetableWorkspace(targetSchoolId)
-      ]);
+    const dedupeKey = `getAllDataDirectly:${targetSchoolId}`;
+    return runDeduplicated(dedupeKey, async () => {
+      try {
+        // Onda 1 (Prioritária e super leve — chega em ~0.5s a 1.5s):
+        // Ocorrências, Tablets/Equipamentos, Escolas, Turmas, Usuários, Alertas e Intervenções
+        const priorityPromise = Promise.all([
+          firestoreService.getSchools(),
+          firestoreService.getClasses(targetSchoolId),
+          firestoreService.getUsers(),
+          firestoreService.getAlerts(targetSchoolId),
+          firestoreService.getInterventions(targetSchoolId),
+          firestoreService.getOcorrencias(targetSchoolId, forceRefresh),
+          firestoreService.getTablets(targetSchoolId, forceRefresh),
+        ]).then(([schools, classes, users, alerts, interventions, ocorrencias, tablets]) => {
+          if (!isWithinQuotaCooldown() && onPriorityDataReady) {
+            try {
+              onPriorityDataReady({
+                schools,
+                classes,
+                users,
+                alerts,
+                interventions,
+                ocorrencias,
+                tablets,
+              });
+            } catch (cbErr) {
+              console.warn('Erro ao aplicar dados prioritários:', cbErr);
+            }
+          }
+          return { schools, classes, users, alerts, interventions, ocorrencias, tablets };
+        });
 
-      const latencyMs = Math.round(performance.now() - start);
-      if (isWithinQuotaCooldown()) {
+        // Onda 2 (Coleções maiores — disparadas NO MESMO MILISSEGUNDO em paralelo, sem bloquear a Onda 1)
+        const secondaryPromise = Promise.all([
+          firestoreService.getStudents(targetSchoolId),
+          firestoreService.getAttendanceRecords(undefined, targetSchoolId),
+          firestoreService.getGateRecords(undefined, targetSchoolId),
+          firestoreService.getSchoolCalendar(targetSchoolId),
+          firestoreService.getTeacherSchedules(targetSchoolId),
+          firestoreService.getTimetableWorkspace(targetSchoolId),
+        ]).then(([students, attendance, gate, calendar, teacherSchedules, timetableWorkspace]) => ({
+          students,
+          attendance,
+          gate,
+          calendar,
+          teacherSchedules,
+          timetableWorkspace,
+        }));
+
+        const [priority, secondary] = await Promise.all([priorityPromise, secondaryPromise]);
+
+        const latencyMs = Math.round(performance.now() - start);
+        if (isWithinQuotaCooldown()) {
+          return {
+            success: false,
+            quotaExceeded: true,
+            error: 'Cota diária gratuita de leituras do Firestore excedida.',
+            schools: DEFAULT_SCHOOLS,
+            classes: [],
+            students: [],
+            users: [],
+            alerts: [],
+            attendance: [],
+            interventions: [],
+            gate: [],
+            ocorrencias: null,
+            tablets: null,
+            calendar: null,
+            teacherSchedules: [],
+            timetableWorkspace: null,
+            latencyMs,
+            source: 'firebase_direct'
+          };
+        }
+
+        return {
+          success: true,
+          quotaExceeded: false,
+          schools: priority.schools,
+          classes: priority.classes,
+          students: secondary.students,
+          users: priority.users,
+          alerts: priority.alerts,
+          attendance: secondary.attendance,
+          interventions: priority.interventions,
+          gate: secondary.gate,
+          ocorrencias: priority.ocorrencias,
+          tablets: priority.tablets,
+          calendar: secondary.calendar,
+          teacherSchedules: secondary.teacherSchedules,
+          timetableWorkspace: secondary.timetableWorkspace,
+          latencyMs,
+          source: 'firebase_direct'
+        };
+      } catch (err: any) {
+        const quotaExceeded = markQuotaExceededIfApplicable(err);
+        if (quotaExceeded) {
+          console.warn('Cota diária gratuita do Firebase Firestore excedida; operando temporariamente com cache local.');
+        } else {
+          console.error('Falha no carregamento direto do Firebase:', err);
+        }
+        const latencyMs = Math.round(performance.now() - start);
         return {
           success: false,
-          quotaExceeded: true,
-          error: 'Cota diária gratuita de leituras do Firestore excedida.',
+          quotaExceeded,
+          error: err?.message || String(err),
           schools: DEFAULT_SCHOOLS,
           classes: [],
           students: [],
@@ -1142,55 +1206,7 @@ export const firestoreService = {
           source: 'firebase_direct'
         };
       }
-
-      return {
-        success: true,
-        quotaExceeded: false,
-        schools,
-        classes,
-        students,
-        users,
-        alerts,
-        attendance,
-        interventions,
-        gate,
-        ocorrencias,
-        tablets,
-        calendar,
-        teacherSchedules,
-        timetableWorkspace,
-        latencyMs,
-        source: 'firebase_direct'
-      };
-    } catch (err: any) {
-      const quotaExceeded = markQuotaExceededIfApplicable(err);
-      if (quotaExceeded) {
-        console.warn('Cota diária gratuita do Firebase Firestore excedida; operando temporariamente com cache local.');
-      } else {
-        console.error('Falha no carregamento direto do Firebase:', err);
-      }
-      const latencyMs = Math.round(performance.now() - start);
-      return {
-        success: false,
-        quotaExceeded,
-        error: err?.message || String(err),
-        schools: DEFAULT_SCHOOLS,
-        classes: [],
-        students: [],
-        users: [],
-        alerts: [],
-        attendance: [],
-        interventions: [],
-        gate: [],
-        ocorrencias: null,
-        tablets: null,
-        calendar: null,
-        teacherSchedules: [],
-        timetableWorkspace: null,
-        latencyMs,
-        source: 'firebase_direct'
-      };
-    }
+    });
   }
 };
 

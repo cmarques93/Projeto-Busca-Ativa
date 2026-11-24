@@ -87,6 +87,7 @@ export default function App() {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncVersion, setSyncVersion] = useState(0);
   const lastAutoSyncRef = useRef<number>(0);
+  const lastSyncStartRef = useRef<number>(0);
   const [isFirebaseStatusModalOpen, setIsFirebaseStatusModalOpen] = useState(false);
   const [firebaseLoginSyncing, setFirebaseLoginSyncing] = useState(false);
   const [syncNotification, setSyncNotification] = useState<{
@@ -128,8 +129,43 @@ export default function App() {
       setFirebaseLoginSyncing(true);
     }
     const sId = targetSchoolId || storageService.getActiveSchoolId();
+    lastSyncStartRef.current = Date.now();
     try {
-      const res = await firestoreService.getAllDataDirectly(sId, forceRefresh);
+      const res = await firestoreService.getAllDataDirectly(sId, forceRefresh, (priority) => {
+        if (priority.schools && priority.schools.length > 0) {
+          setSchools(priority.schools);
+          storageService.setSchools(priority.schools);
+          const found = priority.schools.find((s: SchoolType) => s.id === sId);
+          if (found) {
+            setCurrentSchool(found);
+            setSchoolInfo(prev => ({ ...prev, schoolName: found.name }));
+          }
+        }
+        if (priority.classes && priority.classes.length > 0) {
+          setClasses(priority.classes);
+          storageService.setClasses(priority.classes, sId);
+          setSelectedClassId(prev => (!prev || !priority.classes.some((c: any) => c.id === prev) ? priority.classes[0].id : prev));
+        }
+        if (priority.users && priority.users.length > 0) {
+          storageService.setUsers(priority.users);
+        }
+        if (priority.alerts && priority.alerts.length > 0) {
+          setAlerts(priority.alerts);
+          storageService.setAlerts(priority.alerts, sId);
+        }
+        if (priority.interventions && priority.interventions.length > 0) {
+          setInterventions(priority.interventions);
+          storageService.setInterventions(priority.interventions, sId);
+        }
+        if (priority.ocorrencias) {
+          salvarCacheOcorrencias(priority.ocorrencias, sId);
+        }
+        if (priority.tablets) {
+          salvarCacheTablets(priority.tablets, sId);
+        }
+        setSyncVersion(v => v + 1);
+        window.dispatchEvent(new CustomEvent('sigaescola-data-synced'));
+      });
       if (res.success) {
         if (res.schools && res.schools.length > 0) {
           setSchools(res.schools);
@@ -779,8 +815,10 @@ export default function App() {
       }));
     }
 
-    // Carrega dados frescos diretamente do Firebase no exato momento que o usuário loga
-    loadAllFromFirebaseDirectly(true, session.schoolId, true);
+    // Reaproveita carga recém-iniciada/concluída na tela de login (< 30s) para evitar download duplo das 13 coleções
+    const lastActivity = Math.max(lastAutoSyncRef.current, lastSyncStartRef.current);
+    const isRecentSync = Date.now() - lastActivity < 30 * 1000;
+    loadAllFromFirebaseDirectly(true, session.schoolId, !isRecentSync);
 
     // Se for o Painel Master Global, abre diretamente a Central Global de Unidades Escolares
     if (session.role === 'super_admin' || session.isUniversal) {
