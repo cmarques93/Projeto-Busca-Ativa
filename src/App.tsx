@@ -48,7 +48,12 @@ import {
 } from 'lucide-react';
 import { storageService } from './data/storageService';
 import { firestoreService } from './lib/firestoreService';
-import { salvarCacheOcorrencias, salvarCacheTablets } from './lib/sheetsSyncService';
+import {
+  salvarCacheOcorrencias,
+  salvarCacheTablets,
+  lerCacheOcorrencias,
+  lerCacheTablets
+} from './lib/sheetsSyncService';
 import { getLocalTodayStr } from './utils/reportCalculator';
 import {
   Student,
@@ -263,6 +268,123 @@ export default function App() {
       setTimeout(() => setSyncMessage(null), 5000);
     }
   };
+
+  // Backup de Segurança Offline: exporta todo o estado atual do storageService local, ocorrências e equipamentos em JSON
+  const handleExportOfflineBackup = useCallback(() => {
+    if (!currentUser) return;
+    const isAuthorized =
+      currentUser.role === 'admin' ||
+      currentUser.role === 'admin_escola' ||
+      currentUser.role === 'super_admin' ||
+      currentUser.role === 'gestao_paac' ||
+      currentUser.isUniversal === true;
+
+    if (!isAuthorized) {
+      setRoleRestrictionNotice('Apenas perfis de Administração e Gestão podem exportar o Backup de Segurança Offline.');
+      return;
+    }
+
+    try {
+      const sId = currentSchool?.id || storageService.getActiveSchoolId();
+      const schoolsData = storageService.getSchools();
+      const activeSchoolData = storageService.getActiveSchool(sId);
+      const classesData = storageService.getClasses(sId);
+      const studentsData = storageService.getStudents(undefined, sId);
+      const usersData = storageService.getUsers(sId);
+      const attendanceData = storageService.getAttendanceRecords(undefined, undefined, sId);
+      const alertsData = storageService.getAlerts(sId);
+      const interventionsData = storageService.getInterventions(sId);
+      const gateData = storageService.getGateRecords(undefined, undefined, sId);
+      const calendarData = storageService.getSchoolCalendar(sId);
+      const teacherSchedulesData = storageService.getTeacherSchedules(sId);
+      const timetableData = storageService.getTimetableWorkspace(sId);
+      const ocorrenciasData = lerCacheOcorrencias(sId);
+      const tabletsData = lerCacheTablets(sId);
+
+      const ocorrenciasCount = Array.isArray(ocorrenciasData?.registros) ? ocorrenciasData.registros.length : 0;
+      const tabletsCount = Array.isArray(tabletsData?.agendamentos) ? tabletsData.agendamentos.length : 0;
+      const equipamentosCount = Array.isArray(tabletsData?.equipamentos) ? tabletsData.equipamentos.length : 0;
+
+      const now = new Date();
+      const dateStamp = getLocalTodayStr();
+      const timeStamp = `${String(now.getHours()).padStart(2, '0')}h${String(now.getMinutes()).padStart(2, '0')}`;
+
+      const backupPayload = {
+        backupVersion: '1.0',
+        app: 'SigaEscola',
+        exportedAt: now.toISOString(),
+        exportedAtLocal: now.toLocaleString('pt-BR'),
+        exportedBy: {
+          id: currentUser.id,
+          name: currentUser.name,
+          role: currentUser.role,
+          roleLabel: currentUser.roleLabel,
+        },
+        schoolId: sId,
+        schoolName: activeSchoolData?.name || currentSchool?.name || sId,
+        summary: {
+          classes: classesData.length,
+          students: studentsData.length,
+          users: usersData.length,
+          attendanceRecords: attendanceData.length,
+          alerts: alertsData.length,
+          interventions: interventionsData.length,
+          gateRecords: gateData.length,
+          ocorrencias: ocorrenciasCount,
+          agendamentosEquipamentos: tabletsCount,
+          equipamentosCadastrados: equipamentosCount,
+          teacherSchedules: teacherSchedulesData.length,
+        },
+        data: {
+          schools: schoolsData,
+          activeSchool: activeSchoolData,
+          classes: classesData,
+          students: studentsData,
+          users: usersData,
+          attendanceRecords: attendanceData,
+          alerts: alertsData,
+          interventions: interventionsData,
+          gateRecords: gateData,
+          schoolCalendar: calendarData,
+          teacherSchedules: teacherSchedulesData,
+          timetableWorkspace: timetableData,
+          ocorrencias: ocorrenciasData,
+          tablets: tabletsData,
+        },
+      };
+
+      const safeSchoolSlug = (activeSchoolData?.id || sId || 'escola')
+        .toLowerCase()
+        .replace(/[^a-z0-9-_]+/g, '-');
+      const fileName = `backup-sigaescola-${safeSchoolSlug}-${dateStamp}_${timeStamp}.json`;
+
+      const jsonStr = JSON.stringify(backupPayload, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+      setSyncNotification({
+        type: 'success',
+        message: 'Backup de Segurança Offline baixado com sucesso!',
+        details: `Arquivo ${fileName} salvo no seu computador com ${classesData.length} turmas, ${studentsData.length} estudantes, ${interventionsData.length} intervenções, ${ocorrenciasCount} ocorrências, ${tabletsCount} agendamentos de equipamentos e ${attendanceData.length} chamadas.`
+      });
+      setTimeout(() => setSyncNotification(null), 9000);
+    } catch (error: any) {
+      console.error('Erro ao gerar Backup de Segurança Offline:', error);
+      setSyncNotification({
+        type: 'warning',
+        message: 'Não foi possível gerar o arquivo de Backup Offline.',
+        details: error?.message || 'Tente novamente em instantes.'
+      });
+      setTimeout(() => setSyncNotification(null), 7000);
+    }
+  }, [currentUser, currentSchool]);
 
   // Usuários com perfil de Professor jamais têm acesso a telefones de responsáveis (LGPD escolar)
   // Podem apenas visualizar o status de frequência, turma, ausências e justificativas
@@ -973,6 +1095,7 @@ export default function App() {
         onOpenMasterPanel={() => setActiveModule('system_manager')}
         onLogout={handleLogout}
         onOpenSeducReport={() => setIsSeducReportModalOpen(true)}
+        onExportOfflineBackup={handleExportOfflineBackup}
         onSyncData={handleSyncData}
         isSyncing={isSyncing}
         syncMessage={syncMessage}

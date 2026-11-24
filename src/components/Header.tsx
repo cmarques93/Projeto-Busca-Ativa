@@ -8,7 +8,8 @@ import {
   ArrowLeft,
   Home,
   Building2,
-  Shield
+  Shield,
+  Download
 } from 'lucide-react';
 import { UserSession, School as SchoolType, isModuleEnabled } from '../types';
 
@@ -45,6 +46,7 @@ interface HeaderProps {
   onOpenSeducReport?: () => void;
   onOpenSchoolSelector?: () => void;
   onOpenMasterPanel?: () => void;
+  onExportOfflineBackup?: () => void;
   onSyncData: () => void;
   isSyncing: boolean;
   syncMessage?: string | null;
@@ -64,6 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSeducReport,
   onOpenSchoolSelector,
   onOpenMasterPanel,
+  onExportOfflineBackup,
   onSyncData,
   isSyncing,
   syncMessage,
@@ -198,6 +201,18 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <FileSpreadsheet className="w-4 h-4" />
               <span>Relatório de Acompanhamento</span>
+            </button>
+          )}
+
+          {/* Backup de Segurança Offline em JSON (Exclusivo Administradores e Gestão) */}
+          {(isAdmin || isGestao) && onExportOfflineBackup && (
+            <button
+              onClick={onExportOfflineBackup}
+              className="px-3 py-1.5 rounded-xl border border-emerald-300 text-emerald-900 bg-emerald-50 hover:bg-emerald-100 transition-colors cursor-pointer font-bold text-xs flex items-center gap-1.5 shadow-2xs"
+              title="Baixar arquivo JSON com backup completo dos dados locais (turmas, estudantes, chamadas, intervenções, ocorrências e equipamentos)"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Backup Offline</span>
             </button>
           )}
 
