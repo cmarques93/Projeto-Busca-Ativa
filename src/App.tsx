@@ -44,7 +44,8 @@ import {
   ShieldAlert,
   ArrowRight,
   Edit3,
-  Inbox
+  Inbox,
+  Upload
 } from 'lucide-react';
 import { storageService } from './data/storageService';
 import { firestoreService } from './lib/firestoreService';
@@ -424,6 +425,208 @@ export default function App() {
   const [roleRestrictionNotice, setRoleRestrictionNotice] = useState<string | null>(null);
   const [preSelectedStudentForAlert, setPreSelectedStudentForAlert] = useState<Student | null>(null);
   const [automatedAlertsTriggered, setAutomatedAlertsTriggered] = useState<ParentAlert[]>([]);
+
+  // Modal de Restauração de Backup JSON para o Firebase Cloud
+  const [isRestoreBackupModalOpen, setIsRestoreBackupModalOpen] = useState(false);
+  const [restoreDraft, setRestoreDraft] = useState<{
+    ocorrencias: any | null;
+    tablets: any | null;
+    ocorrenciasSource?: string;
+    tabletsSource?: string;
+  }>({ ocorrencias: null, tablets: null });
+  const [restorePasteText, setRestorePasteText] = useState('');
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [isRestoringBackup, setIsRestoringBackup] = useState(false);
+
+  const parseMaybeJson = (val: any): any => {
+    if (!val) return null;
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (!trimmed) return null;
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        return null;
+      }
+    }
+    return typeof val === 'object' ? val : null;
+  };
+
+  const extractLatestDateLabel = (items: any[] | undefined, fields: string[]): string => {
+    if (!Array.isArray(items) || items.length === 0) return 'Sem data';
+    let maxIso = '';
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      for (const f of fields) {
+        const raw = String(item[f] || '').trim();
+        if (!raw) continue;
+        // Normaliza YYYY-MM-DD ou ISO timestamp ou DD/MM/YYYY
+        let iso = '';
+        if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+          iso = raw.slice(0, 10);
+        } else if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) {
+          const [dd, mm, yyyy] = raw.slice(0, 10).split('/');
+          iso = `${yyyy}-${mm}-${dd}`;
+        }
+        if (iso && iso > maxIso) maxIso = iso;
+      }
+    }
+    if (!maxIso) return 'Sem data';
+    const [y, m, d] = maxIso.split('-');
+    return `${d}/${m}/${y}`;
+  };
+
+  const ingestRestoreJson = (rawText: string, sourceLabel: string) => {
+    setRestoreError(null);
+    const parsed = parseMaybeJson(rawText);
+    if (!parsed || typeof parsed !== 'object') {
+      setRestoreError('O conteúdo informado não é um JSON válido. Verifique se copiou todo o texto (começando com "{" e terminando com "}").');
+      return false;
+    }
+
+    let foundOcorrencias: any = null;
+    let foundTablets: any = null;
+
+    // Formato 1: Backup Offline completo ({ backupVersion, data: { ocorrencias, tablets } })
+    const rootData = parsed.data && typeof parsed.data === 'object' ? parsed.data : parsed;
+
+    // Verifica chaves explícitas (resgate_sigaescola.json, backup-sigaescola-*.json ou export do localStorage)
+    const candOc = parseMaybeJson(
+      rootData.ocorrencias ??
+      rootData.CACHE_OCORRENCIAS_APP ??
+      parsed.ocorrencias ??
+      parsed.CACHE_OCORRENCIAS_APP
+    );
+    const candTab = parseMaybeJson(
+      rootData.tablets ??
+      rootData.CACHE_TABLET_APP ??
+      parsed.tablets ??
+      parsed.CACHE_TABLET_APP
+    );
+
+    if (candOc && Array.isArray(candOc.registros)) {
+      foundOcorrencias = candOc;
+    }
+    if (candTab && Array.isArray(candTab.agendamentos)) {
+      foundTablets = candTab;
+    }
+
+    // Formato 2: Objeto direto de Ocorrências ({ registros: [...] })
+    if (!foundOcorrencias && Array.isArray(parsed.registros)) {
+      foundOcorrencias = parsed;
+    }
+
+    // Formato 3: Objeto direto de Tablets/Equipamentos ({ agendamentos: [...] })
+    if (!foundTablets && Array.isArray(parsed.agendamentos)) {
+      foundTablets = parsed;
+    }
+
+    if (!foundOcorrencias && !foundTablets) {
+      setRestoreError('Nenhum dado de Ocorrências ("registros") ou Agendamentos de Equipamentos ("agendamentos") foi encontrado nesse JSON.');
+      return false;
+    }
+
+    setRestoreDraft(prev => ({
+      ocorrencias: foundOcorrencias ?? prev.ocorrencias,
+      tablets: foundTablets ?? prev.tablets,
+      ocorrenciasSource: foundOcorrencias ? sourceLabel : prev.ocorrenciasSource,
+      tabletsSource: foundTablets ? sourceLabel : prev.tabletsSource,
+    }));
+    return true;
+  };
+
+  const handleRestoreFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach((file: File) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = typeof reader.result === 'string' ? reader.result : '';
+        ingestRestoreJson(text, file.name);
+      };
+      reader.onerror = () => {
+        setRestoreError(`Não foi possível ler o arquivo "${file.name}".`);
+      };
+      reader.readAsText(file, 'utf-8');
+    });
+    e.target.value = '';
+  };
+
+  const handleOpenRestoreBackupModal = () => {
+    if (!currentUser) return;
+    const isAuthorized =
+      currentUser.role === 'admin' ||
+      currentUser.role === 'admin_escola' ||
+      currentUser.role === 'super_admin' ||
+      currentUser.role === 'gestao_paac' ||
+      currentUser.isUniversal === true;
+
+    if (!isAuthorized) {
+      setRoleRestrictionNotice('Apenas perfis de Administração e Gestão podem restaurar backups na nuvem.');
+      return;
+    }
+    setRestoreError(null);
+    setIsRestoreBackupModalOpen(true);
+  };
+
+  const handleConfirmRestoreBackup = async () => {
+    if (!restoreDraft.ocorrencias && !restoreDraft.tablets) {
+      setRestoreError('Carregue um arquivo JSON ou cole os dados antes de confirmar a restauração.');
+      return;
+    }
+
+    setIsRestoringBackup(true);
+    setRestoreError(null);
+
+    try {
+      const sId = currentSchool?.id || storageService.getActiveSchoolId();
+      firestoreService.clearReadCache();
+
+      const restoredParts: string[] = [];
+
+      if (restoreDraft.ocorrencias) {
+        const payloadOc = {
+          ...restoreDraft.ocorrencias,
+          registros: Array.isArray(restoreDraft.ocorrencias.registros) ? restoreDraft.ocorrencias.registros : [],
+        };
+        await firestoreService.saveOcorrencias(payloadOc, sId);
+        salvarCacheOcorrencias(payloadOc, sId);
+        const latestOc = extractLatestDateLabel(payloadOc.registros, ['data', 'criadoEm', 'updatedAt', 'timestamp']);
+        restoredParts.push(`${payloadOc.registros.length} ocorrências (até ${latestOc})`);
+      }
+
+      if (restoreDraft.tablets) {
+        const payloadTab = {
+          ...restoreDraft.tablets,
+          agendamentos: Array.isArray(restoreDraft.tablets.agendamentos) ? restoreDraft.tablets.agendamentos : [],
+          equipamentos: Array.isArray(restoreDraft.tablets.equipamentos) ? restoreDraft.tablets.equipamentos : [],
+        };
+        await firestoreService.saveTablets(payloadTab, sId);
+        salvarCacheTablets(payloadTab, sId);
+        const latestTab = extractLatestDateLabel(payloadTab.agendamentos, ['data', 'criadoEm', 'updatedAt']);
+        restoredParts.push(`${payloadTab.agendamentos.length} agendamentos de equipamentos (até ${latestTab})`);
+      }
+
+      await fetchData();
+
+      setIsRestoreBackupModalOpen(false);
+      setRestoreDraft({ ocorrencias: null, tablets: null });
+      setRestorePasteText('');
+      setSyncNotification({
+        type: 'success',
+        message: 'Backup restaurado com sucesso no Firebase Cloud!',
+        details: `Dados gravados definitivamente na nuvem e sincronizados localmente: ${restoredParts.join(' e ')}. Todos os computadores da escola já podem acessar os registros restaurados.`
+      });
+      setTimeout(() => setSyncNotification(null), 12000);
+    } catch (error: any) {
+      console.error('Erro ao restaurar backup no Firebase:', error);
+      setRestoreError(
+        `Falha ao gravar no Firebase: ${error?.message || 'verifique sua conexão e tente novamente.'}`
+      );
+    } finally {
+      setIsRestoringBackup(false);
+    }
+  };
 
   // AI plan state
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
@@ -1096,6 +1299,7 @@ export default function App() {
         onLogout={handleLogout}
         onOpenSeducReport={() => setIsSeducReportModalOpen(true)}
         onExportOfflineBackup={handleExportOfflineBackup}
+        onOpenRestoreBackup={handleOpenRestoreBackupModal}
         onSyncData={handleSyncData}
         isSyncing={isSyncing}
         syncMessage={syncMessage}
@@ -1829,6 +2033,187 @@ export default function App() {
         </div>
       )}
 
+      {/* Modal de Restauração de Backup JSON para o Firebase Cloud */}
+      {isRestoreBackupModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                  <Upload className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    Restaurar Backup para o Firebase Cloud
+                  </h3>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    Envie o arquivo JSON salvo (ou cole o conteúdo copiado do navegador) para gravar os registros de volta na nuvem.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRestoreBackupModalOpen(false)}
+                disabled={isRestoringBackup}
+                className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 cursor-pointer transition-colors"
+                aria-label="Fechar modal de restauração"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {/* Opção 1: Selecionar 1 ou mais arquivos JSON */}
+              <div className="rounded-xl border border-dashed border-indigo-300 bg-indigo-50/50 p-4">
+                <p className="text-xs font-bold text-indigo-900 mb-1">
+                  Opção 1 — Selecionar arquivo(s) .json do computador
+                </p>
+                <p className="text-[11px] text-slate-600 mb-3">
+                  Aceita o backup combinado (<code className="bg-white px-1 rounded">resgate_sigaescola.json</code> ou <code className="bg-white px-1 rounded">backup-sigaescola-*.json</code>) ou arquivos individuais de Ocorrências e Equipamentos/Tablets.
+                </p>
+                <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer transition-colors shadow-xs">
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Escolher arquivo(s) JSON</span>
+                  <input
+                    type="file"
+                    accept=".json,application/json,.txt"
+                    multiple
+                    onChange={handleRestoreFileChange}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {/* Opção 2: Colar JSON copiado da aba Application */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <p className="text-xs font-bold text-slate-800 mb-1">
+                  Opção 2 — Colar JSON diretamente (copiado do Local Storage)
+                </p>
+                <p className="text-[11px] text-slate-600 mb-2">
+                  Você pode colar primeiro o conteúdo de <code className="bg-white px-1 rounded border border-slate-200">CACHE_OCORRENCIAS_APP</code>, clicar em &quot;Ler JSON colado&quot;, e em seguida colar o de <code className="bg-white px-1 rounded border border-slate-200">CACHE_TABLET_APP</code>.
+                </p>
+                <textarea
+                  value={restorePasteText}
+                  onChange={(e) => setRestorePasteText(e.target.value)}
+                  rows={4}
+                  placeholder='Cole aqui o texto JSON começando com {"registros":...} ou {"agendamentos":...}'
+                  className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-xs font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={!restorePasteText.trim()}
+                    onClick={() => {
+                      const ok = ingestRestoreJson(restorePasteText, 'JSON colado manualmente');
+                      if (ok) setRestorePasteText('');
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 disabled:opacity-40 text-white text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    Ler JSON colado
+                  </button>
+                </div>
+              </div>
+
+              {/* Mensagem de Erro */}
+              {restoreError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-medium flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
+                  <span>{restoreError}</span>
+                </div>
+              )}
+
+              {/* Prévia dos dados prontos para restaurar */}
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-extrabold text-emerald-950 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>Resumo dos dados detectados para restauração ({currentSchool.name})</span>
+                  </p>
+                  {(restoreDraft.ocorrencias || restoreDraft.tablets) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRestoreDraft({ ocorrencias: null, tablets: null });
+                        setRestoreError(null);
+                      }}
+                      className="text-[11px] font-semibold text-slate-500 hover:text-rose-600 cursor-pointer"
+                    >
+                      Limpar seleção
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className={`p-3 rounded-xl border text-xs ${restoreDraft.ocorrencias ? 'bg-white border-emerald-300' : 'bg-white/60 border-slate-200 text-slate-400'}`}>
+                    <p className="font-bold text-slate-800">Ocorrências & Mediação</p>
+                    {restoreDraft.ocorrencias ? (
+                      <div className="mt-1 space-y-0.5 text-[11px] text-emerald-800">
+                        <p className="font-extrabold text-sm text-emerald-700">
+                          {restoreDraft.ocorrencias.registros?.length || 0} registros
+                        </p>
+                        <p>
+                          Data mais recente:{' '}
+                          <strong>
+                            {extractLatestDateLabel(restoreDraft.ocorrencias.registros, ['data', 'criadoEm', 'updatedAt', 'timestamp'])}
+                          </strong>
+                        </p>
+                        {restoreDraft.ocorrenciasSource && (
+                          <p className="text-[10px] text-slate-500 truncate">Origem: {restoreDraft.ocorrenciasSource}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-[11px]">Nenhum arquivo carregado ainda</p>
+                    )}
+                  </div>
+
+                  <div className={`p-3 rounded-xl border text-xs ${restoreDraft.tablets ? 'bg-white border-emerald-300' : 'bg-white/60 border-slate-200 text-slate-400'}`}>
+                    <p className="font-bold text-slate-800">Agendamento de Equipamentos</p>
+                    {restoreDraft.tablets ? (
+                      <div className="mt-1 space-y-0.5 text-[11px] text-emerald-800">
+                        <p className="font-extrabold text-sm text-emerald-700">
+                          {restoreDraft.tablets.agendamentos?.length || 0} agendamentos
+                        </p>
+                        <p>
+                          Equipamentos: <strong>{restoreDraft.tablets.equipamentos?.length || 0}</strong> • Até:{' '}
+                          <strong>
+                            {extractLatestDateLabel(restoreDraft.tablets.agendamentos, ['data', 'criadoEm', 'updatedAt'])}
+                          </strong>
+                        </p>
+                        {restoreDraft.tabletsSource && (
+                          <p className="text-[10px] text-slate-500 truncate">Origem: {restoreDraft.tabletsSource}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-[11px]">Nenhum arquivo carregado ainda</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-end gap-2.5">
+              <button
+                type="button"
+                disabled={isRestoringBackup}
+                onClick={() => setIsRestoreBackupModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs cursor-pointer transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isRestoringBackup || (!restoreDraft.ocorrencias && !restoreDraft.tablets)}
+                onClick={handleConfirmRestoreBackup}
+                className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white font-bold text-xs cursor-pointer transition-colors shadow-xs flex items-center gap-2"
+              >
+                <Database className="w-4 h-4" />
+                <span>{isRestoringBackup ? 'Restaurando no Firebase...' : 'Confirmar e Restaurar no Firebase'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de Status de Conectividade e Certeza de Acesso Universal Firebase */}
       <FirebaseStatusModal
         isOpen={isFirebaseStatusModalOpen}
@@ -1843,8 +2228,8 @@ export default function App() {
           alertsCount: alerts.length,
           attendanceCount: isFirebaseStatusModalOpen ? storageService.getAttendanceRecords(undefined, undefined, currentSchool.id).length : 0,
           interventionsCount: interventions.length,
-          ocorrenciasCount: 59,
-          tabletsCount: 81,
+          ocorrenciasCount: isFirebaseStatusModalOpen ? (lerCacheOcorrencias(currentSchool.id)?.registros?.length ?? 0) : 0,
+          tabletsCount: isFirebaseStatusModalOpen ? (lerCacheTablets(currentSchool.id)?.agendamentos?.length ?? 0) : 0,
         }}
       />
 

@@ -9,7 +9,8 @@ import {
   Home,
   Building2,
   Shield,
-  Download
+  Download,
+  Upload
 } from 'lucide-react';
 import { UserSession, School as SchoolType, isModuleEnabled } from '../types';
 
@@ -47,6 +48,7 @@ interface HeaderProps {
   onOpenSchoolSelector?: () => void;
   onOpenMasterPanel?: () => void;
   onExportOfflineBackup?: () => void;
+  onOpenRestoreBackup?: () => void;
   onSyncData: () => void;
   isSyncing: boolean;
   syncMessage?: string | null;
@@ -67,6 +69,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSchoolSelector,
   onOpenMasterPanel,
   onExportOfflineBackup,
+  onOpenRestoreBackup,
   onSyncData,
   isSyncing,
   syncMessage,
@@ -213,6 +216,18 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Download className="w-3.5 h-3.5 text-emerald-700" />
               <span>Backup Offline</span>
+            </button>
+          )}
+
+          {/* Restaurar Backup JSON para o Firebase (Exclusivo Administradores e Gestão) */}
+          {(isAdmin || isGestao) && onOpenRestoreBackup && (
+            <button
+              onClick={onOpenRestoreBackup}
+              className="px-3 py-1.5 rounded-xl border border-amber-300 text-amber-900 bg-amber-50 hover:bg-amber-100 transition-colors cursor-pointer font-bold text-xs flex items-center gap-1.5 shadow-2xs"
+              title="Restaurar arquivo JSON de backup (ou colar JSON resgatado) diretamente para o Firebase Cloud"
+            >
+              <Upload className="w-3.5 h-3.5 text-amber-700" />
+              <span>Restaurar Backup</span>
             </button>
           )}
 
