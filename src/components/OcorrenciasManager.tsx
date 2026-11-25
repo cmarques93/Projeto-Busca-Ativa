@@ -42,9 +42,10 @@ import {
 import { SchoolClass, Student, AttendanceRecord, UserAccount } from '../types';
 import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
 import { storageService } from '../data/storageService';
-import { carregarOcorrenciasSeguro, salvarOcorrenciaSeguro, excluirOcorrenciaSeguro, salvarConfigOcorrenciasSeguro } from '../lib/sheetsSyncService';
+import { DEFAULT_SCHOOL_ID } from '../data/fallbackData';
+import { carregarOcorrenciasSeguro, salvarOcorrenciaSeguro, excluirOcorrenciaSeguro, salvarConfigOcorrenciasSeguro, lerCacheOcorrencias } from '../lib/sheetsSyncService';
 import { firestoreService } from '../lib/firestoreService';
-import { formatarRelatoComGemini, limparTextoFormatado, testarChaveGemini, getStoredGeminiKey, saveStoredGeminiKey } from '../lib/geminiClient';
+import { formatarRelatoComGemini, limparTextoFormatado, verificarStatusIA } from '../lib/geminiClient';
 import { getLocalTodayStr } from '../utils/reportCalculator';
 import ocorrenciasBaseline from '../data/ocorrenciasBaseline.json';
 
@@ -398,19 +399,17 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
 
   // Base de Dados vinda do Firestore / Google Sheets + Fallback local e baseline oficial (com ocorrências recentes em 1º lugar)
   const [bancoDeDados, setBancoDeDados] = useState<OcorrenciasDatabase>(() => {
+    const activeSchoolId = storageService.getActiveSchoolId();
     try {
-      const cached = localStorage.getItem('CACHE_OCORRENCIAS_APP');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed.registros && parsed.registros.length > 0) {
-          return {
-            ...parsed,
-            registros: ordenarOcorrenciasPorMaisRecentes(parsed.registros),
-          };
-        }
+      const parsed = lerCacheOcorrencias(activeSchoolId);
+      if (parsed && Array.isArray(parsed.registros) && parsed.registros.length > 0) {
+        return {
+          ...parsed,
+          registros: ordenarOcorrenciasPorMaisRecentes(parsed.registros),
+        };
       }
     } catch {}
-    const base = (ocorrenciasBaseline as unknown as OcorrenciasDatabase) || {
+    const emptyDefault: OcorrenciasDatabase = {
       estudantes: [],
       professores: [],
       ocorrencias: [
@@ -441,6 +440,10 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       registros: [],
       tratativasFamilia: [],
     };
+    const base =
+      activeSchoolId === DEFAULT_SCHOOL_ID
+        ? ((ocorrenciasBaseline as unknown as OcorrenciasDatabase) || emptyDefault)
+        : emptyDefault;
     return {
       ...base,
       registros: ordenarOcorrenciasPorMaisRecentes(base.registros || []),
@@ -567,12 +570,9 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
   const [novoHorarioTipo, setNovoHorarioTipo] = useState<'aula' | 'intervalo'>('aula');
   const [salvandoHorarios, setSalvandoHorarios] = useState(false);
 
-  // Estados de Configuração da Chave do Gemini
-  const [chaveGeminiInput, setChaveGeminiInput] = useState(() => getStoredGeminiKey());
-  const [mostrarChave, setMostrarChave] = useState(false);
+  // Estados de Verificação da IA no Servidor
   const [testandoGemini, setTestandoGemini] = useState(false);
-  const [resultadoTesteGemini, setResultadoTesteGemini] = useState<{ success: boolean; message: string; formattedSample?: string } | null>(null);
-  const [modalConfigurarChave, setModalConfigurarChave] = useState(false);
+  const [resultadoTesteGemini, setResultadoTesteGemini] = useState<{ success: boolean; message: string } | null>(null);
 
   // Estados de IA Gemini para Formatação Pedagógica e WhatsApp
   const [formatandoComIA, setFormatandoComIA] = useState(false);
@@ -792,16 +792,10 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
             data.auxilio && data.auxilio.length > 0 ? data.auxilio : bancoDeDados.auxilio,
           registros: ordenarOcorrenciasPorMaisRecentes(registrosLimpos),
           tratativasFamilia: data.tratativasFamilia || [],
-          geminiApiKey: data.geminiApiKey || bancoDeDados.geminiApiKey || getStoredGeminiKey(),
         };
 
         if (data.gradeHorarios && data.gradeHorarios.length > 0) {
           setGradeHorarios(data.gradeHorarios);
-        }
-
-        if (data.geminiApiKey && typeof data.geminiApiKey === 'string') {
-          saveStoredGeminiKey(data.geminiApiKey);
-          setChaveGeminiInput(data.geminiApiKey);
         }
 
         setBancoDeDados(novoDb);
@@ -1346,8 +1340,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     }
     setFormatandoEdicaoIA(true);
     try {
-      const chaveAtiva = bancoDeDados.geminiApiKey || getStoredGeminiKey();
-      const textoFormatado = await formatarRelatoComGemini(textoRelato, chaveAtiva);
+      const textoFormatado = await formatarRelatoComGemini(textoRelato);
       if (textoFormatado) {
         setFormEdicaoOcorrencia(prev => ({ ...prev, descricao: textoFormatado }));
         setMensagem({
@@ -1542,12 +1535,11 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     }
     setFormatandoComIA(true);
     try {
-      const chaveAtiva = bancoDeDados.geminiApiKey || getStoredGeminiKey();
-      const textoFormatado = await formatarRelatoComGemini(textoRelato, chaveAtiva);
+      const textoFormatado = await formatarRelatoComGemini(textoRelato);
       if (textoFormatado) {
         setForm(prev => ({ ...prev, descricao: textoFormatado }));
         setMensagem({
-          texto: '✨ Relato revisado com sucesso pelo Gemini com gramática correta e tom respeitoso aos responsáveis!',
+          texto: '✨ Relato revisado com sucesso pela IA com gramática correta e tom respeitoso aos responsáveis!',
           tipo: 'sucesso',
         });
         setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
@@ -1556,87 +1548,27 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
       }
     } catch (err: any) {
       console.warn('Erro ao formatar com IA:', err);
-      if (err?.message === 'CHAVE_GEMINI_AUSENTE') {
-        setMensagem({
-          texto: '🔑 Para formatar com IA no front-end da Vercel, informe a chave de API gratuita do Gemini.',
-          tipo: 'erro',
-        });
-        setModalConfigurarChave(true);
-      } else {
-        // Fallback local: corrige primeira letra maiúscula e ponto final sem injetar opções nem títulos
-        let raw = textoRelato.charAt(0).toUpperCase() + textoRelato.slice(1);
-        if (!/[.!?]$/.test(raw)) {
-          raw += '.';
-        }
-        setForm(prev => ({ ...prev, descricao: limparTextoFormatado(raw) }));
-        setMensagem({
-          texto: '⚠️ ' + (err?.message || 'Falha ao conectar à API do Gemini. O texto recebeu formatação padrão.'),
-          tipo: 'erro',
-        });
-      }
+      setMensagem({
+        texto: '⚠️ ' + (err?.message || 'Não foi possível conectar ao serviço de IA no momento.'),
+        tipo: 'erro',
+      });
       setTimeout(() => setMensagem({ texto: '', tipo: '' }), 6000);
     } finally {
       setFormatandoComIA(false);
     }
   };
 
-  // Salvar Chave do Gemini na Nuvem (Firestore) e no Dispositivo
-  const handleSalvarChaveGemini = async (chave: string) => {
-    const limpa = (chave || '').trim();
-    saveStoredGeminiKey(limpa);
-    setChaveGeminiInput(limpa);
-
-    const novoDb: OcorrenciasDatabase = {
-      ...bancoDeDados,
-      geminiApiKey: limpa,
-    };
-    setBancoDeDados(novoDb);
-    localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(novoDb));
-
-    try {
-      await salvarConfigOcorrenciasSeguro({
-        geminiApiKey: limpa,
-        ocorrencias: bancoDeDados.ocorrencias,
-        medidas: bancoDeDados.medidas,
-      }, novoDb);
-
-      setMensagem({
-        texto: limpa
-          ? '✅ Chave do Gemini salva com sucesso! O recurso de IA agora funciona em qualquer dispositivo e na Vercel.'
-          : 'ℹ️ Chave do Gemini removida.',
-        tipo: 'sucesso',
-      });
-      setModalConfigurarChave(false);
-      setTimeout(() => setMensagem({ texto: '', tipo: '' }), 5000);
-    } catch (err: any) {
-      console.warn('Erro ao persistir chave no Firestore:', err);
-      setMensagem({
-        texto: '✅ Chave salva localmente no navegador.',
-        tipo: 'sucesso',
-      });
-      setModalConfigurarChave(false);
-      setTimeout(() => setMensagem({ texto: '', tipo: '' }), 4000);
-    }
-  };
-
-  // Testar Conexão com a Chave do Gemini
-  const handleTestarChaveGemini = async () => {
-    if (!chaveGeminiInput.trim()) {
-      setResultadoTesteGemini({
-        success: false,
-        message: 'Por favor, cole a chave de API do Google AI Studio antes de testar.',
-      });
-      return;
-    }
+  // Verificar Status da IA no Servidor
+  const handleVerificarStatusIA = async () => {
     setTestandoGemini(true);
     setResultadoTesteGemini(null);
     try {
-      const res = await testarChaveGemini(chaveGeminiInput.trim());
-      setResultadoTesteGemini(res);
+      const res = await verificarStatusIA();
+      setResultadoTesteGemini({ success: res.configured, message: res.message });
     } catch (err: any) {
       setResultadoTesteGemini({
         success: false,
-        message: err?.message || 'Erro inesperado ao testar conexão.',
+        message: err?.message || 'Erro inesperado ao verificar serviço de IA.',
       });
     } finally {
       setTestandoGemini(false);
@@ -1648,6 +1580,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
     if (!modalWhatsApp) return;
     setFormatandoWhatsAppIA(true);
     try {
+      const activeSchoolName = storageService.getActiveSchool()?.name || 'Unidade Escolar';
       const res = await fetch('/api/ai/format-occurrence-whatsapp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1659,6 +1592,7 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
           medida: modalWhatsApp.ocorrencia.medida,
           professor: modalWhatsApp.ocorrencia.professor,
           aula: modalWhatsApp.ocorrencia.aula,
+          schoolName: activeSchoolName,
         }),
       });
 
@@ -3298,136 +3232,73 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
               }`}
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>🤖 Inteligência Artificial (Google Gemini)</span>
-              {bancoDeDados.geminiApiKey || getStoredGeminiKey() ? (
-                <span className="bg-emerald-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold">
-                  Ativa
-                </span>
-              ) : (
-                <span className="bg-amber-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold">
-                  Configurar
-                </span>
-              )}
+              <span>🤖 Inteligência Artificial</span>
+              <span className="bg-emerald-500 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold">
+                Servidor
+              </span>
             </button>
           </div>
 
-          {/* Painel de Configuração da IA Gemini (Vercel / Nuvem / Local) */}
+          {/* Painel de Status da IA no Servidor */}
           {abaAdminConfig === 'ia_gemini' && (
             <div className="space-y-4">
-              <div className="bg-purple-50/70 border border-purple-200 rounded-2xl p-5">
+              <div className="bg-purple-50/70 border border-purple-200 rounded-2xl p-5 space-y-4">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center shrink-0 shadow-xs">
                     <Sparkles className="w-5 h-5 text-amber-300" />
                   </div>
                   <div className="space-y-1">
                     <h3 className="text-sm font-bold text-purple-950 flex items-center gap-2">
-                      <span>Configuração da Chave do Google Gemini (IA)</span>
-                      {bancoDeDados.geminiApiKey || getStoredGeminiKey() ? (
-                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> Conectada
-                        </span>
-                      ) : (
-                        <span className="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" /> Pendente
-                        </span>
-                      )}
+                      <span>Assistente Pedagógico com IA (Servidor Seguro)</span>
+                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Integrada
+                      </span>
                     </h3>
                     <p className="text-xs text-purple-900/80 leading-relaxed">
-                      Para que o botão <strong>"Formatar com IA"</strong> funcione no front-end da <strong>Vercel</strong>, no computador ou no celular dos professores com custo zero, salve aqui a sua chave de API gratuita obtida no <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="underline font-bold text-purple-700 hover:text-purple-900 inline-flex items-center gap-0.5">Google AI Studio <ExternalLink className="w-3 h-3 inline" /></a>.
+                      A revisão ortográfica e formatação de comunicados para os responsáveis opera diretamente pelo servidor seguro do portal, sem necessidade de configurar chaves no navegador dos professores.
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-5 space-y-3">
-                  <label className="block text-xs font-bold text-purple-950 uppercase tracking-wider">
-                    Chave de API do Gemini (Google AI Studio)
-                  </label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <div className="relative flex-1">
-                      <input
-                        type={mostrarChave ? 'text' : 'password'}
-                        value={chaveGeminiInput}
-                        onChange={e => setChaveGeminiInput(e.target.value)}
-                        placeholder="Ex: AIzaSy..."
-                        className="w-full p-2.5 pr-10 text-xs border border-purple-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-hidden font-mono bg-white text-slate-800"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setMostrarChave(!mostrarChave)}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                        title={mostrarChave ? 'Ocultar chave' : 'Mostrar chave'}
-                      >
-                        {mostrarChave ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={testandoGemini || !chaveGeminiInput.trim()}
-                      onClick={handleTestarChaveGemini}
-                      className="px-4 py-2.5 bg-purple-100 hover:bg-purple-200 text-purple-900 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                    >
-                      {testandoGemini ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Testando...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-3.5 h-3.5 text-purple-700" />
-                          <span>Testar Chave</span>
-                        </>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleSalvarChaveGemini(chaveGeminiInput)}
-                      className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Salvar para Todos</span>
-                    </button>
-                  </div>
-
-                  {/* Feedback do Teste */}
-                  {resultadoTesteGemini && (
-                    <div
-                      className={`p-3.5 rounded-xl border text-xs animate-in fade-in ${
-                        resultadoTesteGemini.success
-                          ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                          : 'bg-rose-50 border-rose-200 text-rose-900'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 font-bold mb-1">
-                        {resultadoTesteGemini.success ? (
-                          <CheckCircle className="w-4 h-4 text-emerald-600" />
-                        ) : (
-                          <AlertTriangle className="w-4 h-4 text-rose-600" />
-                        )}
-                        <span>{resultadoTesteGemini.message}</span>
-                      </div>
-                      {resultadoTesteGemini.formattedSample && (
-                        <div className="mt-2 p-2.5 bg-white rounded-lg border border-emerald-200 text-[11px] text-slate-800 font-medium">
-                          <strong>Exemplo reformulado pelo Gemini:</strong> "{resultadoTesteGemini.formattedSample}"
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 text-[11px] text-purple-900/70 border-t border-purple-200/60">
-                    <span>💡 A chave é salva de forma criptografada no Firebase e compartilhada com segurança entre os professores.</span>
-                    {bancoDeDados.geminiApiKey && (
-                      <button
-                        type="button"
-                        onClick={() => handleSalvarChaveGemini('')}
-                        className="text-rose-600 hover:text-rose-800 font-bold underline cursor-pointer"
-                      >
-                        Remover chave salva
-                      </button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={testandoGemini}
+                    onClick={handleVerificarStatusIA}
+                    className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    {testandoGemini ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Verificando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                        <span>Verificar Conexão da IA</span>
+                      </>
                     )}
-                  </div>
+                  </button>
                 </div>
+
+                {resultadoTesteGemini && (
+                  <div
+                    className={`p-3.5 rounded-xl border text-xs animate-in fade-in ${
+                      resultadoTesteGemini.success
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                        : 'bg-rose-50 border-rose-200 text-rose-900'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 font-bold">
+                      {resultadoTesteGemini.success ? (
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-rose-600" />
+                      )}
+                      <span>{resultadoTesteGemini.message}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -5678,102 +5549,6 @@ export const OcorrenciasManager: React.FC<OcorrenciasManagerProps> = ({
         </div>
       )}
 
-      {/* MODAL 9: CONFIGURAÇÃO RÁPIDA DA CHAVE GEMINI (ATIVADA CASO CLIQUE NO BOTÃO SEM CHAVE) */}
-      {modalConfigurarChave && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden border border-slate-200 animate-in zoom-in-95">
-            <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-4 flex justify-between items-center text-white">
-              <h3 className="font-bold text-sm flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>Ativar Inteligência Artificial (Google Gemini)</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setModalConfigurarChave(false)}
-                className="font-bold text-lg cursor-pointer hover:text-purple-200"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <div className="bg-purple-50 border border-purple-200 rounded-xl p-3.5 text-xs text-purple-900 leading-relaxed">
-                <p className="font-bold mb-1">🔑 Chave de API Gratuita do Gemini necessária:</p>
-                <p>
-                  No ambiente de produção da <strong>Vercel</strong>, para que a IA reformule os relatos dos professores com correção gramatical e tom respeitoso, informe a sua chave gratuita do <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="underline font-bold text-purple-700 hover:text-purple-900">Google AI Studio</a>.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-xs font-bold text-slate-700 uppercase">
-                  Cole sua Chave de API do Gemini:
-                </label>
-                <div className="relative">
-                  <input
-                    type={mostrarChave ? 'text' : 'password'}
-                    value={chaveGeminiInput}
-                    onChange={e => setChaveGeminiInput(e.target.value)}
-                    placeholder="Cole aqui (Ex: AIzaSy...)"
-                    className="w-full p-2.5 pr-10 text-xs border border-purple-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-hidden font-mono text-slate-800"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setMostrarChave(!mostrarChave)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                  >
-                    {mostrarChave ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {resultadoTesteGemini && (
-                <div
-                  className={`p-3 rounded-xl border text-xs ${
-                    resultadoTesteGemini.success
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                      : 'bg-rose-50 border-rose-200 text-rose-900'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5 font-bold">
-                    {resultadoTesteGemini.success ? <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> : <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />}
-                    <span>{resultadoTesteGemini.message}</span>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex flex-col sm:flex-row gap-2 pt-2">
-                <button
-                  type="button"
-                  disabled={testandoGemini || !chaveGeminiInput.trim()}
-                  onClick={handleTestarChaveGemini}
-                  className="py-2.5 px-4 rounded-xl border border-purple-300 text-purple-700 font-bold text-xs hover:bg-purple-50 cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
-                >
-                  {testandoGemini ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                  <span>Testar</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setModalConfigurarChave(false)}
-                  className="py-2.5 px-4 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50 cursor-pointer"
-                >
-                  Fechar
-                </button>
-
-                <button
-                  type="button"
-                  disabled={!chaveGeminiInput.trim()}
-                  onClick={() => handleSalvarChaveGemini(chaveGeminiInput)}
-                  className="flex-1 py-2.5 px-4 rounded-xl bg-purple-600 text-white font-bold text-xs hover:bg-purple-700 cursor-pointer flex items-center justify-center gap-1.5 shadow-xs transition-colors disabled:opacity-50"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Salvar Chave e Ativar IA</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

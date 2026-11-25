@@ -1,118 +1,275 @@
 {
   "entities": {
-    "SchoolClass": {
-      "title": "SchoolClass",
-      "description": "Definition of a school class",
+    "School": {
+      "title": "School",
+      "description": "Unidade escolar cadastrada na plataforma SaaS EduScope 360.",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
         "name": { "type": "string" },
-        "grade": { "type": "string" },
-        "shift": { "type": "string" },
-        "totalStudents": { "type": "number" },
-        "presentToday": { "type": "number" },
-        "absentToday": { "type": "number" },
-        "attendanceRateToday": { "type": "number" },
-        "studentsAtRiskCount": { "type": "number" }
+        "codeCie": { "type": "string" },
+        "network": { "type": "string" },
+        "city": { "type": "string" },
+        "address": { "type": "string" },
+        "phone": { "type": "string" },
+        "directorName": { "type": "string" },
+        "active": { "type": "boolean" },
+        "modules": { "type": "object" },
+        "createdAt": { "type": "string" }
       },
-      "required": ["id", "name"]
+      "required": ["id", "name", "active"]
     },
-    "Student": {
-      "title": "Student",
-      "description": "Definition of a student",
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Operador escolar vinculado a uma unidade escolar ou administrador global.",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "role": { "type": "string" },
+        "roleLabel": { "type": "string" },
+        "pin": { "type": "string" },
+        "active": { "type": "boolean" },
+        "schoolId": { "type": "string" },
+        "isUniversal": { "type": "boolean" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "lastLogin": { "type": "string" }
+      },
+      "required": ["id", "name", "role", "active"]
+    },
+    "SchoolClass": {
+      "title": "SchoolClass",
+      "description": "Turma escolar vinculada a uma unidade escolar.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "schoolId": { "type": "string" },
+        "name": { "type": "string" },
+        "grade": { "type": "string" },
+        "shift": { "type": "string" },
+        "teacher": { "type": "string" },
+        "totalStudents": { "type": "number" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "schoolId", "name"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "Estudante matriculado em uma unidade escolar.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "schoolId": { "type": "string" },
         "name": { "type": "string" },
         "ra": { "type": "string" },
         "classId": { "type": "string" },
         "className": { "type": "string" },
-        "tutor": { "type": "string" },
-        "status": { "type": "string" },
-        "riskLevel": { "type": "string" },
-        "totalSchoolDays": { "type": "number" },
-        "totalAbsences": { "type": "number" },
-        "consecutiveAbsences": { "type": "number" },
-        "attendanceRate": { "type": "number" },
         "guardianName": { "type": "string" },
         "guardianPhone": { "type": "string" },
-        "guardianRelationship": { "type": "string" },
-        "address": { "type": "string" },
-        "neighborhood": { "type": "string" },
-        "vulnerabilityFactors": { "type": "array", "items": { "type": "string" } },
-        "notes": { "type": "string" },
-        "lastAttendanceDate": { "type": "string" }
+        "status": { "type": "string" },
+        "riskLevel": { "type": "string" }
       },
-      "required": ["id", "name", "ra", "classId"]
-    },
-    "UserAccount": {
-      "title": "UserAccount",
-      "description": "Definition of a user account",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "role": { "type": "string" },
-        "pin": { "type": "string" },
-        "active": { "type": "boolean" }
-      },
-      "required": ["id", "name", "role", "pin"]
-    },
-    "ParentAlert": {
-      "title": "ParentAlert",
-      "description": "Definition of a parent alert",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "studentId": { "type": "string" },
-        "sentAt": { "type": "string" }
-      },
-      "required": ["id", "studentId", "sentAt"]
+      "required": ["id", "schoolId", "name", "classId"]
     },
     "AttendanceRecord": {
       "title": "AttendanceRecord",
-      "description": "Definition of an attendance record",
+      "description": "Registro diário de frequência escolar por estudante.",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "schoolId": { "type": "string" },
         "studentId": { "type": "string" },
-        "date": { "type": "string" }
+        "classId": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string" },
+        "recordedBy": { "type": "string" }
       },
-      "required": ["id", "studentId", "date"]
+      "required": ["id", "schoolId", "studentId", "classId", "date", "status"]
+    },
+    "ParentAlert": {
+      "title": "ParentAlert",
+      "description": "Alerta ou notificação enviada aos responsáveis.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "schoolId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "channel": { "type": "string" },
+        "status": { "type": "string" },
+        "sentAt": { "type": "string" },
+        "messageContent": { "type": "string" }
+      },
+      "required": ["id", "schoolId", "studentId", "status"]
+    },
+    "InterventionCase": {
+      "title": "InterventionCase",
+      "description": "Caso de busca ativa e acompanhamento pedagógico.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "schoolId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "priority": { "type": "string" },
+        "stage": { "type": "string" },
+        "openedAt": { "type": "string" },
+        "reason": { "type": "string" }
+      },
+      "required": ["id", "schoolId", "studentId", "stage"]
+    },
+    "GateRecord": {
+      "title": "GateRecord",
+      "description": "Registro de atraso na entrada ou saída antecipada na portaria.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "schoolId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "type": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "reason": { "type": "string" }
+      },
+      "required": ["id", "schoolId", "studentId", "type", "date"]
+    },
+    "OcorrenciaRecord": {
+      "title": "OcorrenciaRecord",
+      "description": "Registro individual de ocorrência disciplinar ou mediação escolar (subcoleção isolada por escola).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "schoolId": { "type": "string" },
+        "data": { "type": "string" },
+        "aula": { "type": "string" },
+        "turma": { "type": "string" },
+        "estudante": { "type": "string" },
+        "professor": { "type": "string" },
+        "ocorrencia": { "type": "string" },
+        "medida": { "type": "string" },
+        "descricao": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "schoolId", "estudante"]
+    },
+    "TratativaFamilia": {
+      "title": "TratativaFamilia",
+      "description": "Registro de atendimento e mediação com responsáveis (subcoleção isolada por escola).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "schoolId": { "type": "string" },
+        "estudante": { "type": "string" },
+        "data": { "type": "string" },
+        "relato": { "type": "string" }
+      },
+      "required": ["id", "schoolId"]
+    },
+    "TabletAgendamento": {
+      "title": "TabletAgendamento",
+      "description": "Reserva individual de tablets ou equipamentos pedagógicos (subcoleção isolada por escola).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "schoolId": { "type": "string" },
+        "data": { "type": "string" },
+        "aula": { "type": "string" },
+        "professor": { "type": "string" },
+        "turma": { "type": "string" },
+        "quantity": { "type": "number" },
+        "equipmentType": { "type": "string" }
+      },
+      "required": ["id", "schoolId", "data", "aula"]
+    },
+    "ModuleConfig": {
+      "title": "ModuleConfig",
+      "description": "Configurações de listas, horários, feriados e inventário de um módulo escolar.",
+      "type": "object",
+      "properties": {
+        "schoolId": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["schoolId"]
+    },
+    "SystemData": {
+      "title": "SystemData",
+      "description": "Documentos de configuração escolar (calendário letivo, grade docente, workspace de horários e legado).",
+      "type": "object",
+      "properties": {
+        "schoolId": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      }
+    },
+    "AdminMember": {
+      "title": "AdminMember",
+      "description": "Registro de administradores globais autorizados por UID do Firebase Auth.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "role": { "type": "string" }
+      },
+      "required": ["email", "role"]
     }
   },
   "firestore": {
-    "classes": {
-      "schema": "SchoolClass",
-      "description": "Collection of school classes"
+    "/schools/{schoolId}": {
+      "schema": { "$ref": "#/entities/School" },
+      "description": "Unidades escolares cadastradas no SaaS."
     },
-    "students": {
-      "schema": "Student",
-      "description": "Collection of students"
+    "/schools/{schoolId}/module_config/{moduleId}": {
+      "schema": { "$ref": "#/entities/ModuleConfig" },
+      "description": "Configurações isoladas por escola para Ocorrências e Tablets."
     },
-    "users": {
-      "schema": "UserAccount",
-      "description": "Collection of users"
+    "/schools/{schoolId}/ocorrencias/{recordId}": {
+      "schema": { "$ref": "#/entities/OcorrenciaRecord" },
+      "description": "Subcoleção escalável de ocorrências individuais por escola."
     },
-    "alerts": {
-      "schema": "ParentAlert",
-      "description": "Collection of parent alerts"
+    "/schools/{schoolId}/tratativas_familia/{tratativaId}": {
+      "schema": { "$ref": "#/entities/TratativaFamilia" },
+      "description": "Subcoleção de tratativas com a família por escola."
     },
-    "attendance_records": {
-      "schema": "AttendanceRecord",
-      "description": "Collection of attendance records"
+    "/schools/{schoolId}/tablets_agendamentos/{agendamentoId}": {
+      "schema": { "$ref": "#/entities/TabletAgendamento" },
+      "description": "Subcoleção escalável de reservas de equipamentos por escola."
     },
-    "interventions": {
-      "schema": "InterventionCase",
-      "description": "Collection of pedagogical interventions"
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Operadores escolares e perfil Master."
     },
-    "gate_records": {
-      "schema": "GateRecord",
-      "description": "Collection of school gate entrance/exit records"
+    "/classes/{classId}": {
+      "schema": { "$ref": "#/entities/SchoolClass" },
+      "description": "Turmas escolares isoladas por schoolId."
     },
-    "system_data": {
-      "schema": "SystemData",
-      "description": "Central system records for occurrences and tablet reservations"
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Estudantes isolados por schoolId."
+    },
+    "/attendance_records/{recordId}": {
+      "schema": { "$ref": "#/entities/AttendanceRecord" },
+      "description": "Registros diários de chamada isolados por schoolId."
+    },
+    "/alerts/{alertId}": {
+      "schema": { "$ref": "#/entities/ParentAlert" },
+      "description": "Alertas a responsáveis isolados por schoolId."
+    },
+    "/interventions/{interventionId}": {
+      "schema": { "$ref": "#/entities/InterventionCase" },
+      "description": "Casos de busca ativa isolados por schoolId."
+    },
+    "/gate_records/{recordId}": {
+      "schema": { "$ref": "#/entities/GateRecord" },
+      "description": "Registros de portaria isolados por schoolId."
+    },
+    "/system_data/{docId}": {
+      "schema": { "$ref": "#/entities/SystemData" },
+      "description": "Calendário escolar, grade docente, workspace de horários e documentos legados para migração."
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminMember" },
+      "description": "Tabela de administradores globais verificados via Firebase Auth UID."
     }
   }
 }

@@ -972,5 +972,5 @@ export function downloadTimetableExcelTemplate(
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'GRADE COMPLETA');
-  XLSX.writeFile(wb, 'Modelo_Grade_Horaria_SigaEscola.xlsx');
+  XLSX.writeFile(wb, 'Modelo_Grade_Horaria_EduScope360.xlsx');
 }

@@ -44,12 +44,15 @@ import {
 } from 'lucide-react';
 import { SchoolClass, Student, UserAccount, UserRole, UserSession, School as SchoolType, SchoolModulesConfig, isModuleEnabled } from '../types';
 import { storageService, getRoleLabel, validateMasterPassword } from '../data/storageService';
+import { DEFAULT_SCHOOL_ID } from '../data/fallbackData';
 import { firestoreService } from '../lib/firestoreService';
 import {
   carregarOcorrenciasSeguro,
   salvarConfigOcorrenciasSeguro,
   carregarTabletsSeguro,
-  salvarReservaTabletsSeguro
+  salvarReservaTabletsSeguro,
+  lerCacheOcorrencias,
+  lerCacheTablets
 } from '../lib/sheetsSyncService';
 import {
   GRADE_HORARIOS_PADRAO,
@@ -57,13 +60,10 @@ import {
   OcorrenciasDatabase
 } from './OcorrenciasManager';
 import {
-  getStoredGeminiKey,
-  saveStoredGeminiKey,
-  testarChaveGemini
+  verificarStatusIA
 } from '../lib/geminiClient';
 import ocorrenciasBaseline from '../data/ocorrenciasBaseline.json';
 import tabletsBaseline from '../data/tabletsBaseline.json';
-import { ScheduleGridManager } from './ScheduleGridManager';
 import { CurriculumCalendarModule } from './CurriculumCalendarModule';
 
 export type SystemConfigSubTab =
@@ -85,7 +85,6 @@ interface SystemConfigManagerProps {
   onRefresh: () => void;
   onOpenStudentRegistration: () => void;
   onOpenWhatsAppIntegration: () => void;
-  onOpenGoogleSheets: () => void;
   onOpenResetAllModal?: () => void;
   onOpenFirebaseStatus?: () => void;
 }
@@ -101,7 +100,6 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
   onRefresh,
   onOpenStudentRegistration,
   onOpenWhatsAppIntegration,
-  onOpenGoogleSheets,
   onOpenResetAllModal,
   onOpenFirebaseStatus,
 }) => {
@@ -219,7 +217,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
     setIsSavingSchool(true);
     try {
       const schId = editingSchool?.id || `sch-${schoolFormName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').substring(0, 30)}-${Date.now().toString().slice(-4)}`;
-      
+
       const newSchoolObj: SchoolType = {
         id: schId,
         name: schoolFormName.trim(),
@@ -338,21 +336,25 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
   // ==========================================
   const [abaOcorrenciasSub, setAbaOcorrenciasSub] = useState<'motivos' | 'medidas' | 'horarios' | 'grade_docente' | 'ia_gemini'>('motivos');
   const [ocorrenciasDb, setOcorrenciasDb] = useState<OcorrenciasDatabase>(() => {
+    const activeSchoolId = storageService.getActiveSchoolId();
     try {
-      const cached = localStorage.getItem('CACHE_OCORRENCIAS_APP');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed.ocorrencias && parsed.ocorrencias.length > 0) return parsed;
-      }
+      const parsed = lerCacheOcorrencias(activeSchoolId);
+      if (parsed && Array.isArray(parsed.ocorrencias) && parsed.ocorrencias.length > 0) return parsed;
     } catch {}
-    return (ocorrenciasBaseline as unknown as OcorrenciasDatabase) || {
+    const emptyDefault: OcorrenciasDatabase = {
+      estudantes: [],
+      professores: [],
       ocorrencias: [],
       medidas: [],
       aulas: [],
       gradeHorarios: GRADE_HORARIOS_PADRAO,
       auxilio: [],
       registros: [],
+      tratativasFamilia: [],
     };
+    return activeSchoolId === DEFAULT_SCHOOL_ID
+      ? ((ocorrenciasBaseline as unknown as OcorrenciasDatabase) || emptyDefault)
+      : emptyDefault;
   });
 
   const [novoMotivoOcorrencia, setNovoMotivoOcorrencia] = useState('');
@@ -374,11 +376,9 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
   const [novoHorarioTipo, setNovoHorarioTipo] = useState<'aula' | 'intervalo'>('aula');
   const [salvandoHorarios, setSalvandoHorarios] = useState(false);
 
-  // IA Google Gemini
-  const [chaveGeminiInput, setChaveGeminiInput] = useState(() => getStoredGeminiKey());
-  const [mostrarChave, setMostrarChave] = useState(false);
+  // Status da IA integrada no servidor
   const [testandoGemini, setTestandoGemini] = useState(false);
-  const [resultadoTesteGemini, setResultadoTesteGemini] = useState<{ success: boolean; message: string; formattedSample?: string } | null>(null);
+  const [resultadoTesteGemini, setResultadoTesteGemini] = useState<{ success: boolean; message: string } | null>(null);
 
   // ==========================================
   // ESTADOS: SUB-ABA 3 - TABLETS
@@ -389,14 +389,12 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
     feriados: Array<{ data: string; motivo: string }>;
     maxTablets?: number;
   }>(() => {
+    const activeSchoolId = storageService.getActiveSchoolId();
     try {
-      const cached = localStorage.getItem('CACHE_TABLET_APP');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed.horarios) return parsed;
-      }
+      const parsed = lerCacheTablets(activeSchoolId);
+      if (parsed && parsed.horarios) return parsed;
     } catch {}
-    return (tabletsBaseline as any) || {
+    const emptyDefault = {
       agendamentos: [],
       horarios: [
         '1ª Aula - (07h as 7h50)',
@@ -416,6 +414,9 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
       feriados: [],
       maxTablets: 23,
     };
+    return activeSchoolId === DEFAULT_SCHOOL_ID
+      ? ((tabletsBaseline as any) || emptyDefault)
+      : emptyDefault;
   });
 
   const [abaTabletsSub, setAbaTabletsSub] = useState<'turmas' | 'horarios' | 'feriados' | 'capacidade'>('turmas');
@@ -796,40 +797,19 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
     }
   };
 
-  // Google Gemini Key
-  const handleTestarChaveGemini = async () => {
-    if (!chaveGeminiInput.trim()) {
-      showToast('⚠️ Digite uma chave para testar.', 'erro');
-      return;
-    }
+  // Verificação de status da IA no servidor
+  const handleVerificarStatusIA = async () => {
     setTestandoGemini(true);
     setResultadoTesteGemini(null);
     try {
-      const res = await testarChaveGemini(chaveGeminiInput.trim());
-      setResultadoTesteGemini(res);
-      if (res.success) {
-        showToast('✨ Chave do Google Gemini validada com sucesso!');
-      } else {
-        showToast('Falha na validação da chave: ' + res.message, 'erro');
-      }
+      const res = await verificarStatusIA();
+      setResultadoTesteGemini({ success: res.configured, message: res.message });
+      showToast(res.message, res.configured ? 'sucesso' : 'erro');
     } catch (err: any) {
-      setResultadoTesteGemini({ success: false, message: err.message || 'Erro inesperado ao testar chave' });
-      showToast('Erro ao testar chave: ' + err.message, 'erro');
+      setResultadoTesteGemini({ success: false, message: err?.message || 'Erro ao verificar serviço de IA.' });
+      showToast('Erro ao verificar serviço de IA.', 'erro');
     } finally {
       setTestandoGemini(false);
-    }
-  };
-
-  const handleSalvarChaveGemini = async (chave: string) => {
-    try {
-      saveStoredGeminiKey(chave);
-      const novoDb = { ...ocorrenciasDb, geminiApiKey: chave.trim() };
-      setOcorrenciasDb(novoDb);
-      localStorage.setItem('CACHE_OCORRENCIAS_APP', JSON.stringify(novoDb));
-      await salvarConfigOcorrenciasSeguro({ geminiApiKey: chave.trim() }, novoDb);
-      showToast(chave.trim() ? '✨ Chave de API do Gemini salva com sucesso!' : 'Chave de API do Gemini removida.');
-    } catch (err: any) {
-      showToast('Erro ao salvar chave: ' + err.message, 'erro');
     }
   };
 
@@ -1131,11 +1111,6 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
         const updatedList = usuarios.map(u => (u.id === selectedUserForPin.id ? updatedUser : u));
         setUsuarios(updatedList);
         await firestoreService.saveUser(updatedUser);
-        await fetch('/api/users/usr-master', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pin: cleanPwd }),
-        }).catch(() => null);
 
         setSelectedUserForPin(null);
         setNovoPinEdit('');
@@ -1214,7 +1189,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
                   ? 'bg-amber-100 text-amber-900 border-amber-300'
                   : 'bg-purple-100 text-purple-900 border-purple-200'
               }`}>
-                {isUniversalMaster ? '🛡️ Painel Master Global (SaaS)' : `🏫 ${currentSchool?.name || 'EE Professor Arlindo Silvestre'}`}
+                {isUniversalMaster ? '🛡️ Painel Master Global (SaaS)' : `🏫 ${currentSchool?.name || 'Unidade Escolar'}`}
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium mt-0.5">
@@ -1266,7 +1241,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
                 Modo de Auxílio Técnico Master • Configurando Unidade Escolar:
               </div>
               <div className="text-sm font-black text-white">
-                {allSchools.find(s => s.id === activeSchoolId)?.name || currentSchool?.name || 'EE Professor Arlindo Silvestre'}
+                {allSchools.find(s => s.id === activeSchoolId)?.name || currentSchool?.name || 'Unidade Escolar'}
               </div>
             </div>
           </div>
@@ -1445,7 +1420,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
               <div className="space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/30 text-indigo-300 text-xs font-extrabold uppercase tracking-wider border border-indigo-400/40">
-                    SigaEscola SaaS • Painel Master Global
+                    EduScope 360 SaaS • Painel Master Global
                   </span>
                   <span className="text-slate-400 text-xs">• Isolamento Total por Unidade Escolar</span>
                 </div>
@@ -1633,7 +1608,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
                         {editingSchool ? 'Editar Unidade Escolar' : 'Cadastrar Nova Unidade Escolar'}
                       </h3>
                       <p className="text-xs text-slate-400">
-                        SigaEscola SaaS • Plataforma Multi-Institucional
+                        EduScope 360 SaaS • Plataforma Multi-Institucional
                       </p>
                     </div>
                   </div>
@@ -2644,7 +2619,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
             />
           )}
 
-          {/* IA GOOGLE GEMINI */}
+          {/* IA GOOGLE GEMINI (GERENCIADA PELO SERVIDOR) */}
           {abaOcorrenciasSub === 'ia_gemini' && (
             <div className="bg-purple-50/70 border border-purple-200 rounded-2xl p-6 space-y-4">
               <div className="flex items-start gap-3">
@@ -2653,99 +2628,56 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
                 </div>
                 <div className="space-y-1">
                   <h3 className="text-sm font-bold text-purple-950 flex items-center gap-2">
-                    <span>Configuração da Chave do Google Gemini (IA)</span>
-                    {ocorrenciasDb.geminiApiKey || getStoredGeminiKey() ? (
-                      <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Conectada & Ativa
-                      </span>
-                    ) : (
-                      <span className="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <AlertTriangle className="w-3 h-3" /> Pendente
-                      </span>
-                    )}
+                    <span>Assistente Pedagógico com Inteligência Artificial</span>
+                    <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Gerenciada pelo Servidor
+                    </span>
                   </h3>
                   <p className="text-xs text-purple-900/80 leading-relaxed">
-                    Habilita o recurso de <strong>"Formatar com IA"</strong> no registro de ocorrências para todos os professores, revisando a norma culta e garantindo tom acolhedor e pedagógico aos pais.
+                    Os recursos de <strong>"Formatar com IA"</strong> (Ocorrências), <strong>Mensagens WhatsApp</strong>, <strong>Plano Pedagógico de Busca Ativa</strong> e <strong>Importação de PDF da Grade</strong> operam diretamente pelas rotas protegidas do servidor, sem expor credenciais no navegador dos usuários.
                   </p>
                 </div>
               </div>
 
-              <div className="mt-4 space-y-3">
-                <label className="block text-xs font-bold text-purple-950 uppercase tracking-wider">
-                  Chave de API do Gemini (Google AI Studio)
-                </label>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type={mostrarChave ? 'text' : 'password'}
-                      value={chaveGeminiInput}
-                      onChange={e => setChaveGeminiInput(e.target.value)}
-                      placeholder="Ex: AIzaSy..."
-                      className="w-full p-2.5 pr-10 text-xs border border-purple-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-hidden font-mono bg-white text-slate-800"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setMostrarChave(!mostrarChave)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-                      title={mostrarChave ? 'Ocultar chave' : 'Mostrar chave'}
-                    >
-                      {mostrarChave ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    disabled={testandoGemini || !chaveGeminiInput.trim()}
-                    onClick={handleTestarChaveGemini}
-                    className="px-4 py-2.5 bg-purple-100 hover:bg-purple-200 text-purple-900 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  >
-                    {testandoGemini ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Testando...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-3.5 h-3.5 text-purple-700" />
-                        <span>Testar Chave</span>
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSalvarChaveGemini(chaveGeminiInput)}
-                    className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Salvar para a Escola</span>
-                  </button>
-                </div>
-
-                {resultadoTesteGemini && (
-                  <div
-                    className={`p-3.5 rounded-xl border text-xs animate-in fade-in ${
-                      resultadoTesteGemini.success
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                        : 'bg-rose-50 border-rose-200 text-rose-900'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 font-bold mb-1">
-                      {resultadoTesteGemini.success ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      ) : (
-                        <AlertTriangle className="w-4 h-4 text-rose-600" />
-                      )}
-                      <span>{resultadoTesteGemini.message}</span>
-                    </div>
-                    {resultadoTesteGemini.formattedSample && (
-                      <div className="mt-2 p-2.5 bg-white rounded-lg border border-emerald-200 text-[11px] text-slate-800 font-medium">
-                        <strong>Exemplo pedagógico formatado:</strong> "{resultadoTesteGemini.formattedSample}"
-                      </div>
-                    )}
-                  </div>
-                )}
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={testandoGemini}
+                  onClick={handleVerificarStatusIA}
+                  className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  {testandoGemini ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Verificando servidor...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                      <span>Verificar Conexão da IA no Servidor</span>
+                    </>
+                  )}
+                </button>
               </div>
+
+              {resultadoTesteGemini && (
+                <div
+                  className={`p-3.5 rounded-xl border text-xs animate-in fade-in ${
+                    resultadoTesteGemini.success
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                      : 'bg-rose-50 border-rose-200 text-rose-900'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 font-bold">
+                    {resultadoTesteGemini.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    )}
+                    <span>{resultadoTesteGemini.message}</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -3368,28 +3300,7 @@ export const SystemConfigManager: React.FC<SystemConfigManagerProps> = ({
       {/* CONTEÚDO DA SUB-ABA 5: NUVEM, SINCRONIZAÇÃO & INTEGRAÇÕES                 */}
       {/* ========================================================================= */}
       {activeSubTab === 'integracoes' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Card Google Sheets */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                <FileSpreadsheet className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Planilha Oficial do Google Drive</h3>
-                <p className="text-xs text-slate-500">Conecte e sincronize turmas, ausências e ocorrências via Sheets.</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={onOpenGoogleSheets}
-              className="w-full py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-200" />
-              <span>Gerenciar Conexão com Google Sheets</span>
-            </button>
-          </div>
-
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Card Firebase Firestore */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
             <div className="flex items-center gap-3">

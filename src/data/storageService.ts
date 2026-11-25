@@ -407,7 +407,7 @@ export const storageService = {
     const existing = getStored<UserAccount[]>('school_users', []);
     const byId = new Map<string, UserAccount>();
 
-    // Garante que todos os operadores da base oficial (Arlindo Silvestre) nunca sejam perdidos
+    // Garante que o perfil estrutural Master nunca seja perdido
     for (const def of initializeDefaultUsers()) {
       byId.set(def.id, def);
     }
@@ -588,14 +588,13 @@ export const storageService = {
     let storedUsers = getStored<UserAccount[]>('school_users', []);
     const byId = new Map<string, UserAccount>();
 
-    // Sempre preserva os operadores reais da EE Professor Arlindo Silvestre e o perfil Master
+    // Sempre preserva o perfil estrutural Master Global
     for (const def of initializeDefaultUsers()) {
       byId.set(def.id, def);
     }
 
     for (const u of storedUsers) {
       if (!u || !u.id || u.id.includes('cecilia') || u.id.includes('usr-cec') || u.id === 'usr-admin-arlindo') continue;
-      // Remove os antigos perfis fictícios de seed se já temos os 26 reais da escola
       if (['usr-gestao', 'usr-aoe', 'usr-professor'].includes(u.id)) continue;
 
       const isMaster = u.id === 'usr-master' || u.role === 'super_admin' || u.isUniversal === true;
@@ -773,10 +772,6 @@ export const storageService = {
     }
 
     if (!user) {
-      const defaultPinObj = DEFAULT_PINS[userId];
-      if (defaultPinObj && defaultPinObj.pin === cleanPin) {
-        return { success: true, user: defaultPinObj.user };
-      }
       return { success: false, error: 'Usuário não localizado.' };
     }
 

@@ -53,24 +53,17 @@ async function startServer() {
   }
 
   async function callGeminiGenerateContent(ai: GoogleGenAI, contents: string, config?: any) {
-    // Modelos oficiais 100% gratuitos da família Flash (sem limitação de cota zero)
     const candidateModels = [
-      'gemini-3.8-flash',
-      'gemini-3.1-flash-lite',
-      'gemini-flash-latest'
+      'gemini-4-hydrogen',
+      'gemini-3.1-flash-lite'
     ];
     let lastError: any = null;
-    const finalConfig = {
-      temperature: 0.1,
-      topP: 0.95,
-      ...(config || {})
-    };
     for (const model of candidateModels) {
       try {
         const response = await ai.models.generateContent({
           model,
           contents,
-          config: finalConfig
+          ...(config ? { config } : {})
         });
         return response;
       } catch (err: any) {
@@ -644,6 +637,7 @@ async function startServer() {
     syncDailyQuota();
     res.json({
       date: quotaTracker.date,
+      configured: Boolean(process.env.GEMINI_API_KEY || process.env.API_KEY),
       requestsToday: quotaTracker.requestsToday,
       maxFreeRequestsPerDay: quotaTracker.maxFreeRequestsPerDay,
       isBlockedUntilNextDay: quotaTracker.isBlockedUntilNextDay,
@@ -661,12 +655,14 @@ async function startServer() {
       studentName = 'Estudante',
       className = '',
       studentClass = '',
+      schoolName = 'Unidade Escolar',
       consecutiveAbsences = 0,
       attendanceRate = 100,
       vulnerabilityFactors = [],
       guardianRelationship = 'Responsável Legal'
     } = req.body;
 
+    const unitName = String(schoolName || 'Unidade Escolar').trim() || 'Unidade Escolar';
     const actualClass = className || studentClass;
     const isOver20Percent = attendanceRate <= 80 || consecutiveAbsences >= 4;
     const isOver10Percent = attendanceRate <= 90 || consecutiveAbsences >= 2;
@@ -686,7 +682,7 @@ async function startServer() {
           'Elaboração de relatório circunstanciado e formalização de encaminhamento ao Conselho Tutelar (nos termos do Artigo 56, II, da Lei Federal nº 8.069/1990 - ECA) diante da reiteração de faltas injustificadas.',
           'Pactuação de Plano Pedagógico de Reposição e Acolhimento junto aos professores da turma para retorno sem evasão.'
         ];
-        mensagemSugerida = `Comunicado Oficial - EE Prof. Arlindo Silvestre: Prezada família de ${studentName}, informamos que o(a) estudante atingiu ${consecutiveAbsences} faltas consecutivas. Conforme determina a Resolução SEDUC nº 39/2023 e o Estatuto da Criança e do Adolescente (Art. 56), a frequência regular é obrigatória. Solicitamos o comparecimento urgente da família à escola hoje para alinhamento e apoio pedagógico, prevenindo o encaminhamento formal aos órgãos de proteção. Estamos de portas abertas!`;
+        mensagemSugerida = `Comunicado Oficial - ${unitName}: Prezada família de ${studentName}, informamos que o(a) estudante atingiu ${consecutiveAbsences} faltas consecutivas. Conforme determina a Resolução SEDUC nº 39/2023 e o Estatuto da Criança e do Adolescente (Art. 56), a frequência regular é obrigatória. Solicitamos o comparecimento urgente da família à escola hoje para alinhamento e apoio pedagógico, prevenindo o encaminhamento formal aos órgãos de proteção. Estamos de portas abertas!`;
       } else if (isOver10Percent) {
         // Marco de 10% de faltas (Acompanhamento e Prevenção)
         diagnostico = `O(A) estudante ${studentName} (${actualClass}) atingiu o marco de 10% de faltas da Resolução SEDUC nº 39/2023 (${consecutiveAbsences} faltas / taxa de ${attendanceRate}%). Trata-se de fase de intervenção preventiva para orientar a família e restabelecer a rotina regular de estudos antes que haja prejuízo curricular severo.`;
@@ -695,15 +691,15 @@ async function startServer() {
           'Identificar se as faltas decorrem de problemas de transporte, saúde na família ou trabalho infantil para acionamento intersetorial precoce.',
           'Monitoramento prioritário da chamada diária nas próximas duas semanas pela equipe de mediação e gestão escolar.'
         ];
-        mensagemSugerida = `Acompanhamento de Frequência - EE Prof. Arlindo Silvestre: Olá, responsáveis por ${studentName}! Identificamos ausências recentes e, em conformidade com o acompanhamento preventivo da Resolução SEDUC nº 39/2023, queremos entender como a escola pode ajudar a garantir que ${studentName} não perca as atividades e mantenha sua assiduidade regular. Por favor, entre em contato conosco. Contem sempre com nosso apoio!`;
+        mensagemSugerida = `Acompanhamento de Frequência - ${unitName}: Olá, responsáveis por ${studentName}! Identificamos ausências recentes e, em conformidade com o acompanhamento preventivo da Resolução SEDUC nº 39/2023, queremos entender como a escola pode ajudar a garantir que ${studentName} não perca as atividades e mantenha sua assiduidade regular. Por favor, entre em contato conosco. Contem sempre com nosso apoio!`;
       } else {
         // Acompanhamento inicial
-        diagnostico = `O(A) estudante ${studentName} apresenta início de faltas pontuais que demandam registro preventivo conforme diretrizes da Busca Ativa da rede estadual paulista.`;
+        diagnostico = `O(A) estudante ${studentName} apresenta início de faltas pontuais que demandam registro preventivo conforme diretrizes da Busca Ativa escolar.`;
         recomendacoes = [
           'Registro da justificativa no diário escolar.',
           'Orientação aos responsáveis sobre o impacto de ausências intermitentes no aprendizado.'
         ];
-        mensagemSugerida = `Olá, família de ${studentName}! Aqui é da EE Prof. Arlindo Silvestre. Notamos a ausência nas aulas recentes e queremos checar se está tudo bem com o(a) estudante. Estamos à disposição para qualquer suporte necessário!`;
+        mensagemSugerida = `Olá, família de ${studentName}! Aqui é da ${unitName}. Notamos a ausência nas aulas recentes e queremos checar se está tudo bem com o(a) estudante. Estamos à disposição para qualquer suporte necessário!`;
       }
 
       return {
@@ -836,8 +832,10 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
       medida = '',
       professor = '',
       aula = '',
+      schoolName = 'Unidade Escolar',
     } = req.body;
 
+    const unitName = String(schoolName || 'Unidade Escolar').trim() || 'Unidade Escolar';
     const rawTrim = (descricao || '').trim();
 
     const generateFallback = () => {
@@ -851,13 +849,13 @@ Responda ESTRITAMENTE em formato JSON com as seguintes chaves:
         }
       }
 
-      const whatsappMsg = `*EE Prof. Arlindo Silvestre - Acompanhamento Escolar*\n\n` +
+      const whatsappMsg = `*${unitName} - Acompanhamento Escolar*\n\n` +
         `Olá, família de *${estudante}* (${turma || 'Turma'}).\n\n` +
         `Gostaríamos de informar que hoje, durante a aula (${aula || 'horário letivo'}), foi registrado um apontamento referente a *${ocorrencia || 'convivência escolar'}*.\n\n` +
         (formattedDescription ? `📝 *Relato da aula:* "${formattedDescription}"\n` : '') +
         (medida ? `⚖️ *Medida pedagógica aplicada:* ${medida}\n\n` : '\n') +
         `Pedimos o apoio e o diálogo da família em casa para reforçarmos juntos o compromisso com os estudos e a convivência respeitosa na escola. Estamos sempre de portas abertas para qualquer dúvida ou apoio.\n\n` +
-        `Atenciosamente,\n*Equipe Gestora Escolar*`;
+        `Atenciosamente,\n*Equipe Gestora — ${unitName}*`;
 
       return {
         descricaoFormatada: formattedDescription,
@@ -949,8 +947,7 @@ Responda ESTRITAMENTE em formato JSON com as chaves:
       return sanitizeText(f);
     };
 
-    const customApiKey = req.body?.apiKey;
-    const ai = customApiKey ? new GoogleGenAI({ apiKey: customApiKey }) : getGeminiClient();
+    const ai = getGeminiClient();
     if (ai) {
       try {
         const prompt = `Atue como um assistente pedagógico. Sua tarefa é reescrever, revisar e formatar esse texto, pois uma cópia será entregue aos responsáveis do estudante.
@@ -1023,7 +1020,7 @@ REGRA CRÍTICA E ABSOLUTA:
       const updated = db.updateGoogleSheetsConfig({
         spreadsheetId: cleanId,
         spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${cleanId}/edit`,
-        title: title || 'EE Prof. Arlindo Silvestre - Banco de Dados',
+        title: title || 'EduScope 360 - Banco de Dados Escolar',
         connectedUserEmail: userEmail || null,
         lastSync: new Date().toISOString(),
       });
@@ -1042,8 +1039,9 @@ REGRA CRÍTICA E ABSOLUTA:
     }
 
     try {
-      const { userEmail } = req.body;
-      const title = `EE Prof. Arlindo Silvestre - Banco de Dados Oficial (Busca Ativa & Diário)`;
+      const { userEmail, schoolName } = req.body;
+      const unitLabel = String(schoolName || 'EduScope 360').trim() || 'EduScope 360';
+      const title = `${unitLabel} - Banco de Dados Oficial (Busca Ativa & Diário)`;
 
       // 1. Create Spreadsheet with predefined sheets
       const createResp = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
@@ -1452,458 +1450,8 @@ REGRA CRÍTICA E ABSOLUTA:
     }
   });
 
-  // =========================================================================
-  // PROXIES PARA GOOGLE APPS SCRIPT / GOOGLE SHEETS
-  // Evitam erros de CORS e redirecionamento 302 direto no navegador
-  // =========================================================================
-
-  const OCORRENCIAS_APPS_SCRIPT_URL =
-    'https://script.google.com/macros/s/AKfycbxoaLMtXKdq7sn_NB0U1ROENEmtlfaSe6PwCYCyjmMbmNa3gM2tXHBCDL97tD8G61TW/exec';
-
-  const TABLETS_APPS_SCRIPT_URL =
-    'https://script.google.com/macros/s/AKfycbwV2JJo26LjoraCpo88qOYdna6IO_ornLE1BRXZc86kDcP9QJU_98Ei03i21pTLp1-uZA/exec';
-
-  // --- 1. OCORRÊNCIAS & MEDIAÇÃO ---
-  app.get('/api/sheets-ocorrencias', async (req, res) => {
-    try {
-      let data: any = null;
-      try {
-        const response = await fetch(OCORRENCIAS_APPS_SCRIPT_URL, {
-          headers: { Accept: 'application/json' },
-        });
-        if (response.ok) {
-          const text = await response.text();
-          const trimmed = text.trim();
-          if (!trimmed.startsWith('<') && !trimmed.toLowerCase().startsWith('<!doctype')) {
-            try {
-              data = JSON.parse(text);
-            } catch {
-              console.warn('Erro ao decodificar JSON do Apps Script de ocorrências');
-            }
-          } else {
-            console.warn('Google Apps Script de ocorrências retornou HTML (redirecionamento ou login)');
-          }
-        }
-      } catch (err: any) {
-        console.warn('Falha temporária ao consultar Apps Script:', err.message);
-      }
-
-      // Se existir o arquivo local atualizado e desduplicado, use como base primária ou complemento
-      const cleanFilePath = path.join(process.cwd(), 'server', 'ocorrencias_clean.json');
-      let cleanLocalData: any = null;
-      if (fs.existsSync(cleanFilePath)) {
-        try {
-          cleanLocalData = JSON.parse(fs.readFileSync(cleanFilePath, 'utf-8'));
-        } catch (e) {
-          console.error('Erro ao ler ocorrencias_clean.json:', e);
-        }
-      }
-
-      if (!data && cleanLocalData) {
-        data = cleanLocalData;
-      } else if (data && cleanLocalData) {
-        // Atualiza a lista oficial de estudantes com a enviada pelo usuário (373 estudantes atualizados de Setembro)
-        if (cleanLocalData.estudantes && cleanLocalData.estudantes.length > 0) {
-          data.estudantes = cleanLocalData.estudantes;
-        }
-
-        // Combina e desduplica registros de ocorrências
-        const allRegistros = [...(data.registros || []), ...(cleanLocalData.registros || [])];
-        const seenRegistros = new Map<string, any>();
-        for (const reg of allRegistros) {
-          const key = [
-            (reg.data || '').trim(),
-            (reg.aula || '').trim(),
-            (reg.turma || '').trim(),
-            (reg.estudante || '').trim(),
-            (reg.ocorrencia || '').trim(),
-          ].join('::');
-
-          if (!seenRegistros.has(key)) {
-            seenRegistros.set(key, reg);
-          }
-        }
-        data.registros = Array.from(seenRegistros.values());
-      } else if (data && !cleanLocalData) {
-        // Desduplica caso venha direto do Apps Script sem cache local
-        const seen = new Map<string, any>();
-        for (const reg of (data.registros || [])) {
-          const key = [
-            (reg.data || '').trim(),
-            (reg.aula || '').trim(),
-            (reg.turma || '').trim(),
-            (reg.estudante || '').trim(),
-            (reg.ocorrencia || '').trim(),
-          ].join('::');
-          if (!seen.has(key)) {
-            seen.set(key, reg);
-          }
-        }
-        data.registros = Array.from(seen.values());
-      }
-
-      if (data && Array.isArray(data.registros)) {
-        const parseDateToMs = (dStr: string) => {
-          if (!dStr) return 0;
-          const str = String(dStr).trim();
-          if (str.includes('/')) {
-            const parts = str.split('/');
-            if (parts.length === 3) {
-              const [d, m, y] = parts;
-              const ano = y.length === 2 ? '20' + y : y;
-              const ms = new Date(`${ano}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T12:00:00`).getTime();
-              if (!isNaN(ms)) return ms;
-            }
-          }
-          if (str.includes('-')) {
-            const parts = str.split('T')[0].split('-');
-            if (parts.length === 3) {
-              const [y, m, d] = parts;
-              const ano = y.length === 2 ? '20' + y : y;
-              const ms = new Date(`${ano}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T12:00:00`).getTime();
-              if (!isNaN(ms)) return ms;
-            }
-          }
-          const parsed = new Date(str).getTime();
-          return isNaN(parsed) ? 0 : parsed;
-        };
-
-        data.registros.sort((a: any, b: any) => {
-          const timeA = parseDateToMs(a.data);
-          const timeB = parseDateToMs(b.data);
-          if (timeB !== timeA) return timeB - timeA;
-          const numA = Number((String(a.id || '').match(/\d+/g) || []).join('')) || 0;
-          const numB = Number((String(b.id || '').match(/\d+/g) || []).join('')) || 0;
-          if (numB !== numA) return numB - numA;
-          return (b.id || '').localeCompare(a.id || '', 'pt-BR', { numeric: true });
-        });
-
-        res.json(data);
-      } else if (data) {
-        res.json(data);
-      } else {
-        res.status(502).json({
-          erro: 'Não foi possível carregar dados da planilha nem do arquivo local.',
-          fallback: true,
-        });
-      }
-    } catch (err: any) {
-      console.error('Erro proxy GET ocorrências Apps Script:', err.message);
-      res.status(502).json({
-        erro: 'Erro de comunicação com a planilha do Google Apps Script: ' + err.message,
-        fallback: true,
-      });
-    }
-  });
-
-  app.post('/api/sheets-ocorrencias', async (req, res) => {
-    try {
-      const cleanFilePath = path.join(process.cwd(), 'server', 'ocorrencias_clean.json');
-      const body = req.body;
-
-      // 1. Salva ou atualiza no arquivo limpo local do sistema
-      if (fs.existsSync(cleanFilePath)) {
-        try {
-          const currentClean = JSON.parse(fs.readFileSync(cleanFilePath, 'utf-8'));
-          if (body.action === 'salvar_config_ocorrencias' || body.action === 'salvar_config') {
-            if (Array.isArray(body.turmas)) currentClean.turmasPersonalizadas = body.turmas;
-            if (Array.isArray(body.ocorrencias)) currentClean.ocorrencias = body.ocorrencias;
-            if (Array.isArray(body.medidas)) currentClean.medidas = body.medidas;
-            if (Array.isArray(body.aulas)) currentClean.aulas = body.aulas;
-            if (Array.isArray(body.gradeHorarios)) currentClean.gradeHorarios = body.gradeHorarios;
-          } else if (body.action === 'excluir' || body.action === 'excluir_ocorrencia' || body.acao === 'excluir') {
-            currentClean.registros = (currentClean.registros || []).filter((r: any) => r.id !== body.id);
-          } else if (body.action === 'salvar_mediacao' || body.action === 'mediacao' || body.acao === 'mediar') {
-            const idx = currentClean.registros.findIndex((r: any) => r.id === body.id);
-            if (idx >= 0) {
-              currentClean.registros[idx].status = body.status || 'Resolvido';
-              currentClean.registros[idx].mediacao = body.mediacao || '';
-              currentClean.registros[idx].mediador = body.mediador || '';
-            }
-          } else if (body.action === 'salvar_tratativa_familia' || body.action === 'tratativa_familia' || body.acao === 'tratativa_familia') {
-            if (!currentClean.tratativasFamilia) currentClean.tratativasFamilia = [];
-            currentClean.tratativasFamilia.unshift({
-              id: body.id || `TRAT-${Date.now()}`,
-              data: body.data,
-              turma: body.turma,
-              estudante: body.estudante,
-              responsavel: body.responsavel,
-              contato: body.contato,
-              tipoContato: body.tipoContato,
-              motivo: body.motivo,
-              acordos: body.acordos,
-              registradoPor: body.registradoPor,
-            });
-          } else {
-            const agora = new Date();
-            const diaFmt = String(agora.getDate()).padStart(2, '0') + '/' + String(agora.getMonth() + 1).padStart(2, '0') + '/' + agora.getFullYear();
-            const horaFmt = String(agora.getHours()).padStart(2, '0') + ':' + String(agora.getMinutes()).padStart(2, '0');
-            const horarioRegistroStr = body.horarioRegistro || body.dataPreenchimento || `${diaFmt} às ${horaFmt}`;
-            const criadoEmStr = body.criadoEm || agora.toISOString();
-            const tsPreenchimento = body.timestampPreenchimento || agora.getTime();
-
-            // Novo registro de ocorrência
-            const novoReg = {
-              id: body.id || `#OC-${Math.floor(100000 + Math.random() * 900000)}`,
-              data: body.data,
-              aula: body.aula,
-              turma: body.turma,
-              estudante: body.estudante,
-              tutor: body.tutor,
-              professor: body.professor,
-              ocorrencia: body.ocorrencia,
-              medida: body.medida,
-              auxilio: body.auxilio,
-              descricao: body.descricao,
-              status: body.status || 'Pendente',
-              mediacao: body.mediacao || '',
-              mediador: body.mediador || '',
-              criadoEm: criadoEmStr,
-              horarioRegistro: horarioRegistroStr,
-              dataPreenchimento: horarioRegistroStr,
-              timestampPreenchimento: tsPreenchimento,
-            };
-
-            // Evita duplicatas ao salvar
-            const key = [
-              (novoReg.data || '').trim(),
-              (novoReg.aula || '').trim(),
-              (novoReg.turma || '').trim(),
-              (novoReg.estudante || '').trim(),
-              (novoReg.ocorrencia || '').trim(),
-            ].join('::');
-
-            const jaExiste = currentClean.registros.some((r: any) => {
-              const k = [
-                (r.data || '').trim(),
-                (r.aula || '').trim(),
-                (r.turma || '').trim(),
-                (r.estudante || '').trim(),
-                (r.ocorrencia || '').trim(),
-              ].join('::');
-              return k === key;
-            });
-
-            if (!jaExiste) {
-              currentClean.registros.unshift(novoReg);
-            }
-          }
-          fs.writeFileSync(cleanFilePath, JSON.stringify(currentClean, null, 2), 'utf-8');
-        } catch (e: any) {
-          console.warn('Erro ao atualizar ocorrencias_clean.json local:', e.message);
-        }
-      }
-
-      // 2. Se a planilha do Google Sheets estiver ativa, repassa para ela também
-      let sheetsSuccess = false;
-      let sheetsData: any = null;
-      try {
-        const response = await fetch(OCORRENCIAS_APPS_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        const text = await response.text();
-        try {
-          sheetsData = JSON.parse(text);
-          sheetsSuccess = true;
-        } catch {
-          sheetsSuccess = true;
-          sheetsData = { status: 'sucesso', raw: text };
-        }
-      } catch (err: any) {
-        console.warn('Google Sheets externo inacessível, dados preservados com sucesso na base do sistema:', err.message);
-      }
-
-      // Retorna sucesso pois os dados estão salvos na base do sistema
-      res.json({
-        status: 'sucesso',
-        savedLocally: true,
-        sheetsSynced: sheetsSuccess,
-        details: sheetsData,
-      });
-    } catch (err: any) {
-      console.error('Erro ao salvar ocorrência:', err.message);
-      res.status(500).json({
-        status: 'erro',
-        mensagem: 'Erro interno ao salvar ocorrência: ' + err.message,
-      });
-    }
-  });
-
-  // --- 2. AGENDAMENTO DE TABLETS ---
-  app.get('/api/sheets-tablets', async (req, res) => {
-    try {
-      let data: any = null;
-      try {
-        const response = await fetch(TABLETS_APPS_SCRIPT_URL, {
-          headers: { Accept: 'application/json' },
-        });
-        if (response.ok) {
-          const text = await response.text();
-          const trimmed = text.trim();
-          if (!trimmed.startsWith('<') && !trimmed.toLowerCase().startsWith('<!doctype')) {
-            try {
-              data = JSON.parse(text);
-            } catch {
-              console.warn('Erro ao decodificar JSON do Apps Script de tablets');
-            }
-          } else {
-            console.warn('Google Apps Script de tablets retornou HTML (redirecionamento ou login)');
-          }
-        }
-      } catch (err: any) {
-        console.warn('Falha temporária ao consultar Apps Script de tablets:', err.message);
-      }
-
-      // Arquivo local limpo e desduplicado
-      const cleanTabletsPath = path.join(process.cwd(), 'server', 'tablets_clean.json');
-      let cleanTabletsData: any = null;
-      if (fs.existsSync(cleanTabletsPath)) {
-        try {
-          cleanTabletsData = JSON.parse(fs.readFileSync(cleanTabletsPath, 'utf-8'));
-        } catch (e) {
-          console.error('Erro ao ler tablets_clean.json:', e);
-        }
-      }
-
-      if (!data && cleanTabletsData) {
-        data = cleanTabletsData;
-      } else if (data) {
-        // Desduplicação estrita de agendamentos
-        const allAgendamentos = [
-          ...(data.agendamentos || []),
-          ...((cleanTabletsData && cleanTabletsData.agendamentos) || []),
-        ];
-        const seen = new Set<string>();
-        const uniqueAgendamentos: any[] = [];
-        for (const ag of allAgendamentos) {
-          const key = [
-            (ag.data || '').trim(),
-            (ag.aula || '').trim(),
-            (ag.professor || '').trim(),
-            (ag.turma || '').trim(),
-            ag.tablets || 0,
-          ].join('::');
-          if (!seen.has(key)) {
-            seen.add(key);
-            uniqueAgendamentos.push(ag);
-          }
-        }
-        data.agendamentos = uniqueAgendamentos;
-      }
-
-      if (data) {
-        res.json(data);
-      } else {
-        res.status(502).json({
-          erro: 'Erro de comunicação com a planilha de tablets e sem dados em cache.',
-          fallback: true,
-        });
-      }
-    } catch (err: any) {
-      console.error('Erro proxy GET tablets Apps Script:', err.message);
-      res.status(502).json({
-        erro: 'Erro de comunicação com a planilha de tablets: ' + err.message,
-        fallback: true,
-      });
-    }
-  });
-
-  app.post('/api/sheets-tablets', async (req, res) => {
-    try {
-      const cleanTabletsPath = path.join(process.cwd(), 'server', 'tablets_clean.json');
-      const body = req.body;
-
-      // 1. Salva na base de dados unificada do sistema
-      if (fs.existsSync(cleanTabletsPath)) {
-        try {
-          const currentTablets = JSON.parse(fs.readFileSync(cleanTabletsPath, 'utf-8'));
-          if (body.action === 'cancelar') {
-            // Cancelamento / exclusão de reserva
-            currentTablets.agendamentos = (currentTablets.agendamentos || []).filter((a: any) => {
-              const match =
-                a.data === body.data &&
-                a.aula === body.aula &&
-                a.turma === body.turma &&
-                a.professor === body.professor;
-              return !match;
-            });
-          } else {
-            // Nova reserva de tablets
-            const novaReserva = {
-              data: body.data,
-              aula: body.aula,
-              turma: body.turma,
-              professor: body.professor,
-              tablets: Number(body.tablets) || 1,
-            };
-
-            const key = [
-              (novaReserva.data || '').trim(),
-              (novaReserva.aula || '').trim(),
-              (novaReserva.professor || '').trim(),
-              (novaReserva.turma || '').trim(),
-              novaReserva.tablets,
-            ].join('::');
-
-            const jaExiste = (currentTablets.agendamentos || []).some((a: any) => {
-              const k = [
-                (a.data || '').trim(),
-                (a.aula || '').trim(),
-                (a.professor || '').trim(),
-                (a.turma || '').trim(),
-                a.tablets,
-              ].join('::');
-              return k === key;
-            });
-
-            if (!jaExiste) {
-              if (!currentTablets.agendamentos) currentTablets.agendamentos = [];
-              currentTablets.agendamentos.unshift(novaReserva);
-            }
-          }
-          fs.writeFileSync(cleanTabletsPath, JSON.stringify(currentTablets, null, 2), 'utf-8');
-        } catch (e: any) {
-          console.warn('Erro ao atualizar tablets_clean.json local:', e.message);
-        }
-      }
-
-      // 2. Se a planilha do Google Sheets estiver ativa, sincroniza com ela também
-      let sheetsSuccess = false;
-      let sheetsData: any = null;
-      try {
-        const response = await fetch(TABLETS_APPS_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        const text = await response.text();
-        try {
-          sheetsData = JSON.parse(text);
-          sheetsSuccess = true;
-        } catch {
-          sheetsSuccess = true;
-          sheetsData = { status: 'sucesso', raw: text };
-        }
-      } catch (err: any) {
-        console.warn('Google Sheets de tablets inacessível, agendamento preservado com sucesso na base do sistema:', err.message);
-      }
-
-      res.json({
-        status: 'sucesso',
-        savedLocally: true,
-        sheetsSynced: sheetsSuccess,
-        details: sheetsData,
-      });
-    } catch (err: any) {
-      console.error('Erro ao processar reserva de tablets:', err.message);
-      res.status(500).json({
-        status: 'erro',
-        mensagem: 'Erro interno ao salvar agendamento de tablets: ' + err.message,
-      });
-    }
-  });
+  // Nota: Os proxies legados do Google Apps Script (/api/sheets-ocorrencias e /api/sheets-tablets)
+  // foram descontinuados na Fase 3; Ocorrências e Tablets operam 100% em subcoleções escaláveis no Firestore.
 
   // --- IMPORTAÇÃO DE HORÁRIO ESCOLAR VIA PDF (EXTRAÇÃO ESTRITA SEM ALUCINAÇÃO) ---
   app.post('/api/timetable/import-pdf', async (req, res) => {

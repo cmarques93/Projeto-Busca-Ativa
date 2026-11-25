@@ -6,7 +6,9 @@ import {
   setDoc,
   deleteDoc,
   writeBatch,
-  getDocFromServer
+  getDocFromServer,
+  query,
+  where,
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -55,11 +57,19 @@ export function sanitizeForFirestore<T>(data: T): T {
 }
 
 /**
- * Normaliza o ID de documento para o Firestore garantindo que não contenha barras ou espaços inválidos.
+ * Normaliza o ID de documento para o Firestore garantindo que não contenha barras, espaços ou caracteres inválidos.
  */
 export function sanitizeDocId(id: string): string {
   if (!id) return `doc-${Date.now()}`;
-  return String(id).replace(/\//g, '_').replace(/\s+/g, '_');
+  const cleaned = String(id)
+    .trim()
+    .replace(/[#/?[\]*\\]/g, '_')
+    .replace(/\s+/g, '_')
+    .slice(0, 120);
+  if (!cleaned || cleaned === '.' || cleaned === '..') {
+    return `doc-${Date.now()}`;
+  }
+  return cleaned;
 }
 
 /**
@@ -114,6 +124,8 @@ interface CacheEntry<T> {
 const collectionCache = new Map<string, CacheEntry<any[]>>();
 const docCache = new Map<string, CacheEntry<any>>();
 const inFlightRequests = new Map<string, Promise<any>>();
+const migratedSchoolsOcorrencias = new Set<string>();
+const migratedSchoolsTablets = new Set<string>();
 let quotaExceededUntil = 0;
 
 export function isQuotaExceededError(error: unknown): boolean {
@@ -158,8 +170,12 @@ function setCachedCollection<T>(key: string, data: T[]): void {
   collectionCache.set(key, { data, fetchedAt: Date.now() });
 }
 
-function invalidateCollectionCache(key: string): void {
-  collectionCache.delete(key);
+function invalidateCollectionCache(prefix: string): void {
+  for (const key of Array.from(collectionCache.keys())) {
+    if (key === prefix || key.startsWith(`${prefix}:`)) {
+      collectionCache.delete(key);
+    }
+  }
 }
 
 function getCachedDoc<T>(key: string): { hit: boolean; data: T | null } {
@@ -176,8 +192,12 @@ function setCachedDoc<T>(key: string, data: T | null): void {
   docCache.set(key, { data, fetchedAt: Date.now() });
 }
 
-function invalidateDocCache(key: string): void {
-  docCache.delete(key);
+function invalidateDocCache(prefix: string): void {
+  for (const key of Array.from(docCache.keys())) {
+    if (key === prefix || key.startsWith(`${prefix}:`)) {
+      docCache.delete(key);
+    }
+  }
 }
 
 async function runDeduplicated<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
@@ -212,6 +232,235 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
+const LEGACY_SCHOOLID_BACKFILL_VERSION = 'v2';
+const backfilledCollectionsInSession = new Set<string>();
+
+function isLegacySchoolIdBackfillDone(colName: string): boolean {
+  if (backfilledCollectionsInSession.has(colName)) return true;
+  try {
+    return localStorage.getItem(`sigaescola_schoolid_backfill_${LEGACY_SCHOOLID_BACKFILL_VERSION}_${colName}`) === 'done';
+  } catch {
+    return false;
+  }
+}
+
+function markLegacySchoolIdBackfillDone(colName: string): void {
+  backfilledCollectionsInSession.add(colName);
+  try {
+    localStorage.setItem(`sigaescola_schoolid_backfill_${LEGACY_SCHOOLID_BACKFILL_VERSION}_${colName}`, 'done');
+  } catch {}
+}
+
+/**
+ * Helper genérico de consulta isolada por escola (Multi-Tenant Server-Side Query).
+ * Usa `where('schoolId', '==', schoolId)` para nunca trafegar dados de outras escolas.
+ * Para a escola legada padrão (DEFAULT_SCHOOL_ID), executa uma única varredura retroativa por coleção
+ * para resgatar e carimbar documentos antigos criados sem o campo `schoolId`, mesmo que alguns docs
+ * já possuam `schoolId` (evitando ocultar turmas/alunos legados).
+ */
+async function querySchoolScopedCollection<T extends { id: string; schoolId?: string }>(
+  colName: string,
+  schoolId?: string,
+  mapDoc?: (id: string, raw: any) => T
+): Promise<T[]> {
+  const cacheKey = schoolId ? `${colName}:${schoolId}` : `${colName}:__all__`;
+  const cached = getCachedCollection<T>(cacheKey);
+  if (cached) return [...cached];
+  if (isWithinQuotaCooldown()) return [];
+
+  return runDeduplicated(`col:${cacheKey}`, async () => {
+    try {
+      const colRef = collection(db, colName);
+      const runLegacyScan = async (): Promise<T[]> => {
+        const legacySnap = await getDocs(colRef);
+        const list: T[] = [];
+        const toBackfill: { id: string }[] = [];
+
+        legacySnap.forEach(d => {
+          const raw = d.data() as any;
+          const rawSchoolId = typeof raw?.schoolId === 'string' ? raw.schoolId.trim() : '';
+          const isUniversalMasterUser =
+            colName === 'users' &&
+            (d.id === 'usr-master' || raw?.role === 'super_admin' || raw?.isUniversal === true);
+
+          if (isUniversalMasterUser) {
+            return;
+          }
+
+          if (!rawSchoolId || rawSchoolId === DEFAULT_SCHOOL_ID) {
+            const mapped = mapDoc
+              ? mapDoc(d.id, { ...raw, schoolId: DEFAULT_SCHOOL_ID })
+              : ({ id: d.id, ...raw, schoolId: DEFAULT_SCHOOL_ID } as T);
+            list.push(mapped);
+            if (!rawSchoolId) {
+              toBackfill.push({ id: d.id });
+            }
+          }
+        });
+
+        if (list.length > 0 && toBackfill.length === 0) {
+          markLegacySchoolIdBackfillDone(colName);
+        } else if (toBackfill.length > 0) {
+          // Faz backfill permanente do schoolId nos documentos legados em segundo plano
+          (async () => {
+            let failedCount = 0;
+            const chunkSize = 400;
+            for (let i = 0; i < toBackfill.length; i += chunkSize) {
+              const chunk = toBackfill.slice(i, i + chunkSize);
+              try {
+                const batch = writeBatch(db);
+                for (const item of chunk) {
+                  batch.set(doc(db, colName, item.id), { schoolId: DEFAULT_SCHOOL_ID }, { merge: true });
+                }
+                await batch.commit();
+              } catch {
+                // Se algum doc isolado no lote falhar, carimba individualmente para não bloquear os demais
+                for (const item of chunk) {
+                  try {
+                    await setDoc(doc(db, colName, item.id), { schoolId: DEFAULT_SCHOOL_ID }, { merge: true });
+                  } catch {
+                    failedCount++;
+                  }
+                }
+              }
+            }
+            if (failedCount === 0) {
+              markLegacySchoolIdBackfillDone(colName);
+            }
+          })();
+        }
+
+        if (list.length > 0) {
+          setCachedCollection(cacheKey, list);
+        }
+        return [...list];
+      };
+
+      const needsLegacyScan = schoolId === DEFAULT_SCHOOL_ID && !isLegacySchoolIdBackfillDone(colName);
+      if (needsLegacyScan) {
+        return await runLegacyScan();
+      }
+
+      const q = schoolId ? query(colRef, where('schoolId', '==', schoolId)) : colRef;
+      const snap = await getDocs(q);
+      const list: T[] = [];
+      snap.forEach(d => {
+        const mapped = mapDoc ? mapDoc(d.id, d.data()) : ({ id: d.id, ...d.data() } as T);
+        list.push(mapped);
+      });
+
+      // Se a consulta filtrada da escola padrão vier vazia, faz varredura retroativa de segurança para resgatar docs sem schoolId
+      if (list.length === 0 && schoolId === DEFAULT_SCHOOL_ID) {
+        return await runLegacyScan();
+      }
+
+      if (list.length > 0) {
+        setCachedCollection(cacheKey, list);
+      }
+      return [...list];
+    } catch (e) {
+      markQuotaExceededIfApplicable(e);
+      console.warn(`Erro ao buscar ${colName} (${schoolId || 'all'}) do Firestore:`, e);
+      return [];
+    }
+  });
+}
+
+/**
+ * Migra transparentemente um documento monolítico legado de Ocorrências (system_data/ocorrencias)
+ * para a arquitetura escalável em subcoleções (schools/{schoolId}/ocorrencias/{id}), eliminando o limite de 1 MB.
+ */
+async function migrateLegacyOcorrenciasToSubcollections(schoolId: string, legacyData: any): Promise<void> {
+  if (!legacyData || migratedSchoolsOcorrencias.has(schoolId)) return;
+  migratedSchoolsOcorrencias.add(schoolId);
+  try {
+    const cleanSchoolId = sanitizeDocId(schoolId);
+    const { registros, tratativasFamilia, ...configFields } = legacyData;
+    const configPayload = sanitizeForFirestore({
+      ...configFields,
+      schoolId: cleanSchoolId,
+      migratedFromLegacy: true,
+      updatedAt: new Date().toISOString(),
+    });
+    await setDoc(doc(db, 'schools', cleanSchoolId, 'module_config', 'ocorrencias'), configPayload, { merge: true });
+
+    const regList = Array.isArray(registros) ? registros : [];
+    const chunkSize = 400;
+    for (let i = 0; i < regList.length; i += chunkSize) {
+      const batch = writeBatch(db);
+      for (const reg of regList.slice(i, i + chunkSize)) {
+        const regId = reg.id || `#OC-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        const docId = sanitizeDocId(regId);
+        batch.set(
+          doc(db, 'schools', cleanSchoolId, 'ocorrencias', docId),
+          sanitizeForFirestore({ ...reg, id: regId, schoolId: cleanSchoolId }),
+          { merge: true }
+        );
+      }
+      await batch.commit();
+    }
+
+    const tratList = Array.isArray(tratativasFamilia) ? tratativasFamilia : [];
+    for (let i = 0; i < tratList.length; i += chunkSize) {
+      const batch = writeBatch(db);
+      for (let idx = 0; idx < tratList.slice(i, i + chunkSize).length; idx++) {
+        const t = tratList[i + idx];
+        const tId = t.id || `trat-${Date.now()}-${i + idx}`;
+        const docId = sanitizeDocId(tId);
+        batch.set(
+          doc(db, 'schools', cleanSchoolId, 'tratativas_familia', docId),
+          sanitizeForFirestore({ ...t, id: tId, schoolId: cleanSchoolId }),
+          { merge: true }
+        );
+      }
+      await batch.commit();
+    }
+  } catch (err) {
+    migratedSchoolsOcorrencias.delete(schoolId);
+    console.warn('Migração em segundo plano de ocorrências adiada:', err);
+  }
+}
+
+/**
+ * Migra transparentemente um documento monolítico legado de Tablets (system_data/tablets)
+ * para a arquitetura escalável em subcoleções (schools/{schoolId}/tablets_agendamentos/{id}).
+ */
+async function migrateLegacyTabletsToSubcollections(schoolId: string, legacyData: any): Promise<void> {
+  if (!legacyData || migratedSchoolsTablets.has(schoolId)) return;
+  migratedSchoolsTablets.add(schoolId);
+  try {
+    const cleanSchoolId = sanitizeDocId(schoolId);
+    const { agendamentos, ...configFields } = legacyData;
+    const configPayload = sanitizeForFirestore({
+      ...configFields,
+      schoolId: cleanSchoolId,
+      migratedFromLegacy: true,
+      updatedAt: new Date().toISOString(),
+    });
+    await setDoc(doc(db, 'schools', cleanSchoolId, 'module_config', 'tablets'), configPayload, { merge: true });
+
+    const agList = Array.isArray(agendamentos) ? agendamentos : [];
+    const chunkSize = 400;
+    for (let i = 0; i < agList.length; i += chunkSize) {
+      const batch = writeBatch(db);
+      for (let idx = 0; idx < agList.slice(i, i + chunkSize).length; idx++) {
+        const ag = agList[i + idx];
+        const agId = ag.id || `ag-${sanitizeDocId(ag.data || 'dt')}-${sanitizeDocId(ag.aula || 'al')}-${i + idx}`;
+        const docId = sanitizeDocId(agId);
+        batch.set(
+          doc(db, 'schools', cleanSchoolId, 'tablets_agendamentos', docId),
+          sanitizeForFirestore({ ...ag, id: agId, schoolId: cleanSchoolId }),
+          { merge: true }
+        );
+      }
+      await batch.commit();
+    }
+  } catch (err) {
+    migratedSchoolsTablets.delete(schoolId);
+    console.warn('Migração em segundo plano de tablets adiada:', err);
+  }
+}
+
 export const firestoreService = {
   clearReadCache(): void {
     collectionCache.clear();
@@ -225,11 +474,12 @@ export const firestoreService = {
 
   // === SCHOOLS (Unidades Escolares cadastradas no sistema SaaS) ===
   async getSchools(): Promise<School[]> {
-    const cached = getCachedCollection<School>('schools');
+    const cacheKey = 'schools:all';
+    const cached = getCachedCollection<School>(cacheKey);
     if (cached) return [...cached];
     if (isWithinQuotaCooldown()) return DEFAULT_SCHOOLS;
 
-    return runDeduplicated('col:schools', async () => {
+    return runDeduplicated(`col:${cacheKey}`, async () => {
       try {
         const snap = await getDocs(collection(db, 'schools'));
         const list: School[] = [];
@@ -239,15 +489,10 @@ export const firestoreService = {
           }
         });
         if (list.length === 0) {
-          for (const s of DEFAULT_SCHOOLS) {
-            const cleanId = sanitizeDocId(s.id);
-            await setDoc(doc(db, 'schools', cleanId), sanitizeForFirestore({ ...s, id: cleanId }), { merge: true });
-          }
-          setCachedCollection('schools', DEFAULT_SCHOOLS);
           return DEFAULT_SCHOOLS;
         }
         const sorted = list.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
-        setCachedCollection('schools', sorted);
+        setCachedCollection(cacheKey, sorted);
         return sorted;
       } catch (e) {
         markQuotaExceededIfApplicable(e);
@@ -261,7 +506,10 @@ export const firestoreService = {
     const cleanId = sanitizeDocId(school.id);
     const path = `schools/${cleanId}`;
     try {
-      const cleanData = sanitizeForFirestore({ ...school, id: cleanId });
+      const cleanData = sanitizeForFirestore({
+        ...school,
+        id: cleanId,
+      });
       await setDoc(doc(db, 'schools', cleanId), cleanData, { merge: true });
       invalidateCollectionCache('schools');
     } catch (e) {
@@ -280,51 +528,48 @@ export const firestoreService = {
     }
   },
 
-  // === USERS ===
+  // === USERS (Isolamento por schoolId via query server-side) ===
   async getUsers(schoolId?: string): Promise<UserAccount[]> {
-    const loadAll = async (): Promise<UserAccount[]> => {
-      const cached = getCachedCollection<UserAccount>('users');
-      if (cached) return cached;
-      if (isWithinQuotaCooldown()) return [];
-      return runDeduplicated('col:users', async () => {
-        try {
-          const snap = await getDocs(collection(db, 'users'));
-          const list: UserAccount[] = [];
-          snap.forEach(d => {
-            if (!d.id.includes('cecilia') && !d.id.includes('usr-cec') && d.id !== 'usr-admin-arlindo') {
-              list.push({ id: d.id, ...d.data() } as UserAccount);
-            }
-          });
-          setCachedCollection('users', list);
-          return list;
-        } catch (e) {
-          markQuotaExceededIfApplicable(e);
-          console.warn('Erro ao buscar usuários do Firestore:', e);
-          return [];
-        }
-      });
-    };
-
-    const list = await loadAll();
+    const list = await querySchoolScopedCollection<UserAccount>('users', schoolId);
+    const cleaned = list.filter(
+      u => !u.id.includes('cecilia') && !u.id.includes('usr-cec') && u.id !== 'usr-admin-arlindo'
+    );
     const filtered = schoolId
-      ? list.filter(u =>
+      ? cleaned.filter(u =>
           !u.isUniversal &&
           u.role !== 'super_admin' &&
           u.id !== 'usr-master' &&
           (u.schoolId || DEFAULT_SCHOOL_ID) === schoolId
         )
-      : [...list];
+      : cleaned;
     return filtered.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   },
 
-  async saveUser(user: UserAccount, schoolId?: string): Promise<void> {
-    const path = `users/${user.id}`;
+  async getMasterUserDoc(): Promise<UserAccount | null> {
+    if (isWithinQuotaCooldown()) return null;
     try {
+      const snap = await getDoc(doc(db, 'users', 'usr-master'));
+      if (snap.exists()) {
+        return { id: snap.id, ...snap.data() } as UserAccount;
+      }
+      return null;
+    } catch (e) {
+      markQuotaExceededIfApplicable(e);
+      return null;
+    }
+  },
+
+  async saveUser(user: UserAccount, schoolId?: string): Promise<void> {
+    const cleanId = sanitizeDocId(user.id);
+    const path = `users/${cleanId}`;
+    try {
+      const isMaster = cleanId === 'usr-master' || user.role === 'super_admin' || user.isUniversal === true;
       const withSchool = {
         ...user,
-        schoolId: user.schoolId || schoolId || undefined
+        id: cleanId,
+        schoolId: isMaster ? undefined : (user.schoolId || schoolId || DEFAULT_SCHOOL_ID),
       };
-      await setDoc(doc(db, 'users', user.id), sanitizeForFirestore(withSchool), { merge: true });
+      await setDoc(doc(db, 'users', cleanId), sanitizeForFirestore(withSchool), { merge: true });
       invalidateCollectionCache('users');
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
@@ -332,53 +577,32 @@ export const firestoreService = {
   },
 
   async deleteUser(userId: string): Promise<void> {
-    const path = `users/${userId}`;
+    const cleanId = sanitizeDocId(userId);
+    const path = `users/${cleanId}`;
     try {
-      await deleteDoc(doc(db, 'users', userId));
+      await deleteDoc(doc(db, 'users', cleanId));
       invalidateCollectionCache('users');
     } catch (e) {
       handleFirestoreError(e, OperationType.DELETE, path);
     }
   },
 
-  // === CLASSES ===
+  // === CLASSES (Isolamento Multi-Tenant Server-Side) ===
   async getClasses(schoolId?: string): Promise<SchoolClass[]> {
-    const loadAll = async (): Promise<SchoolClass[]> => {
-      const cached = getCachedCollection<SchoolClass>('classes');
-      if (cached) return cached;
-      if (isWithinQuotaCooldown()) return [];
-      return runDeduplicated('col:classes', async () => {
-        try {
-          const snap = await getDocs(collection(db, 'classes'));
-          const list: SchoolClass[] = [];
-          snap.forEach(d => {
-            list.push({ id: d.id, ...d.data() } as SchoolClass);
-          });
-          setCachedCollection('classes', list);
-          return list;
-        } catch (e) {
-          markQuotaExceededIfApplicable(e);
-          console.warn('Erro ao buscar turmas do Firestore:', e);
-          return [];
-        }
-      });
-    };
-
-    const list = await loadAll();
-    const filtered = schoolId
-      ? list.filter(c => (c.schoolId || DEFAULT_SCHOOL_ID) === schoolId)
-      : [...list];
-    return filtered.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    const list = await querySchoolScopedCollection<SchoolClass>('classes', schoolId);
+    return list.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   },
 
   async saveClass(cls: SchoolClass, schoolId?: string): Promise<void> {
-    const path = `classes/${cls.id}`;
+    const cleanId = sanitizeDocId(cls.id);
+    const path = `classes/${cleanId}`;
     try {
       const withSchool = {
         ...cls,
+        id: cleanId,
         schoolId: cls.schoolId || schoolId || DEFAULT_SCHOOL_ID
       };
-      await setDoc(doc(db, 'classes', cls.id), sanitizeForFirestore(withSchool), { merge: true });
+      await setDoc(doc(db, 'classes', cleanId), sanitizeForFirestore(withSchool), { merge: true });
       invalidateCollectionCache('classes');
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
@@ -386,43 +610,20 @@ export const firestoreService = {
   },
 
   async deleteClass(clsId: string): Promise<void> {
-    const path = `classes/${clsId}`;
+    const cleanId = sanitizeDocId(clsId);
+    const path = `classes/${cleanId}`;
     try {
-      await deleteDoc(doc(db, 'classes', clsId));
+      await deleteDoc(doc(db, 'classes', cleanId));
       invalidateCollectionCache('classes');
     } catch (e) {
       handleFirestoreError(e, OperationType.DELETE, path);
     }
   },
 
-  // === STUDENTS ===
+  // === STUDENTS (Isolamento Multi-Tenant Server-Side) ===
   async getStudents(schoolId?: string): Promise<Student[]> {
-    const loadAll = async (): Promise<Student[]> => {
-      const cached = getCachedCollection<Student>('students');
-      if (cached) return cached;
-      if (isWithinQuotaCooldown()) return [];
-      return runDeduplicated('col:students', async () => {
-        try {
-          const snap = await getDocs(collection(db, 'students'));
-          const list: Student[] = [];
-          snap.forEach(d => {
-            list.push({ id: d.id, ...d.data() } as Student);
-          });
-          setCachedCollection('students', list);
-          return list;
-        } catch (e) {
-          markQuotaExceededIfApplicable(e);
-          console.warn('Erro ao buscar estudantes do Firestore:', e);
-          return [];
-        }
-      });
-    };
-
-    const list = await loadAll();
-    const filtered = schoolId
-      ? list.filter(s => (s.schoolId || DEFAULT_SCHOOL_ID) === schoolId)
-      : [...list];
-    return filtered.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+    const list = await querySchoolScopedCollection<Student>('students', schoolId);
+    return list.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   },
 
   async saveStudent(student: Student, schoolId?: string): Promise<void> {
@@ -477,42 +678,21 @@ export const firestoreService = {
     }
   },
 
-  // === ATTENDANCE RECORDS ===
+  // === ATTENDANCE RECORDS (Isolamento Multi-Tenant Server-Side) ===
   async getAttendanceRecords(date?: string, schoolId?: string): Promise<AttendanceRecord[]> {
-    const loadAll = async (): Promise<AttendanceRecord[]> => {
-      const cached = getCachedCollection<AttendanceRecord>('attendance_records');
-      if (cached) return cached;
-      if (isWithinQuotaCooldown()) return [];
-      return runDeduplicated('col:attendance_records', async () => {
-        try {
-          const snap = await getDocs(collection(db, 'attendance_records'));
-          const list: AttendanceRecord[] = [];
-          snap.forEach(d => {
-            const raw = d.data() as AttendanceRecord;
-            list.push({
-              id: d.id,
-              ...raw,
-              date: normalizeDateStr(raw.date) || raw.date,
-            });
-          });
-          setCachedCollection('attendance_records', list);
-          return list;
-        } catch (e) {
-          markQuotaExceededIfApplicable(e);
-          console.warn('Erro ao buscar chamadas do Firestore:', e);
-          return [];
-        }
-      });
-    };
-
-    const list = await loadAll();
-    let filtered = schoolId
-      ? list.filter(r => (r.schoolId || DEFAULT_SCHOOL_ID) === schoolId)
-      : [...list];
+    const list = await querySchoolScopedCollection<AttendanceRecord>(
+      'attendance_records',
+      schoolId,
+      (id, raw) => ({
+        id,
+        ...(raw as AttendanceRecord),
+        date: normalizeDateStr(raw?.date) || raw?.date,
+      })
+    );
     if (date) {
-      filtered = filtered.filter(r => isSameDay(r.date, date));
+      return list.filter(r => isSameDay(r.date, date));
     }
-    return filtered;
+    return list;
   },
 
   async batchSaveAttendance(records: AttendanceRecord[], schoolId?: string): Promise<void> {
@@ -544,14 +724,15 @@ export const firestoreService = {
   async deleteAttendanceByDate(dateStr: string, classId?: string, schoolId?: string): Promise<number> {
     if (!dateStr) return 0;
     try {
-      const snap = await getDocs(collection(db, 'attendance_records'));
+      const colRef = collection(db, 'attendance_records');
+      const q = schoolId ? query(colRef, where('schoolId', '==', schoolId)) : colRef;
+      const snap = await getDocs(q);
       const toDelete: string[] = [];
       const cleanDate = normalizeDateStr(dateStr);
       const cleanClass = classId ? classId.trim().toLowerCase() : null;
 
       snap.forEach(d => {
         const data = d.data() as AttendanceRecord;
-        // Isolamento multi-tenant: não apaga registros de outras escolas
         if (schoolId && (data.schoolId || DEFAULT_SCHOOL_ID) !== schoolId) {
           return;
         }
@@ -570,7 +751,7 @@ export const firestoreService = {
             const normC = cleanClass.replace(/[^a-z0-9]/gi, '');
             const isMarkerForClass = data.studentId === `cls-marker-${classId}` || (normC && data.studentId.toLowerCase() === `cls-marker-${normC}`);
             const isPrefixForClass = d.id.startsWith(`att-cls-${classId}-`) || (normC && d.id.toLowerCase().startsWith(`att-cls-${normC}-`));
-            
+
             if (
               rClassId === cleanClass ||
               rClassName === cleanClass ||
@@ -602,44 +783,22 @@ export const firestoreService = {
     }
   },
 
-  // === ALERTS ===
+  // === ALERTS (Isolamento Multi-Tenant Server-Side) ===
   async getAlerts(schoolId?: string): Promise<ParentAlert[]> {
-    const loadAll = async (): Promise<ParentAlert[]> => {
-      const cached = getCachedCollection<ParentAlert>('alerts');
-      if (cached) return cached;
-      if (isWithinQuotaCooldown()) return [];
-      return runDeduplicated('col:alerts', async () => {
-        try {
-          const snap = await getDocs(collection(db, 'alerts'));
-          const list: ParentAlert[] = [];
-          snap.forEach(d => {
-            list.push({ id: d.id, ...d.data() } as ParentAlert);
-          });
-          setCachedCollection('alerts', list);
-          return list;
-        } catch (e) {
-          markQuotaExceededIfApplicable(e);
-          console.warn('Erro ao buscar alertas do Firestore:', e);
-          return [];
-        }
-      });
-    };
-
-    const list = await loadAll();
-    const filtered = schoolId
-      ? list.filter(a => (a.schoolId || DEFAULT_SCHOOL_ID) === schoolId)
-      : [...list];
-    return filtered.sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
+    const list = await querySchoolScopedCollection<ParentAlert>('alerts', schoolId);
+    return list.sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
   },
 
   async saveAlert(alert: ParentAlert, schoolId?: string): Promise<void> {
-    const path = `alerts/${alert.id}`;
+    const cleanId = sanitizeDocId(alert.id);
+    const path = `alerts/${cleanId}`;
     try {
       const withSchool = {
         ...alert,
+        id: cleanId,
         schoolId: alert.schoolId || schoolId || DEFAULT_SCHOOL_ID
       };
-      await setDoc(doc(db, 'alerts', alert.id), sanitizeForFirestore(withSchool), { merge: true });
+      await setDoc(doc(db, 'alerts', cleanId), sanitizeForFirestore(withSchool), { merge: true });
       invalidateCollectionCache('alerts');
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
@@ -647,52 +806,31 @@ export const firestoreService = {
   },
 
   async deleteAlert(alertId: string): Promise<void> {
-    const path = `alerts/${alertId}`;
+    const cleanId = sanitizeDocId(alertId);
+    const path = `alerts/${cleanId}`;
     try {
-      await deleteDoc(doc(db, 'alerts', alertId));
+      await deleteDoc(doc(db, 'alerts', cleanId));
       invalidateCollectionCache('alerts');
     } catch (e) {
       handleFirestoreError(e, OperationType.DELETE, path);
     }
   },
 
-  // === INTERVENTIONS ===
+  // === INTERVENTIONS (Isolamento Multi-Tenant Server-Side) ===
   async getInterventions(schoolId?: string): Promise<InterventionCase[]> {
-    const loadAll = async (): Promise<InterventionCase[]> => {
-      const cached = getCachedCollection<InterventionCase>('interventions');
-      if (cached) return cached;
-      if (isWithinQuotaCooldown()) return [];
-      return runDeduplicated('col:interventions', async () => {
-        try {
-          const snap = await getDocs(collection(db, 'interventions'));
-          const list: InterventionCase[] = [];
-          snap.forEach(d => {
-            list.push({ id: d.id, ...d.data() } as InterventionCase);
-          });
-          setCachedCollection('interventions', list);
-          return list;
-        } catch (e) {
-          markQuotaExceededIfApplicable(e);
-          console.warn('Erro ao buscar intervenções do Firestore:', e);
-          return [];
-        }
-      });
-    };
-
-    const list = await loadAll();
-    return schoolId
-      ? list.filter(i => (i.schoolId || DEFAULT_SCHOOL_ID) === schoolId)
-      : [...list];
+    return querySchoolScopedCollection<InterventionCase>('interventions', schoolId);
   },
 
   async saveIntervention(intervention: InterventionCase, schoolId?: string): Promise<void> {
-    const path = `interventions/${intervention.id}`;
+    const cleanId = sanitizeDocId(intervention.id);
+    const path = `interventions/${cleanId}`;
     try {
       const withSchool = {
         ...intervention,
+        id: cleanId,
         schoolId: intervention.schoolId || schoolId || DEFAULT_SCHOOL_ID
       };
-      await setDoc(doc(db, 'interventions', intervention.id), sanitizeForFirestore(withSchool), { merge: true });
+      await setDoc(doc(db, 'interventions', cleanId), sanitizeForFirestore(withSchool), { merge: true });
       invalidateCollectionCache('interventions');
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
@@ -700,45 +838,20 @@ export const firestoreService = {
   },
 
   async deleteIntervention(id: string): Promise<void> {
-    const path = `interventions/${id}`;
+    const cleanId = sanitizeDocId(id);
+    const path = `interventions/${cleanId}`;
     try {
-      await deleteDoc(doc(db, 'interventions', id));
+      await deleteDoc(doc(db, 'interventions', cleanId));
       invalidateCollectionCache('interventions');
     } catch (e) {
       handleFirestoreError(e, OperationType.DELETE, path);
     }
   },
 
-  // === GATE RECORDS ===
+  // === GATE RECORDS (Isolamento Multi-Tenant Server-Side) ===
   async getGateRecords(date?: string, schoolId?: string): Promise<GateRecord[]> {
-    const loadAll = async (): Promise<GateRecord[]> => {
-      const cached = getCachedCollection<GateRecord>('gate_records');
-      if (cached) return cached;
-      if (isWithinQuotaCooldown()) return [];
-      return runDeduplicated('col:gate_records', async () => {
-        try {
-          const snap = await getDocs(collection(db, 'gate_records'));
-          const list: GateRecord[] = [];
-          snap.forEach(d => {
-            list.push({ id: d.id, ...d.data() } as GateRecord);
-          });
-          setCachedCollection('gate_records', list);
-          return list;
-        } catch (e) {
-          markQuotaExceededIfApplicable(e);
-          console.warn('Erro ao buscar registros de portaria do Firestore:', e);
-          return [];
-        }
-      });
-    };
-
-    const list = await loadAll();
-    let filtered = schoolId
-      ? list.filter(g => (g.schoolId || DEFAULT_SCHOOL_ID) === schoolId)
-      : [...list];
-    if (date) {
-      filtered = filtered.filter(g => isSameDay(g.date, date));
-    }
+    const list = await querySchoolScopedCollection<GateRecord>('gate_records', schoolId);
+    const filtered = date ? list.filter(g => isSameDay(g.date, date)) : list;
     return filtered.sort((a, b) => {
       const dateA = normalizeDateStr(a.date) || a.date || '';
       const dateB = normalizeDateStr(b.date) || b.date || '';
@@ -748,13 +861,15 @@ export const firestoreService = {
   },
 
   async saveGateRecord(record: GateRecord, schoolId?: string): Promise<void> {
-    const path = `gate_records/${record.id}`;
+    const cleanId = sanitizeDocId(record.id);
+    const path = `gate_records/${cleanId}`;
     try {
       const withSchool = {
         ...record,
+        id: cleanId,
         schoolId: record.schoolId || schoolId || DEFAULT_SCHOOL_ID
       };
-      await setDoc(doc(db, 'gate_records', record.id), sanitizeForFirestore(withSchool), { merge: true });
+      await setDoc(doc(db, 'gate_records', cleanId), sanitizeForFirestore(withSchool), { merge: true });
       invalidateCollectionCache('gate_records');
     } catch (e) {
       handleFirestoreError(e, OperationType.WRITE, path);
@@ -762,19 +877,20 @@ export const firestoreService = {
   },
 
   async deleteGateRecord(id: string): Promise<void> {
-    const path = `gate_records/${id}`;
+    const cleanId = sanitizeDocId(id);
+    const path = `gate_records/${cleanId}`;
     try {
-      await deleteDoc(doc(db, 'gate_records', id));
+      await deleteDoc(doc(db, 'gate_records', cleanId));
       invalidateCollectionCache('gate_records');
     } catch (e) {
       handleFirestoreError(e, OperationType.DELETE, path);
     }
   },
 
-  // === OCORRÊNCIAS & MEDIAÇÃO (Nuvem compartilhada e isolada por escola) ===
+  // === OCORRÊNCIAS & MEDIAÇÃO (Arquitetura em Subcoleções — Sem limite de 1 MB!) ===
   async getOcorrencias(schoolId?: string, forceRefresh = false): Promise<any | null> {
-    const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `ocorrencias_${sanitizeDocId(schoolId)}` : 'ocorrencias';
-    const cacheKey = `system_data/${docId}`;
+    const sId = sanitizeDocId(schoolId || DEFAULT_SCHOOL_ID);
+    const cacheKey = `ocorrencias:${sId}`;
     if (!forceRefresh) {
       const cached = getCachedDoc<any>(cacheKey);
       if (cached.hit) return cached.data;
@@ -783,43 +899,165 @@ export const firestoreService = {
 
     return runDeduplicated(`doc:${cacheKey}`, async () => {
       try {
-        const snap = await getDoc(doc(db, 'system_data', docId));
-        if (snap.exists()) {
-          const data = snap.data();
-          setCachedDoc(cacheKey, data);
-          return data;
+        const [configSnap, registrosSnap, tratativasSnap] = await Promise.all([
+          getDoc(doc(db, 'schools', sId, 'module_config', 'ocorrencias')),
+          getDocs(collection(db, 'schools', sId, 'ocorrencias')),
+          getDocs(collection(db, 'schools', sId, 'tratativas_familia')),
+        ]);
+
+        if (configSnap.exists() || !registrosSnap.empty || !tratativasSnap.empty) {
+          const configData = configSnap.exists() ? configSnap.data() : {};
+          const registros = registrosSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          const tratativasFamilia = tratativasSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          const assembled = {
+            ...configData,
+            registros,
+            tratativasFamilia,
+            schoolId: sId,
+          };
+          setCachedDoc(cacheKey, assembled);
+          return assembled;
         }
+
+        // Fallback retroativo (primeira leitura antes da migração): lê documento legado system_data/ocorrencias
+        const legacyDocId = sId !== DEFAULT_SCHOOL_ID ? `ocorrencias_${sId}` : 'ocorrencias';
+        const legacySnap = await getDoc(doc(db, 'system_data', legacyDocId));
+        if (legacySnap.exists()) {
+          const legacyData = legacySnap.data();
+          setCachedDoc(cacheKey, legacyData);
+          // Migra automaticamente em segundo plano para a nova arquitetura em subcoleções
+          migrateLegacyOcorrenciasToSubcollections(sId, legacyData);
+          return legacyData;
+        }
+
         setCachedDoc(cacheKey, null);
         return null;
       } catch (e) {
         markQuotaExceededIfApplicable(e);
-        console.warn(`Erro ao carregar ocorrências (${docId}) do Firestore:`, e);
+        console.warn(`Erro ao carregar ocorrências (${sId}) do Firestore:`, e);
         return null;
       }
     });
   },
 
-  async saveOcorrencias(data: any, schoolId?: string): Promise<void> {
-    const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `ocorrencias_${sanitizeDocId(schoolId)}` : 'ocorrencias';
-    const cacheKey = `system_data/${docId}`;
+  // Gravação atômica de 1 registro de ocorrência (1 escrita em vez de reescrever a base inteira!)
+  async saveOcorrenciaRecord(schoolId: string, record: any): Promise<void> {
+    const sId = sanitizeDocId(schoolId || DEFAULT_SCHOOL_ID);
+    const recId = record.id || `#OC-${Date.now()}`;
+    const docId = sanitizeDocId(recId);
+    const path = `schools/${sId}/ocorrencias/${docId}`;
     try {
-      const payload = sanitizeForFirestore({
-        ...data,
-        schoolId: schoolId || DEFAULT_SCHOOL_ID,
-        updatedAt: new Date().toISOString()
-      });
-      await setDoc(doc(db, 'system_data', docId), payload, { merge: true });
-      setCachedDoc(cacheKey, payload);
+      await setDoc(
+        doc(db, 'schools', sId, 'ocorrencias', docId),
+        sanitizeForFirestore({ ...record, id: recId, schoolId: sId, updatedAt: new Date().toISOString() }),
+        { merge: true }
+      );
+      invalidateDocCache(`ocorrencias:${sId}`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async deleteOcorrenciaRecord(schoolId: string, recordId: string): Promise<void> {
+    const sId = sanitizeDocId(schoolId || DEFAULT_SCHOOL_ID);
+    const docId = sanitizeDocId(recordId);
+    const path = `schools/${sId}/ocorrencias/${docId}`;
+    try {
+      await deleteDoc(doc(db, 'schools', sId, 'ocorrencias', docId));
+      invalidateDocCache(`ocorrencias:${sId}`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, path);
+    }
+  },
+
+  async saveTratativaFamilia(schoolId: string, tratativa: any): Promise<void> {
+    const sId = sanitizeDocId(schoolId || DEFAULT_SCHOOL_ID);
+    const tId = tratativa.id || `trat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const docId = sanitizeDocId(tId);
+    const path = `schools/${sId}/tratativas_familia/${docId}`;
+    try {
+      await setDoc(
+        doc(db, 'schools', sId, 'tratativas_familia', docId),
+        sanitizeForFirestore({ ...tratativa, id: tId, schoolId: sId, updatedAt: new Date().toISOString() }),
+        { merge: true }
+      );
+      invalidateDocCache(`ocorrencias:${sId}`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async saveOcorrenciasConfig(schoolId: string, config: any): Promise<void> {
+    const sId = sanitizeDocId(schoolId || DEFAULT_SCHOOL_ID);
+    const path = `schools/${sId}/module_config/ocorrencias`;
+    try {
+      const { registros: _r, tratativasFamilia: _t, ...cleanConfig } = config || {};
+      await setDoc(
+        doc(db, 'schools', sId, 'module_config', 'ocorrencias'),
+        sanitizeForFirestore({ ...cleanConfig, schoolId: sId, updatedAt: new Date().toISOString() }),
+        { merge: true }
+      );
+      invalidateDocCache(`ocorrencias:${sId}`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  // Gravação em lote completa (usada na restauração de backup)
+  async saveOcorrencias(data: any, schoolId?: string): Promise<void> {
+    const sId = sanitizeDocId(schoolId || DEFAULT_SCHOOL_ID);
+    const cacheKey = `ocorrencias:${sId}`;
+    try {
+      const { registros, tratativasFamilia, ...configFields } = data || {};
+      await setDoc(
+        doc(db, 'schools', sId, 'module_config', 'ocorrencias'),
+        sanitizeForFirestore({ ...configFields, schoolId: sId, updatedAt: new Date().toISOString() }),
+        { merge: true }
+      );
+
+      const regList = Array.isArray(registros) ? registros : [];
+      const chunkSize = 400;
+      for (let i = 0; i < regList.length; i += chunkSize) {
+        const batch = writeBatch(db);
+        for (const reg of regList.slice(i, i + chunkSize)) {
+          const recId = reg.id || `#OC-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+          const docId = sanitizeDocId(recId);
+          batch.set(
+            doc(db, 'schools', sId, 'ocorrencias', docId),
+            sanitizeForFirestore({ ...reg, id: recId, schoolId: sId }),
+            { merge: true }
+          );
+        }
+        await batch.commit();
+      }
+
+      const tratList = Array.isArray(tratativasFamilia) ? tratativasFamilia : [];
+      for (let i = 0; i < tratList.length; i += chunkSize) {
+        const batch = writeBatch(db);
+        for (let idx = 0; idx < tratList.slice(i, i + chunkSize).length; idx++) {
+          const t = tratList[i + idx];
+          const tId = t.id || `trat-${Date.now()}-${i + idx}`;
+          const docId = sanitizeDocId(tId);
+          batch.set(
+            doc(db, 'schools', sId, 'tratativas_familia', docId),
+            sanitizeForFirestore({ ...t, id: tId, schoolId: sId }),
+            { merge: true }
+          );
+        }
+        await batch.commit();
+      }
+
+      setCachedDoc(cacheKey, { ...data, schoolId: sId });
     } catch (e) {
       markQuotaExceededIfApplicable(e);
-      console.warn(`Erro ao salvar ocorrências (${docId}) no Firestore:`, e);
+      console.warn(`Erro ao salvar ocorrências (${sId}) no Firestore:`, e);
     }
   },
 
-  // === TABLETS & AGENDAMENTOS (Nuvem compartilhada e isolada por escola) ===
+  // === TABLETS & AGENDAMENTOS (Arquitetura em Subcoleções — Sem limite de 1 MB!) ===
   async getTablets(schoolId?: string, forceRefresh = false): Promise<any | null> {
-    const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `tablets_${sanitizeDocId(schoolId)}` : 'tablets';
-    const cacheKey = `system_data/${docId}`;
+    const sId = sanitizeDocId(schoolId || DEFAULT_SCHOOL_ID);
+    const cacheKey = `tablets:${sId}`;
     if (!forceRefresh) {
       const cached = getCachedDoc<any>(cacheKey);
       if (cached.hit) return cached.data;
@@ -828,36 +1066,119 @@ export const firestoreService = {
 
     return runDeduplicated(`doc:${cacheKey}`, async () => {
       try {
-        const snap = await getDoc(doc(db, 'system_data', docId));
-        if (snap.exists()) {
-          const data = snap.data();
-          setCachedDoc(cacheKey, data);
-          return data;
+        const [configSnap, agSnap] = await Promise.all([
+          getDoc(doc(db, 'schools', sId, 'module_config', 'tablets')),
+          getDocs(collection(db, 'schools', sId, 'tablets_agendamentos')),
+        ]);
+
+        if (configSnap.exists() || !agSnap.empty) {
+          const configData = configSnap.exists() ? configSnap.data() : {};
+          const agendamentos = agSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          const assembled = {
+            ...configData,
+            agendamentos,
+            schoolId: sId,
+          };
+          setCachedDoc(cacheKey, assembled);
+          return assembled;
         }
+
+        // Fallback retroativo (primeira leitura antes da migração): lê documento legado system_data/tablets
+        const legacyDocId = sId !== DEFAULT_SCHOOL_ID ? `tablets_${sId}` : 'tablets';
+        const legacySnap = await getDoc(doc(db, 'system_data', legacyDocId));
+        if (legacySnap.exists()) {
+          const legacyData = legacySnap.data();
+          setCachedDoc(cacheKey, legacyData);
+          migrateLegacyTabletsToSubcollections(sId, legacyData);
+          return legacyData;
+        }
+
         setCachedDoc(cacheKey, null);
         return null;
       } catch (e) {
         markQuotaExceededIfApplicable(e);
-        console.warn(`Erro ao carregar tablets (${docId}) do Firestore:`, e);
+        console.warn(`Erro ao carregar tablets (${sId}) do Firestore:`, e);
         return null;
       }
     });
+  },
+
+  async saveTabletAgendamento(schoolId: string, agendamento: any): Promise<void> {
+    const sId = sanitizeDocId(schoolId || DEFAULT_SCHOOL_ID);
+    const agId = agendamento.id || `ag-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const docId = sanitizeDocId(agId);
+    const path = `schools/${sId}/tablets_agendamentos/${docId}`;
+    try {
+      await setDoc(
+        doc(db, 'schools', sId, 'tablets_agendamentos', docId),
+        sanitizeForFirestore({ ...agendamento, id: agId, schoolId: sId, updatedAt: new Date().toISOString() }),
+        { merge: true }
+      );
+      invalidateDocCache(`tablets:${sId}`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
+  },
+
+  async deleteTabletAgendamento(schoolId: string, agendamentoId: string): Promise<void> {
+    const sId = sanitizeDocId(schoolId || DEFAULT_SCHOOL_ID);
+    const docId = sanitizeDocId(agendamentoId);
+    const path = `schools/${sId}/tablets_agendamentos/${docId}`;
+    try {
+      await deleteDoc(doc(db, 'schools', sId, 'tablets_agendamentos', docId));
+      invalidateDocCache(`tablets:${sId}`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, path);
+    }
+  },
+
+  async saveTabletsConfig(schoolId: string, config: any): Promise<void> {
+    const sId = sanitizeDocId(schoolId || DEFAULT_SCHOOL_ID);
+    const path = `schools/${sId}/module_config/tablets`;
+    try {
+      const { agendamentos: _a, ...cleanConfig } = config || {};
+      await setDoc(
+        doc(db, 'schools', sId, 'module_config', 'tablets'),
+        sanitizeForFirestore({ ...cleanConfig, schoolId: sId, updatedAt: new Date().toISOString() }),
+        { merge: true }
+      );
+      invalidateDocCache(`tablets:${sId}`);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, path);
+    }
   },
 
   async saveTablets(data: any, schoolId?: string): Promise<void> {
-    const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `tablets_${sanitizeDocId(schoolId)}` : 'tablets';
-    const cacheKey = `system_data/${docId}`;
+    const sId = sanitizeDocId(schoolId || DEFAULT_SCHOOL_ID);
+    const cacheKey = `tablets:${sId}`;
     try {
-      const payload = sanitizeForFirestore({
-        ...data,
-        schoolId: schoolId || DEFAULT_SCHOOL_ID,
-        updatedAt: new Date().toISOString()
-      });
-      await setDoc(doc(db, 'system_data', docId), payload, { merge: true });
-      setCachedDoc(cacheKey, payload);
+      const { agendamentos, ...configFields } = data || {};
+      await setDoc(
+        doc(db, 'schools', sId, 'module_config', 'tablets'),
+        sanitizeForFirestore({ ...configFields, schoolId: sId, updatedAt: new Date().toISOString() }),
+        { merge: true }
+      );
+
+      const agList = Array.isArray(agendamentos) ? agendamentos : [];
+      const chunkSize = 400;
+      for (let i = 0; i < agList.length; i += chunkSize) {
+        const batch = writeBatch(db);
+        for (let idx = 0; idx < agList.slice(i, i + chunkSize).length; idx++) {
+          const ag = agList[i + idx];
+          const agId = ag.id || `ag-${sanitizeDocId(ag.data || 'dt')}-${sanitizeDocId(ag.aula || 'al')}-${i + idx}`;
+          const docId = sanitizeDocId(agId);
+          batch.set(
+            doc(db, 'schools', sId, 'tablets_agendamentos', docId),
+            sanitizeForFirestore({ ...ag, id: agId, schoolId: sId }),
+            { merge: true }
+          );
+        }
+        await batch.commit();
+      }
+      setCachedDoc(cacheKey, { ...data, schoolId: sId });
     } catch (e) {
       markQuotaExceededIfApplicable(e);
-      console.warn(`Erro ao salvar tablets (${docId}) no Firestore:`, e);
+      console.warn(`Erro ao salvar tablets (${sId}) no Firestore:`, e);
     }
   },
 
@@ -905,7 +1226,7 @@ export const firestoreService = {
     }
   },
 
-  // === GRADE HORÁRIA DOCENTE (Preparado para sincronia com módulo de Grade Horária) ===
+  // === GRADE HORÁRIA DOCENTE ===
   async getTeacherSchedules(schoolId?: string): Promise<TeacherScheduleSlot[]> {
     const docId = schoolId && schoolId !== DEFAULT_SCHOOL_ID ? `grade_docente_${sanitizeDocId(schoolId)}` : 'grade_docente';
     const cacheKey = `system_data/${docId}`;
@@ -949,7 +1270,7 @@ export const firestoreService = {
     }
   },
 
-  // === WORKSPACE DE GRADE CURRICULAR & GERADOR DE HORÁRIOS (Critérios Anuais + Matrizes + Grade Completa) ===
+  // === WORKSPACE DE GRADE CURRICULAR & GERADOR DE HORÁRIOS ===
   async getTimetableWorkspace(schoolId?: string): Promise<TimetableWorkspace | null> {
     const sId = schoolId || DEFAULT_SCHOOL_ID;
     const docId = sId && sId !== DEFAULT_SCHOOL_ID ? `timetable_workspace_${sanitizeDocId(sId)}` : 'timetable_workspace';
@@ -994,11 +1315,11 @@ export const firestoreService = {
     }
   },
 
-  // === TESTE DE CONEXÃO DIRETA COM O SERVIDOR (Validação de Acesso Multi-Navegador) ===
+  // === TESTE DE CONEXÃO DIRETA COM O SERVIDOR ===
   async testConnection(): Promise<{ success: boolean; latencyMs: number; error?: string; quotaExceeded?: boolean; databaseId: string }> {
     const start = performance.now();
     try {
-      await getDocFromServer(doc(db, 'system_data', 'ocorrencias'));
+      await getDocFromServer(doc(db, 'schools', DEFAULT_SCHOOL_ID));
       quotaExceededUntil = 0;
       const latencyMs = Math.round(performance.now() - start);
       return {
@@ -1023,7 +1344,7 @@ export const firestoreService = {
     }
   },
 
-  // === CARREGAMENTO TOTAL DIRETO DO FIREBASE (Progressivo em 2 Ondas Paralelas — Ultra-Rápido) ===
+  // === CARREGAMENTO TOTAL DIRETO DO FIREBASE (Isolado por Escola em 2 Ondas Paralelas) ===
   async getAllDataDirectly(
     schoolId?: string,
     forceRefresh = false,
@@ -1086,12 +1407,11 @@ export const firestoreService = {
     const dedupeKey = `getAllDataDirectly:${targetSchoolId}`;
     return runDeduplicated(dedupeKey, async () => {
       try {
-        // Onda 1 (Prioritária e super leve — chega em ~0.5s a 1.5s):
-        // Ocorrências, Tablets/Equipamentos, Escolas, Turmas, Usuários, Alertas e Intervenções
+        // Onda 1 (Prioritária e isolada por schoolId)
         const priorityPromise = Promise.all([
           firestoreService.getSchools(),
           firestoreService.getClasses(targetSchoolId),
-          firestoreService.getUsers(),
+          firestoreService.getUsers(targetSchoolId),
           firestoreService.getAlerts(targetSchoolId),
           firestoreService.getInterventions(targetSchoolId),
           firestoreService.getOcorrencias(targetSchoolId, forceRefresh),
@@ -1115,7 +1435,7 @@ export const firestoreService = {
           return { schools, classes, users, alerts, interventions, ocorrencias, tablets };
         });
 
-        // Onda 2 (Coleções maiores — disparadas NO MESMO MILISSEGUNDO em paralelo, sem bloquear a Onda 1)
+        // Onda 2 (Coleções maiores — também isoladas por schoolId no servidor!)
         const secondaryPromise = Promise.all([
           firestoreService.getStudents(targetSchoolId),
           firestoreService.getAttendanceRecords(undefined, targetSchoolId),
@@ -1209,5 +1529,3 @@ export const firestoreService = {
     });
   }
 };
-
-

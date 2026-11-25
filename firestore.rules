@@ -1,8 +1,391 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // =========================================================================
+    // NEGAÇÃO PADRÃO ABSOLUTA (DEFAULT DENY CATCH-ALL)
+    // =========================================================================
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // HELPERS DE AUTENTICAÇÃO VERIFICADA E MULTI-ESCOLA
+    // =========================================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true && request.auth.token.email is string;
+    }
+
+    function userEmailLower() {
+      return request.auth.token.email.lower();
+    }
+
+    function isBootstrappedOwner() {
+      return isVerifiedUser() && userEmailLower() == 'cmfotosport@gmail.com';
+    }
+
+    function isMasterAdmin() {
+      return isBootstrappedOwner() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 200 && id != '.' && id != '..';
+    }
+
+    function isNonEmptyString(val, maxLen) {
+      return val is string && val.size() >= 1 && val.size() <= maxLen;
+    }
+
+    function isOptionalString(data, field, maxLen) {
+      return !(field in data) || data[field] == null || (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isValidTenantSchoolId(data) {
+      return 'schoolId' in data && isNonEmptyString(data.schoolId, 100);
+    }
+
+    function tenantImmutable() {
+      return !('schoolId' in resource.data)
+        || resource.data.schoolId == null
+        || resource.data.schoolId == ''
+        || request.resource.data.schoolId == resource.data.schoolId;
+    }
+
+    function isLegacySchoolIdBackfill() {
+      return isVerifiedUser()
+        && (!('schoolId' in resource.data) || resource.data.schoolId == null || resource.data.schoolId == '')
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['schoolId'])
+        && request.resource.data.schoolId == 'ee-arlindo-silvestre';
+    }
+
+    // =========================================================================
+    // VALIDADORES DE ESQUEMA POR ENTIDADE
+    // =========================================================================
+
+    function isValidSchool(data) {
+      return data.keys().size() <= 40
+        && isOptionalString(data, 'id', 100)
+        && isNonEmptyString(data.name, 200)
+        && (!('active' in data) || data.active is bool)
+        && (!('authorizedEmails' in data) || (data.authorizedEmails is list && data.authorizedEmails.size() <= 50))
+        && isOptionalString(data, 'codeCie', 50)
+        && isOptionalString(data, 'network', 120)
+        && isOptionalString(data, 'city', 120)
+        && isOptionalString(data, 'address', 300)
+        && isOptionalString(data, 'phone', 60)
+        && isOptionalString(data, 'directorName', 160);
+    }
+
+    function isValidUserAccount(data) {
+      return data.keys().size() <= 35
+        && isOptionalString(data, 'id', 128)
+        && isNonEmptyString(data.name, 200)
+        && isNonEmptyString(data.role, 40)
+        && data.role in ['super_admin', 'admin_escola', 'admin', 'gestao_paac', 'aoe', 'professor']
+        && (!('active' in data) || data.active is bool)
+        && isOptionalString(data, 'username', 120)
+        && isOptionalString(data, 'email', 200)
+        && isOptionalString(data, 'roleLabel', 120)
+        && isOptionalString(data, 'pin', 32)
+        && isOptionalString(data, 'schoolId', 100)
+        && isOptionalString(data, 'notes', 1000);
+    }
+
+    function isPrivilegedUserAccount(userId, data) {
+      return userId == 'usr-master'
+        || ('role' in data && data.role == 'super_admin')
+        || ('isUniversal' in data && data.isUniversal == true);
+    }
+
+    function isValidClass(data) {
+      return data.keys().size() <= 40
+        && isValidTenantSchoolId(data)
+        && isOptionalString(data, 'id', 128)
+        && isNonEmptyString(data.name, 120)
+        && isOptionalString(data, 'grade', 80)
+        && isOptionalString(data, 'shift', 60)
+        && isOptionalString(data, 'teacher', 160);
+    }
+
+    function isValidStudent(data) {
+      return data.keys().size() <= 60
+        && isValidTenantSchoolId(data)
+        && isOptionalString(data, 'id', 128)
+        && isNonEmptyString(data.name, 200)
+        && isOptionalString(data, 'classId', 128)
+        && isOptionalString(data, 'ra', 80)
+        && isOptionalString(data, 'className', 120)
+        && isOptionalString(data, 'guardianName', 200)
+        && isOptionalString(data, 'guardianPhone', 200)
+        && isOptionalString(data, 'notes', 10000);
+    }
+
+    function isValidAttendanceRecord(data) {
+      return data.keys().size() <= 45
+        && isValidTenantSchoolId(data)
+        && isOptionalString(data, 'id', 128)
+        && isNonEmptyString(data.studentId, 128)
+        && isNonEmptyString(data.classId, 128)
+        && isNonEmptyString(data.date, 40)
+        && isNonEmptyString(data.status, 40);
+    }
+
+    function isValidAlert(data) {
+      return data.keys().size() <= 45
+        && isValidTenantSchoolId(data)
+        && isOptionalString(data, 'id', 128)
+        && isNonEmptyString(data.studentId, 128)
+        && isNonEmptyString(data.status, 40)
+        && isOptionalString(data, 'messageContent', 10000);
+    }
+
+    function isValidIntervention(data) {
+      return data.keys().size() <= 50
+        && isValidTenantSchoolId(data)
+        && isOptionalString(data, 'id', 128)
+        && isNonEmptyString(data.studentId, 128)
+        && isNonEmptyString(data.stage, 80)
+        && isOptionalString(data, 'reason', 5000);
+    }
+
+    function isValidGateRecord(data) {
+      return data.keys().size() <= 40
+        && isValidTenantSchoolId(data)
+        && isOptionalString(data, 'id', 128)
+        && isNonEmptyString(data.studentId, 128)
+        && isNonEmptyString(data.type, 40)
+        && isNonEmptyString(data.date, 40)
+        && isOptionalString(data, 'reason', 2000);
+    }
+
+    function isValidOcorrencia(schoolId, data) {
+      return data.keys().size() <= 60
+        && isValidTenantSchoolId(data)
+        && data.schoolId == schoolId
+        && isOptionalString(data, 'id', 128)
+        && isOptionalString(data, 'estudante', 200)
+        && isOptionalString(data, 'turma', 120)
+        && isOptionalString(data, 'professor', 200)
+        && isOptionalString(data, 'ocorrencia', 500)
+        && isOptionalString(data, 'medida', 500)
+        && isOptionalString(data, 'descricao', 20000)
+        && isOptionalString(data, 'mediacao', 20000);
+    }
+
+    function isValidTratativa(schoolId, data) {
+      return data.keys().size() <= 45
+        && isValidTenantSchoolId(data)
+        && data.schoolId == schoolId
+        && isOptionalString(data, 'id', 128)
+        && isOptionalString(data, 'estudante', 200)
+        && isOptionalString(data, 'relato', 20000);
+    }
+
+    function isValidTabletAgendamento(schoolId, data) {
+      return data.keys().size() <= 40
+        && isValidTenantSchoolId(data)
+        && data.schoolId == schoolId
+        && isOptionalString(data, 'id', 128)
+        && isNonEmptyString(data.data, 40)
+        && isNonEmptyString(data.aula, 120)
+        && isOptionalString(data, 'professor', 200)
+        && isOptionalString(data, 'turma', 120)
+        && isOptionalString(data, 'equipmentType', 80);
+    }
+
+    function isValidModuleConfig(schoolId, data) {
+      return data.keys().size() <= 60
+        && isValidTenantSchoolId(data)
+        && data.schoolId == schoolId;
+    }
+
+    function isValidSystemData(data) {
+      return data.keys().size() <= 60
+        && isOptionalString(data, 'schoolId', 100)
+        && isOptionalString(data, 'updatedAt', 60);
+    }
+
+    // =========================================================================
+    // TABELA DE ADMINISTRADORES GLOBAIS (SOMENTE MASTER ADMIN)
+    // =========================================================================
+    match /admins/{uid} {
+      allow get: if isVerifiedUser() && (request.auth.uid == uid || isMasterAdmin());
+      allow list: if isBootstrappedOwner();
+      allow create, update: if isMasterAdmin()
+        && isValidId(uid)
+        && isNonEmptyString(request.resource.data.email, 200)
+        && isNonEmptyString(request.resource.data.role, 40);
+      allow delete: if isMasterAdmin();
+    }
+
+    // =========================================================================
+    // DOCUMENTO DE TESTE DE CONEXÃO DO STARTUP
+    // =========================================================================
+    match /test/connection {
+      allow get: if isVerifiedUser();
+      allow list, create, update, delete: if false;
+    }
+
+    // =========================================================================
+    // UNIDADES ESCOLARES E SUBCOLEÇÕES ESCALÁVEIS ISOLADAS POR ESCOLA
+    // =========================================================================
+    match /schools/{schoolId} {
+      allow get: if isVerifiedUser() && isValidId(schoolId);
+      allow list: if isVerifiedUser();
+      allow create: if isMasterAdmin() && isValidId(schoolId) && isValidSchool(request.resource.data);
+      allow update: if isMasterAdmin() && isValidId(schoolId) && isValidSchool(request.resource.data);
+      allow delete: if isMasterAdmin() && isValidId(schoolId);
+
+      match /module_config/{moduleId} {
+        allow get: if isVerifiedUser() && isValidId(schoolId) && isValidId(moduleId);
+        allow list: if isVerifiedUser() && isValidId(schoolId);
+        allow create: if isVerifiedUser() && isValidId(schoolId) && isValidId(moduleId)
+          && isValidModuleConfig(schoolId, request.resource.data);
+        allow update: if isVerifiedUser() && isValidId(schoolId) && isValidId(moduleId)
+          && isValidModuleConfig(schoolId, request.resource.data)
+          && tenantImmutable();
+        allow delete: if isMasterAdmin();
+      }
+
+      match /ocorrencias/{recordId} {
+        allow get: if isVerifiedUser() && isValidId(schoolId) && isValidId(recordId);
+        allow list: if isVerifiedUser() && isValidId(schoolId);
+        allow create: if isVerifiedUser() && isValidId(schoolId) && isValidId(recordId)
+          && isValidOcorrencia(schoolId, request.resource.data);
+        allow update: if isVerifiedUser() && isValidId(schoolId) && isValidId(recordId)
+          && isValidOcorrencia(schoolId, request.resource.data)
+          && tenantImmutable();
+        allow delete: if isVerifiedUser() && isValidId(schoolId) && isValidId(recordId);
+      }
+
+      match /tratativas_familia/{tratativaId} {
+        allow get: if isVerifiedUser() && isValidId(schoolId) && isValidId(tratativaId);
+        allow list: if isVerifiedUser() && isValidId(schoolId);
+        allow create: if isVerifiedUser() && isValidId(schoolId) && isValidId(tratativaId)
+          && isValidTratativa(schoolId, request.resource.data);
+        allow update: if isVerifiedUser() && isValidId(schoolId) && isValidId(tratativaId)
+          && isValidTratativa(schoolId, request.resource.data)
+          && tenantImmutable();
+        allow delete: if isVerifiedUser() && isValidId(schoolId) && isValidId(tratativaId);
+      }
+
+      match /tablets_agendamentos/{agendamentoId} {
+        allow get: if isVerifiedUser() && isValidId(schoolId) && isValidId(agendamentoId);
+        allow list: if isVerifiedUser() && isValidId(schoolId);
+        allow create: if isVerifiedUser() && isValidId(schoolId) && isValidId(agendamentoId)
+          && isValidTabletAgendamento(schoolId, request.resource.data);
+        allow update: if isVerifiedUser() && isValidId(schoolId) && isValidId(agendamentoId)
+          && isValidTabletAgendamento(schoolId, request.resource.data)
+          && tenantImmutable();
+        allow delete: if isVerifiedUser() && isValidId(schoolId) && isValidId(agendamentoId);
+      }
+    }
+
+    // =========================================================================
+    // OPERADORES ESCOLARES (COM PROTEÇÃO ANTI-ESCALAÇÃO)
+    // =========================================================================
+    match /users/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId);
+      allow list: if isVerifiedUser();
+      allow create: if isVerifiedUser() && isValidId(userId)
+        && isValidUserAccount(request.resource.data)
+        && (!isPrivilegedUserAccount(userId, request.resource.data) || isMasterAdmin());
+      allow update: if isVerifiedUser() && isValidId(userId)
+        && (!isPrivilegedUserAccount(userId, request.resource.data) || isMasterAdmin())
+        && (!isPrivilegedUserAccount(userId, resource.data) || isMasterAdmin())
+        && (
+          (isValidUserAccount(request.resource.data) && (tenantImmutable() || isMasterAdmin()))
+          || isLegacySchoolIdBackfill()
+        );
+      allow delete: if isVerifiedUser() && isValidId(userId)
+        && (!isPrivilegedUserAccount(userId, resource.data) || isMasterAdmin());
+    }
+
+    // =========================================================================
+    // COLEÇÕES OPERACIONAIS ISOLADAS POR schoolId
+    // =========================================================================
+    match /classes/{classId} {
+      allow get: if isVerifiedUser() && isValidId(classId);
+      allow list: if isVerifiedUser();
+      allow create: if isVerifiedUser() && isValidId(classId) && isValidClass(request.resource.data);
+      allow update: if isVerifiedUser() && isValidId(classId) && (
+        (isValidClass(request.resource.data) && (tenantImmutable() || isMasterAdmin()))
+        || isLegacySchoolIdBackfill()
+      );
+      allow delete: if isVerifiedUser() && isValidId(classId);
+    }
+
+    match /students/{studentId} {
+      allow get: if isVerifiedUser() && isValidId(studentId);
+      allow list: if isVerifiedUser();
+      allow create: if isVerifiedUser() && isValidId(studentId) && isValidStudent(request.resource.data);
+      allow update: if isVerifiedUser() && isValidId(studentId) && (
+        (isValidStudent(request.resource.data) && (tenantImmutable() || isMasterAdmin()))
+        || isLegacySchoolIdBackfill()
+      );
+      allow delete: if isVerifiedUser() && isValidId(studentId);
+    }
+
+    match /attendance_records/{recordId} {
+      allow get: if isVerifiedUser() && isValidId(recordId);
+      allow list: if isVerifiedUser();
+      allow create: if isVerifiedUser() && isValidId(recordId) && isValidAttendanceRecord(request.resource.data);
+      allow update: if isVerifiedUser() && isValidId(recordId) && (
+        (isValidAttendanceRecord(request.resource.data) && (tenantImmutable() || isMasterAdmin()))
+        || isLegacySchoolIdBackfill()
+      );
+      allow delete: if isVerifiedUser() && isValidId(recordId);
+    }
+
+    match /alerts/{alertId} {
+      allow get: if isVerifiedUser() && isValidId(alertId);
+      allow list: if isVerifiedUser();
+      allow create: if isVerifiedUser() && isValidId(alertId) && isValidAlert(request.resource.data);
+      allow update: if isVerifiedUser() && isValidId(alertId) && (
+        (isValidAlert(request.resource.data) && (tenantImmutable() || isMasterAdmin()))
+        || isLegacySchoolIdBackfill()
+      );
+      allow delete: if isVerifiedUser() && isValidId(alertId);
+    }
+
+    match /interventions/{interventionId} {
+      allow get: if isVerifiedUser() && isValidId(interventionId);
+      allow list: if isVerifiedUser();
+      allow create: if isVerifiedUser() && isValidId(interventionId) && isValidIntervention(request.resource.data);
+      allow update: if isVerifiedUser() && isValidId(interventionId) && (
+        (isValidIntervention(request.resource.data) && (tenantImmutable() || isMasterAdmin()))
+        || isLegacySchoolIdBackfill()
+      );
+      allow delete: if isVerifiedUser() && isValidId(interventionId);
+    }
+
+    match /gate_records/{recordId} {
+      allow get: if isVerifiedUser() && isValidId(recordId);
+      allow list: if isVerifiedUser();
+      allow create: if isVerifiedUser() && isValidId(recordId) && isValidGateRecord(request.resource.data);
+      allow update: if isVerifiedUser() && isValidId(recordId) && (
+        (isValidGateRecord(request.resource.data) && (tenantImmutable() || isMasterAdmin()))
+        || isLegacySchoolIdBackfill()
+      );
+      allow delete: if isVerifiedUser() && isValidId(recordId);
+    }
+
+    match /system_data/{docId} {
+      allow get: if isVerifiedUser() && isValidId(docId);
+      allow list: if isBootstrappedOwner();
+      allow create: if isVerifiedUser() && isValidId(docId) && isValidSystemData(request.resource.data);
+      allow update: if isVerifiedUser() && isValidId(docId)
+        && isValidSystemData(request.resource.data)
+        && (tenantImmutable() || isMasterAdmin());
+      allow delete: if isMasterAdmin();
     }
   }
 }

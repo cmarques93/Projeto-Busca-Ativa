@@ -31,8 +31,9 @@ import {
   TeacherScheduleSlot
 } from '../types';
 import { storageService } from '../data/storageService';
+import { DEFAULT_SCHOOL_ID } from '../data/fallbackData';
 import { firestoreService } from '../lib/firestoreService';
-import { carregarTabletsSeguro, salvarReservaTabletsSeguro } from '../lib/sheetsSyncService';
+import { carregarTabletsSeguro, salvarReservaTabletsSeguro, lerCacheTablets } from '../lib/sheetsSyncService';
 import {
   findPlatformLockForBooking,
   findPlatformSlotsForDateAndPeriod
@@ -166,24 +167,18 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
       .catch(() => {});
   }, []);
 
-  // Base de Dados (Inicializa com baseline ou cache local, garantindo lista de equipamentos)
+  // Base de Dados (Inicializa isolada por escola ativa via cache local ou baseline apenas para escola padrão)
   const [baseDeDados, setBaseDeDados] = useState<TabletsDatabase>(() => {
-    try {
-      const sId = storageService.getActiveSchoolId();
-      const cacheKey = sId === 'ee-arlindo-silvestre' ? 'CACHE_TABLET_APP' : `CACHE_TABLET_APP_${sId}`;
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed && (parsed.agendamentos || parsed.horarios)) {
-          const equips =
-            Array.isArray(parsed.equipamentos) && parsed.equipamentos.length > 0
-              ? parsed.equipamentos
-              : createDefaultEquipmentList(parsed.maxTablets || DEFAULT_TABLETS_COUNT);
-          return { ...parsed, equipamentos: equips };
-        }
-      }
-    } catch {}
-    const base = (tabletsBaseline as unknown as TabletsDatabase) || {
+    const sId = storageService.getActiveSchoolId();
+    const cached = lerCacheTablets(sId);
+    if (cached && (cached.agendamentos || cached.horarios)) {
+      const equips =
+        Array.isArray(cached.equipamentos) && cached.equipamentos.length > 0
+          ? cached.equipamentos
+          : createDefaultEquipmentList(cached.maxTablets || DEFAULT_TABLETS_COUNT);
+      return { ...cached, equipamentos: equips };
+    }
+    const defaultEmpty: TabletsDatabase = {
       agendamentos: [],
       horarios: [
         '1ª Aula - (07h as 7h50)',
@@ -203,6 +198,10 @@ export const TabletsManager: React.FC<TabletsManagerProps> = ({ currentUser, cla
       turmas: [],
       feriados: [],
     };
+    const base =
+      sId === DEFAULT_SCHOOL_ID
+        ? ((tabletsBaseline as unknown as TabletsDatabase) || defaultEmpty)
+        : defaultEmpty;
     return {
       ...base,
       equipamentos:

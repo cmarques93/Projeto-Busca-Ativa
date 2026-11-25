@@ -26,12 +26,14 @@ interface GatePassManagerProps {
   students: Student[];
   classes: SchoolClass[];
   operatorName: string;
+  onOpenStudentDetail?: (studentId: string) => void;
 }
 
 export const GatePassManager: React.FC<GatePassManagerProps> = ({
   students,
   classes,
   operatorName,
+  onOpenStudentDetail,
 }) => {
   const todayStr = getLocalTodayStr();
 
@@ -281,14 +283,7 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
         console.warn('Falha ao confirmar registro de portaria na nuvem Firestore:', cloudErr);
       }
 
-      // 3. Espelhamento não-bloqueante na API local (legado)
-      fetch('/api/gate-records', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }).catch(() => {});
-
-      // 4. Garante que o filtro ativo exiba imediatamente o registro recém-salvo
+      // 3. Garante que o filtro ativo exiba imediatamente o registro recém-salvo
       let nextPreset = dateFilterPreset;
       let nextDate = selectedDate;
       let nextClass = selectedClassFilter;
@@ -365,8 +360,6 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
     } catch (e) {
       console.warn('Erro ao excluir registro de portaria no Firestore:', e);
     }
-    fetch(`/api/gate-records/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {});
-
     setRecords(prev => prev.filter(r => r.id !== id));
     setRecordToDelete(null);
     setIsDeletingRecord(false);
@@ -936,7 +929,18 @@ export const GatePassManager: React.FC<GatePassManagerProps> = ({
                       </div>
                     </td>
                     <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-900">{record.studentName}</div>
+                      {onOpenStudentDetail && record.studentId ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenStudentDetail(record.studentId)}
+                          className="font-bold text-slate-900 hover:text-indigo-700 hover:underline text-left cursor-pointer"
+                          title="Abrir Dossiê 360° do Estudante"
+                        >
+                          {record.studentName}
+                        </button>
+                      ) : (
+                        <div className="font-bold text-slate-900">{record.studentName}</div>
+                      )}
                       <div className="text-[11px] text-slate-500 font-medium">{record.className}</div>
                     </td>
                     <td className="py-3.5 px-4 max-w-xs">

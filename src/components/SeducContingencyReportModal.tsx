@@ -216,7 +216,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
       setReportData({
         schoolName: activeSchool?.name || 'Unidade Escolar',
         officialHeader: 'SECRETARIA DA EDUCAÇÃO DO ESTADO DE SÃO PAULO',
-        subHeader: 'SIGAESCOLA • RELATÓRIO OFICIAL DE ACOMPANHAMENTO E CONTINGÊNCIA',
+        subHeader: 'EDUSCOPE 360 • RELATÓRIO OFICIAL DE ACOMPANHAMENTO E CONTINGÊNCIA',
         reportTitle: 'Relatório Oficial de Frequência e Contingência Diária',
         date: selectedDate,
         formattedDate: formatDateBR(selectedDate),
@@ -320,7 +320,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
   const handleCopyToWhatsApp = () => {
     if (viewMode === 'individual' && currentStudent && studentData) {
       const activeSchool = currentSchool || storageService.getActiveSchool();
-      let text = `📋 *SIGAESCOLA - RELATÓRIO OFICIAL DE ACOMPANHAMENTO DO ESTUDANTE*\n`;
+      let text = `📋 *EDUSCOPE 360 - RELATÓRIO OFICIAL DE ACOMPANHAMENTO DO ESTUDANTE*\n`;
       text += `🏫 *Unidade Escolar:* ${activeSchool?.name || reportData?.schoolName || 'Unidade Escolar'}\n`;
       text += `👤 *Estudante:* ${currentStudent.name} (RA: ${currentStudent.ra || 'S/N'})\n`;
       text += `📚 *Turma:* ${currentStudent.className || currentStudent.classId} | *Emissão:* ${formatDateBR(todayStr)}\n\n`;
@@ -354,7 +354,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
       }
 
       text += `\n✍️ *Documento Oficial com Termo de Assinatura da Gestão, Professor e Responsável Legal.*\n`;
-      text += `SigaEscola • Portal Integrado de Gestão & Convivência Escolar`;
+      text += `EduScope 360 - Portal Integrado de Gestão Escolar`;
 
       navigator.clipboard.writeText(text);
       setCopiedSuccess(true);
@@ -364,7 +364,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
 
     // Modo Coletivo por Turma
     if (!reportData) return;
-    let text = `📢 *SIGAESCOLA - RELATÓRIO OFICIAL DE ACOMPANHAMENTO COLETIVO*\n`;
+    let text = `📢 *EDUSCOPE 360 - RELATÓRIO OFICIAL DE ACOMPANHAMENTO COLETIVO*\n`;
     text += `🏫 *Unidade Escolar:* ${reportData.schoolName}\n`;
     text += `📅 *Data de Referência:* ${reportData.formattedDate}\n\n`;
     text += `📊 *RESUMO CONSOLIDADO:*\n`;
@@ -394,7 +394,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
   const handleDownloadCSV = () => {
     if (viewMode === 'individual' && currentStudent && studentData) {
       const lines = [
-        `SigaEscola - Relatório Oficial de Acompanhamento do Estudante`,
+        `EduScope 360 - Relatório Oficial de Acompanhamento do Estudante`,
         `Estudante;"${currentStudent.name}"`,
         `RA;"${currentStudent.ra}"`,
         `Turma;"${currentStudent.className || currentStudent.classId}"`,
@@ -427,7 +427,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement('a');
       link.setAttribute('href', encodedUri);
-      link.setAttribute('download', `SigaEscola_Acompanhamento_${currentStudent.name.replace(/\s+/g, '_')}_${todayStr}.csv`);
+      link.setAttribute('download', `EduScope360_Acompanhamento_${currentStudent.name.replace(/\s+/g, '_')}_${todayStr}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -458,7 +458,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `SigaEscola_Relatorio_Acompanhamento_${selectedDate}.csv`);
+    link.setAttribute('download', `EduScope360_Relatorio_Acompanhamento_${selectedDate}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -501,7 +501,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
       `}</style>
 
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl overflow-hidden max-h-[96vh] flex flex-col">
-        {/* Top Header com Identidade Comercial SigaEscola */}
+        {/* Top Header com Identidade Comercial EduScope 360 */}
         <div className="bg-slate-900 text-white px-5 sm:px-6 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0 no-print">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white shrink-0 shadow-xs">
@@ -510,7 +510,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-500/30 text-indigo-300 border border-indigo-400/40">
-                  SigaEscola
+                  EduScope 360
                 </span>
                 <span className="text-xs font-bold text-slate-300">
                   Relatório Oficial de Acompanhamento
@@ -663,7 +663,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
                   </div>
                   <div>
                     <span className="text-[11px] font-black text-indigo-700 tracking-wider uppercase block">
-                      SigaEscola • Sistema Integrado de Gestão & Convivência Escolar
+                      EduScope 360 - Portal Integrado de Gestão Escolar
                     </span>
                     <h1 className="text-base sm:text-lg font-black text-slate-900 uppercase">
                       {schoolNameDisplay}
@@ -980,7 +980,7 @@ export const SeducContingencyReportModal: React.FC<SeducContingencyReportModalPr
                   </div>
 
                   <div className="text-center text-[10px] text-slate-400">
-                    Documento gerado eletronicamente através da plataforma SigaEscola com autenticidade verificável nos registros internos da escola.
+                    Documento gerado eletronicamente através da plataforma EduScope 360 com autenticidade verificável nos registros internos da escola.
                   </div>
                 </div>
               </div>

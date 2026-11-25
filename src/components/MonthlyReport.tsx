@@ -68,6 +68,7 @@ interface MonthlyReportProps {
   alerts?: ParentAlert[];
   interventions?: InterventionCase[];
   onRefreshData?: () => void;
+  onOpenStudentDetail?: (studentId: string) => void;
 }
 
 type ReportTab =
@@ -107,7 +108,8 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
   allStudents: propAllStudents,
   alerts: propAlerts,
   interventions: propInterventions,
-  onRefreshData
+  onRefreshData,
+  onOpenStudentDetail
 }) => {
   const todayStr = getLocalTodayStr();
 
@@ -117,9 +119,9 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
   const [isSingleDayMode, setIsSingleDayMode] = useState<boolean>(true);
 
   const [reportClasses, setReportClasses] = useState<SchoolClass[]>(() => {
-    if (propClasses && propClasses.length >= 10) return propClasses;
+    if (propClasses && propClasses.length > 0) return propClasses;
     const local = storageService.getClasses();
-    return local && local.length >= 10 ? local : (propClasses || []);
+    return local && local.length > 0 ? local : (propClasses || []);
   });
 
   const [reportStudents, setReportStudents] = useState<Student[]>(() => {
@@ -170,7 +172,7 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
   >('todos');
 
   useEffect(() => {
-    if (propClasses && propClasses.length >= 10) {
+    if (propClasses && propClasses.length > 0) {
       setReportClasses(propClasses);
     }
   }, [propClasses]);
@@ -178,7 +180,7 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
   useEffect(() => {
     if (propAllStudents && propAllStudents.length > 0) {
       setReportStudents(propAllStudents);
-    } else if (propStudents && propStudents.length >= 50) {
+    } else if (propStudents && propStudents.length > 0) {
       const localAll = storageService.getStudents();
       const transferredLocal = localAll.filter(s => s.status === 'transferido');
       const ids = new Set(propStudents.map(s => s.id));
@@ -588,7 +590,7 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
     const lines: string[] = [];
     const sep = ';';
 
-    lines.push(`SigaEscola - Relatórios Pedagógicos Unificados`);
+    lines.push(`EduScope 360 - Relatórios Pedagógicos Unificados`);
     lines.push(`Período Avaliado${sep}"${formatDateRangeLabel(startDate, endDate)}"`);
     lines.push(`Dias Úteis Escolares${sep}${liveReport.businessDaysCount || 1}`);
     lines.push(`Data e Hora da Extração${sep}"${new Date().toLocaleString('pt-BR')}"`);
@@ -663,7 +665,7 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `SigaEscola_Relatorios_Pedagogicos_${startDate}_a_${endDate}.csv`;
+    link.download = `EduScope360_Relatorios_Pedagogicos_${startDate}_a_${endDate}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -673,7 +675,7 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
   const handleExportCriticalCSV = () => {
     const lines: string[] = [];
     const sep = ';';
-    lines.push(`SigaEscola - Lista Nominal de Estudantes em Frequência Crítica (< 75%)`);
+    lines.push(`EduScope 360 - Lista Nominal de Estudantes em Frequência Crítica (< 75%)`);
     lines.push(`Período Avaliado${sep}"${formatDateRangeLabel(startDate, endDate)}"`);
     lines.push('');
     lines.push(`Estudante${sep}RA${sep}Turma${sep}Frequência (%)${sep}Faltas Consecutivas${sep}Nível de Risco${sep}Ocorrências Disciplinares${sep}Qtd Ocorrências${sep}Etapa Busca Ativa${sep}Responsável Legal${sep}Telefone`);
@@ -687,7 +689,7 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `SigaEscola_Alunos_Criticos_${startDate}_a_${endDate}.csv`;
+    link.download = `EduScope360_Alunos_Criticos_${startDate}_a_${endDate}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1759,7 +1761,20 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
                             {g.type === 'entrada_tardia' ? 'Entrada Tardia' : 'Saída Antecipada'}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 font-bold text-slate-900">{g.studentName}</td>
+                        <td className="py-2.5 px-3 font-bold text-slate-900">
+                          {onOpenStudentDetail && g.studentId ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenStudentDetail(g.studentId)}
+                              className="hover:text-indigo-700 hover:underline text-left cursor-pointer"
+                              title="Abrir Dossiê 360° do Estudante"
+                            >
+                              {g.studentName}
+                            </button>
+                          ) : (
+                            g.studentName
+                          )}
+                        </td>
                         <td className="py-2.5 px-3 font-semibold text-indigo-800">{g.className}</td>
                         <td className="py-2.5 px-3 text-slate-700 font-semibold">{g.classPeriodName || (g as any).periodName || '—'}</td>
                         <td className="py-2.5 px-3 text-slate-600">{g.reason || '—'}</td>
@@ -1829,7 +1844,18 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
                     {filteredTransferredStudents.map(s => (
                       <tr key={s.id} className="hover:bg-slate-50">
                         <td className="py-2.5 px-3">
-                          <div className="font-bold text-slate-900">{s.name}</div>
+                          {onOpenStudentDetail ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenStudentDetail(s.id)}
+                              className="font-bold text-slate-900 hover:text-indigo-700 hover:underline text-left cursor-pointer"
+                              title="Abrir Dossiê 360° do Estudante"
+                            >
+                              {s.name}
+                            </button>
+                          ) : (
+                            <div className="font-bold text-slate-900">{s.name}</div>
+                          )}
                           <div className="text-[10px] font-mono text-slate-500">RA: {s.ra}</div>
                         </td>
                         <td className="py-2.5 px-3 font-semibold text-indigo-800">{s.className}</td>
@@ -1968,7 +1994,21 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
                     {filteredCriticalStudents.map(student => (
                       <tr key={student.id} className="hover:bg-slate-50/80">
                         <td className="py-3 px-4">
-                          <div className="font-bold text-slate-900">{student.name}</div>
+                          {onOpenStudentDetail ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsCriticalModalOpen(false);
+                                onOpenStudentDetail(student.id);
+                              }}
+                              className="font-bold text-slate-900 hover:text-indigo-700 hover:underline text-left cursor-pointer"
+                              title="Abrir Dossiê 360° do Estudante"
+                            >
+                              {student.name}
+                            </button>
+                          ) : (
+                            <div className="font-bold text-slate-900">{student.name}</div>
+                          )}
                           <div className="text-[11px] text-slate-500 font-mono">RA: {student.ra}</div>
                         </td>
                         <td className="py-3 px-4">

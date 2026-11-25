@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { migrateToFirebase } from './data/migration';
 import { Header, MainTabType, MainModuleType } from './components/Header';
 import { RealTimeAttendance } from './components/RealTimeAttendance';
 import { AlertsManager } from './components/AlertsManager';
@@ -14,8 +13,6 @@ import { LoginModal } from './components/LoginModal';
 import { GatePassManager } from './components/GatePassManager';
 import { TeacherAbsenceView } from './components/TeacherAbsenceView';
 import { SeducContingencyReportModal } from './components/SeducContingencyReportModal';
-import { GoogleSheetsModal } from './components/GoogleSheetsModal';
-import { AccessManagement } from './components/AccessManagement';
 import { SystemConfigManager } from './components/SystemConfigManager';
 import { ClassesManager } from './components/ClassesManager';
 import { LoginScreen } from './components/LoginScreen';
@@ -25,6 +22,7 @@ import { FirebaseStatusModal } from './components/FirebaseStatusModal';
 import { DashboardHome } from './components/DashboardHome';
 import { SchoolSelectorModal } from './components/SchoolSelectorModal';
 import { CurriculumCalendarModule } from './components/CurriculumCalendarModule';
+import { UserManualModal } from './components/UserManualModal';
 import {
   RotateCcw,
   ShieldCheck,
@@ -47,8 +45,10 @@ import {
   Inbox,
   Upload
 } from 'lucide-react';
+import type { User as FirebaseUser } from 'firebase/auth';
 import { storageService } from './data/storageService';
 import { firestoreService } from './lib/firestoreService';
+import { subscribeToAuthChanges, validateFirestoreStartupConnection } from './lib/firebase';
 import {
   salvarCacheOcorrencias,
   salvarCacheTablets,
@@ -72,6 +72,15 @@ import {
 } from './types';
 
 export default function App() {
+  // Sessão institucional Google (Firebase Auth)
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [authReady, setAuthReady] = useState<boolean>(false);
+
+  const isFirebaseVerified = useMemo(
+    () => Boolean(firebaseUser && firebaseUser.emailVerified),
+    [firebaseUser]
+  );
+
   // Current logged in user session (Inicia nulo para exibir a tela de Login como página inicial)
   const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
 
@@ -80,6 +89,14 @@ export default function App() {
   const [subTabDiario, setSubTabDiario] = useState<'hub' | 'chamada' | 'portaria' | 'ausencias' | 'turmas'>('hub');
   const [subTabBuscaAtiva, setSubTabBuscaAtiva] = useState<'hub' | 'alertas' | 'casos'>('hub');
   const [ocorrenciasSubTab, setOcorrenciasSubTab] = useState<string>('hub');
+  const [navHistory, setNavHistory] = useState<
+    Array<{
+      activeModule: MainModuleType;
+      subTabDiario: 'hub' | 'chamada' | 'portaria' | 'ausencias' | 'turmas';
+      subTabBuscaAtiva: 'hub' | 'alertas' | 'casos';
+      ocorrenciasSubTab: string;
+    }>
+  >([]);
 
   const [activeTab, setActiveTab] = useState<MainTabType>('attendance');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -89,6 +106,7 @@ export default function App() {
   const lastAutoSyncRef = useRef<number>(0);
   const lastSyncStartRef = useRef<number>(0);
   const [isFirebaseStatusModalOpen, setIsFirebaseStatusModalOpen] = useState(false);
+  const [isUserManualModalOpen, setIsUserManualModalOpen] = useState(false);
   const [firebaseLoginSyncing, setFirebaseLoginSyncing] = useState(false);
   const [syncNotification, setSyncNotification] = useState<{
     type: 'success' | 'warning' | 'info';
@@ -354,7 +372,7 @@ export default function App() {
 
       const backupPayload = {
         backupVersion: '1.0',
-        app: 'SigaEscola',
+        app: 'EduScope 360',
         exportedAt: now.toISOString(),
         exportedAtLocal: now.toLocaleString('pt-BR'),
         exportedBy: {
@@ -399,7 +417,7 @@ export default function App() {
       const safeSchoolSlug = (activeSchoolData?.id || sId || 'escola')
         .toLowerCase()
         .replace(/[^a-z0-9-_]+/g, '-');
-      const fileName = `backup-sigaescola-${safeSchoolSlug}-${dateStamp}_${timeStamp}.json`;
+      const fileName = `backup-eduscope360-${safeSchoolSlug}-${dateStamp}_${timeStamp}.json`;
 
       const jsonStr = JSON.stringify(backupPayload, null, 2);
       const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
@@ -459,7 +477,6 @@ export default function App() {
   const [isWhatsAppModalOpen, setIsWhatsAppModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isSeducReportModalOpen, setIsSeducReportModalOpen] = useState(false);
-  const [isGoogleSheetsModalOpen, setIsGoogleSheetsModalOpen] = useState(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [isWipeAllConfirmOpen, setIsWipeAllConfirmOpen] = useState(false);
   const [wipeConfirmText, setWipeConfirmText] = useState('');
@@ -720,7 +737,20 @@ export default function App() {
     }
   }, [selectedMonthIndex, fetchQuotaStatus]);
 
-  // Load on mount: carrega cache local imediato e sincroniza com Firebase uma única vez (sem recarregar 13 coleções ao trocar mês)
+  // Monitora autenticação Google (Firebase Auth) e limpa cache de leitura na transição de sessão
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthChanges((fbUser) => {
+      firestoreService.clearReadCache();
+      setFirebaseUser(fbUser);
+      setAuthReady(true);
+      if (!fbUser) {
+        setCurrentUser(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Carrega cache local imediato e sincroniza integralmente com o Firebase assim que o usuário Google estiver verificado
   useEffect(() => {
     const sId = storageService.getActiveSchoolId();
     const localClasses = storageService.getClasses(sId);
@@ -736,16 +766,22 @@ export default function App() {
       return !prev || !localClasses.some(c => c.id === prev) ? localClasses[0].id : prev;
     });
 
+    if (!isFirebaseVerified) return;
+
+    validateFirestoreStartupConnection();
     loadAllFromFirebaseDirectly(false, undefined, true).then((loaded) => {
       if (!loaded) {
         fetchQuotaStatus();
       }
     });
-  }, [loadAllFromFirebaseDirectly, fetchQuotaStatus]);
+  }, [isFirebaseVerified, loadAllFromFirebaseDirectly, fetchQuotaStatus]);
 
-  // Sincronização automática ao voltar para a aba no celular/computador, sair do modo standby ou reconectar à internet
+  // Sincronização automática entre múltiplos computadores (ao voltar à aba, reconectar e periodicamente a cada 2 min)
   useEffect(() => {
-    const AUTO_SYNC_MIN_INTERVAL_MS = 45 * 1000;
+    if (!isFirebaseVerified) return;
+    const AUTO_SYNC_MIN_INTERVAL_MS = 30 * 1000;
+    const PERIODIC_SYNC_INTERVAL_MS = 120 * 1000;
+
     const triggerBackgroundSyncIfStale = () => {
       if (document.visibilityState && document.visibilityState !== 'visible') return;
       const elapsed = Date.now() - lastAutoSyncRef.current;
@@ -768,19 +804,27 @@ export default function App() {
     };
 
     const handleOnline = () => {
+      lastAutoSyncRef.current = 0;
       triggerBackgroundSyncIfStale();
     };
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        triggerBackgroundSyncIfStale();
+      }
+    }, PERIODIC_SYNC_INTERVAL_MS);
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('pageshow', handlePageShow);
     window.addEventListener('online', handleOnline);
 
     return () => {
+      window.clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('pageshow', handlePageShow);
       window.removeEventListener('online', handleOnline);
     };
-  }, [loadAllFromFirebaseDirectly]);
+  }, [isFirebaseVerified, loadAllFromFirebaseDirectly]);
 
   // Recalcula o relatório mensal localmente quando o mês selecionado muda
   useEffect(() => {
@@ -815,10 +859,8 @@ export default function App() {
       }));
     }
 
-    // Reaproveita carga recém-iniciada/concluída na tela de login (< 30s) para evitar download duplo das 13 coleções
-    const lastActivity = Math.max(lastAutoSyncRef.current, lastSyncStartRef.current);
-    const isRecentSync = Date.now() - lastActivity < 30 * 1000;
-    loadAllFromFirebaseDirectly(true, session.schoolId, !isRecentSync);
+    // Sempre força recarga limpa do Firebase ao entrar (garante sincronia imediata entre computadores)
+    loadAllFromFirebaseDirectly(true, session.schoolId, true);
 
     // Se for o Painel Master Global, abre diretamente a Central Global de Unidades Escolares
     if (session.role === 'super_admin' || session.isUniversal) {
@@ -828,94 +870,158 @@ export default function App() {
       setActiveModule('inicio');
     }
 
-    // Prepara sub-abas ideais caso o usuário navegue para os módulos
+    // Prepara sub-abas ideais caso o usuário navegue para os módulos e limpa histórico da sessão anterior
     setSubTabDiario('hub');
     setSubTabBuscaAtiva('hub');
     setOcorrenciasSubTab(session.role === 'professor' ? 'hub' : 'pendentes');
+    setNavHistory([]);
     setActiveTab(session.role === 'professor' ? 'teacher_absence' : 'attendance');
   };
 
-  // Navegação direta acionada pelos cards/botões da Tela Inicial de acordo com o perfil
+  // Navegação centralizada com histórico real (Voltar sempre retorna à seção anterior visitada)
+  const navigateTo = (
+    next: {
+      activeModule?: MainModuleType;
+      subTabDiario?: 'hub' | 'chamada' | 'portaria' | 'ausencias' | 'turmas';
+      subTabBuscaAtiva?: 'hub' | 'alertas' | 'casos';
+      ocorrenciasSubTab?: string;
+    },
+    options?: { replace?: boolean }
+  ) => {
+    const targetModule = next.activeModule ?? activeModule;
+    const isSwitchingModule = targetModule !== activeModule;
+    const targetDiario =
+      next.subTabDiario ?? (isSwitchingModule ? 'hub' : subTabDiario);
+    const targetBuscaAtiva =
+      next.subTabBuscaAtiva ?? (isSwitchingModule ? 'hub' : subTabBuscaAtiva);
+    const targetOcorr =
+      next.ocorrenciasSubTab ??
+      (targetModule === 'ocorrencias' && isSwitchingModule
+        ? currentUser?.role === 'professor'
+          ? 'hub'
+          : 'pendentes'
+        : ocorrenciasSubTab);
+
+    const isSameState =
+      targetModule === activeModule &&
+      targetDiario === subTabDiario &&
+      targetBuscaAtiva === subTabBuscaAtiva &&
+      targetOcorr === ocorrenciasSubTab;
+
+    if (isSameState) return;
+
+    if (!options?.replace) {
+      const currentSnapshot = {
+        activeModule,
+        subTabDiario,
+        subTabBuscaAtiva,
+        ocorrenciasSubTab,
+      };
+      setNavHistory(prev => [...prev.slice(-29), currentSnapshot]);
+    }
+
+    setActiveModule(targetModule);
+    setSubTabDiario(targetDiario);
+    setSubTabBuscaAtiva(targetBuscaAtiva);
+    setOcorrenciasSubTab(targetOcorr);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Navegação direta acionada pelos cards ou pela barra superior de módulos
   const handleNavigateFromHome = (
     module: MainModuleType,
     subDiario?: 'hub' | 'chamada' | 'portaria' | 'ausencias' | 'turmas',
     subBuscaAtiva?: 'hub' | 'alertas' | 'casos',
     ocorrTab?: string
   ) => {
-    setActiveModule(module);
-    setSubTabDiario(subDiario || 'hub');
-    setSubTabBuscaAtiva(subBuscaAtiva || 'hub');
-    if (ocorrTab) {
-      setOcorrenciasSubTab(ocorrTab);
-    } else if (module === 'ocorrencias') {
-      setOcorrenciasSubTab(currentUser?.role === 'professor' ? 'hub' : 'pendentes');
-    }
+    navigateTo({
+      activeModule: module,
+      subTabDiario: subDiario || 'hub',
+      subTabBuscaAtiva: subBuscaAtiva || 'hub',
+      ocorrenciasSubTab:
+        ocorrTab ??
+        (module === 'ocorrencias'
+          ? currentUser?.role === 'professor'
+            ? 'hub'
+            : 'pendentes'
+          : ocorrenciasSubTab),
+    });
   };
 
-  // Botão "Voltar à tela anterior"
+  // Botão "Voltar": retorna exatamente à seção anterior que o usuário estava visitando
   const handleGoBack = () => {
-    if (activeModule === 'diario') {
-      if (subTabDiario !== 'hub' && currentUser?.role !== 'professor') {
-        setSubTabDiario('hub');
-      } else {
-        setActiveModule('inicio');
-      }
-    } else if (activeModule === 'busca_ativa') {
-      if (subTabBuscaAtiva !== 'hub') {
-        setSubTabBuscaAtiva('hub');
-      } else {
-        setActiveModule('inicio');
-      }
-    } else if (activeModule === 'ocorrencias') {
-      if (currentUser?.role === 'professor' && ocorrenciasSubTab !== 'hub') {
-        setOcorrenciasSubTab('hub');
-      } else {
-        setActiveModule('inicio');
-      }
-    } else {
+    if (navHistory.length > 0) {
+      const previous = navHistory[navHistory.length - 1];
+      setNavHistory(prev => prev.slice(0, -1));
+      setActiveModule(previous.activeModule);
+      setSubTabDiario(previous.subTabDiario);
+      setSubTabBuscaAtiva(previous.subTabBuscaAtiva);
+      setOcorrenciasSubTab(previous.ocorrenciasSubTab);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    if (activeModule !== 'inicio') {
       setActiveModule('inicio');
+      setSubTabDiario('hub');
+      setSubTabBuscaAtiva('hub');
+      setOcorrenciasSubTab(currentUser?.role === 'professor' ? 'hub' : 'pendentes');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
-  // Botão "Tela de Início"
+  // Botão "Início" (registra a seção atual no histórico para permitir Voltar)
   const handleGoHome = () => {
-    setActiveModule('inicio');
-    setSubTabDiario('hub');
-    setSubTabBuscaAtiva('hub');
-    setOcorrenciasSubTab(currentUser?.role === 'professor' ? 'hub' : 'pendentes');
+    navigateTo({
+      activeModule: 'inicio',
+      subTabDiario: 'hub',
+      subTabBuscaAtiva: 'hub',
+      ocorrenciasSubTab: currentUser?.role === 'professor' ? 'hub' : 'pendentes',
+    });
   };
 
-  // Breadcrumb legível para o cabeçalho
-  const getBreadcrumbText = (): string => {
-    if (activeModule === 'inicio') return 'Tela Inicial';
-    if (activeModule === 'diario') {
-      if (subTabDiario === 'hub') return 'Diário & Portaria';
-      if (subTabDiario === 'chamada') return 'Diário & Portaria > Chamada por Turma';
-      if (subTabDiario === 'portaria') return 'Diário & Portaria > Controle de Portaria';
-      if (subTabDiario === 'ausencias') return 'Diário & Portaria > Diário do Professor';
-      if (subTabDiario === 'turmas') return 'Diário & Portaria > Relação de Turmas';
+  // Rótulo legível de qualquer estado de navegação (usado no breadcrumb e no tooltip do botão Voltar)
+  const getSectionLabel = (state: {
+    activeModule: MainModuleType;
+    subTabDiario: 'hub' | 'chamada' | 'portaria' | 'ausencias' | 'turmas';
+    subTabBuscaAtiva: 'hub' | 'alertas' | 'casos';
+    ocorrenciasSubTab: string;
+  }): string => {
+    if (state.activeModule === 'inicio') return 'Início';
+    if (state.activeModule === 'diario') {
+      if (state.subTabDiario === 'hub') return 'Diário & Portaria';
+      if (state.subTabDiario === 'chamada') return 'Diário & Portaria / Chamada por Turma';
+      if (state.subTabDiario === 'portaria') return 'Diário & Portaria / Controle de Portaria';
+      if (state.subTabDiario === 'ausencias') return 'Diário & Portaria / Diário do Professor';
+      if (state.subTabDiario === 'turmas') return 'Diário & Portaria / Relação de Turmas';
     }
-    if (activeModule === 'busca_ativa') {
-      if (subTabBuscaAtiva === 'hub') return 'Busca Ativa Escolar';
-      if (subTabBuscaAtiva === 'alertas') return 'Busca Ativa > Ausências & WhatsApp';
-      if (subTabBuscaAtiva === 'casos') return 'Busca Ativa > Casos de Busca Ativa & IA';
+    if (state.activeModule === 'busca_ativa') {
+      if (state.subTabBuscaAtiva === 'hub') return 'Busca Ativa Escolar';
+      if (state.subTabBuscaAtiva === 'alertas') return 'Busca Ativa / Ausências & WhatsApp';
+      if (state.subTabBuscaAtiva === 'casos') return 'Busca Ativa / Casos de Busca Ativa';
     }
-    if (activeModule === 'ocorrencias') {
+    if (state.activeModule === 'ocorrencias') {
       if (currentUser?.role === 'professor') {
-        if (ocorrenciasSubTab === 'hub') return 'Ocorrências Escolares';
-        if (ocorrenciasSubTab === 'registrar') return 'Ocorrências Escolares > Nova Ocorrência';
-        if (ocorrenciasSubTab === 'meus_registros') return 'Ocorrências Escolares > Meus Registros';
-        if (ocorrenciasSubTab === 'devolutivas') return 'Ocorrências Escolares > Minhas Devolutivas';
-        if (ocorrenciasSubTab === 'tutorados') return 'Ocorrências Escolares > Meus Tutorados';
+        if (state.ocorrenciasSubTab === 'hub') return 'Ocorrências Escolares';
+        if (state.ocorrenciasSubTab === 'registrar') return 'Ocorrências Escolares / Nova Ocorrência';
+        if (state.ocorrenciasSubTab === 'meus_registros') return 'Ocorrências Escolares / Meus Registros';
+        if (state.ocorrenciasSubTab === 'devolutivas') return 'Ocorrências Escolares / Minhas Devolutivas';
+        if (state.ocorrenciasSubTab === 'tutorados') return 'Ocorrências Escolares / Meus Tutorados';
       }
       return 'Ocorrências & Mediação';
     }
-    if (activeModule === 'tablets') return 'Agendamento de Equipamentos';
-    if (activeModule === 'grade_calendario') return 'Grade Curricular & Calendário Letivo';
-    if (activeModule === 'relatorios') return 'Relatórios Pedagógicos';
-    if (activeModule === 'system_manager') return 'Gerenciador Central do Sistema';
+    if (state.activeModule === 'tablets') return 'Agendamento de Equipamentos';
+    if (state.activeModule === 'grade_calendario') return 'Grade Curricular & Calendário Letivo';
+    if (state.activeModule === 'relatorios') return 'Relatórios Pedagógicos';
+    if (state.activeModule === 'system_manager') return 'Gerenciador Central do Sistema';
     return '';
   };
+
+  const getBreadcrumbText = (): string =>
+    getSectionLabel({ activeModule, subTabDiario, subTabBuscaAtiva, ocorrenciasSubTab });
+
+  const previousSectionLabel =
+    navHistory.length > 0 ? getSectionLabel(navHistory[navHistory.length - 1]) : undefined;
 
   const handleSelectRole = (role: UserRole, customName?: string) => {
     const roleLabels: Record<UserRole, string> = {
@@ -951,6 +1057,7 @@ export default function App() {
 
   // Logout handler returning to the login page
   const handleLogout = () => {
+    setNavHistory([]);
     setCurrentUser(null);
   };
 
@@ -975,26 +1082,8 @@ export default function App() {
     teacherName: string,
     date?: string
   ) => {
-    let newAlerts: ParentAlert[] = [];
-    try {
-      const res = await fetch('/api/attendance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items, classId, recordedBy: teacherName, date }),
-      });
-
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        const data = await res.json();
-        if (data.newAlerts && data.newAlerts.length > 0) {
-          newAlerts = data.newAlerts;
-        }
-      }
-    } catch (e) {
-      console.warn('Salvando chamada localmente no storageService permanente:', e);
-    }
-
     // Gravação resiliente definitiva no Firestore e sincronização no storageService
+    let newAlerts: ParentAlert[] = [];
     const localRes = await storageService.recordAttendance(items, classId, teacherName, date);
     if (localRes?.newAlerts && localRes.newAlerts.length > 0) {
       newAlerts = localRes.newAlerts;
@@ -1024,27 +1113,6 @@ export default function App() {
     triggerReason?: AlertTrigger;
     triggerLabel?: string;
   }) => {
-    try {
-      const res = await fetch('/api/alerts/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          studentId: alertData.studentId,
-          channel: alertData.channel,
-          messageContent: alertData.messageContent,
-          triggerReason: alertData.triggerReason,
-          triggerLabel: alertData.triggerLabel,
-          senderName: currentUser.name,
-        }),
-      });
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
-      }
-    } catch (e) {
-      console.warn('API de alertas indisponível, registrando localmente:', e);
-    }
-
     const st = students.find(s => s.id === alertData.studentId);
     if (st) {
       storageService.addAlert({
@@ -1070,20 +1138,6 @@ export default function App() {
 
   // Update alert status
   const handleUpdateAlertStatus = async (alertId: string, status: string, notes?: string) => {
-    try {
-      const res = await fetch(`/api/alerts/${alertId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, notes }),
-      });
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
-      }
-    } catch (e) {
-      console.warn('API de status de alerta indisponível, atualizando localmente:', e);
-    }
-
     storageService.updateAlertStatus(alertId, status, notes);
     await fetchData();
   };
@@ -1106,13 +1160,6 @@ export default function App() {
   ) => {
     const sId = storageService.getActiveSchoolId();
     storageService.addInterventionAction(caseId, action, sId);
-
-    fetch(`/api/interventions/${encodeURIComponent(caseId)}/action`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(action),
-    }).catch(() => {});
-
     await fetchData();
   };
 
@@ -1138,6 +1185,7 @@ export default function App() {
         body: JSON.stringify({
           studentName,
           studentClass,
+          schoolName: currentSchool.name,
           consecutiveAbsences: consecutive,
           attendanceRate: rate,
           vulnerabilityFactors: factors,
@@ -1167,7 +1215,6 @@ export default function App() {
   const confirmResetData = async () => {
     setIsResetting(true);
     try {
-      await fetch('/api/reset-data', { method: 'POST' });
       await fetchData();
     } catch (e) {
       console.error(e);
@@ -1181,7 +1228,6 @@ export default function App() {
   const confirmWipeAllData = async () => {
     setIsResetting(true);
     try {
-      await fetch('/api/wipe-all', { method: 'POST' }).catch(() => null);
       storageService.wipeAllData((currentUser?.role === 'admin' || currentUser?.role === 'admin_escola' || currentUser?.role === 'super_admin') ? currentUser : undefined);
       setClasses([]);
       setStudents([]);
@@ -1189,7 +1235,7 @@ export default function App() {
       setInterventions([]);
       setSelectedClassId('');
       setSchoolInfo({
-        schoolName: 'EE Professor Arlindo Silvestre',
+        schoolName: currentSchool?.name || 'Unidade Escolar',
         lastUpdated: new Date().toISOString(),
         totalStudents: 0,
         totalClasses: 0,
@@ -1208,7 +1254,6 @@ export default function App() {
 
   const handleDeleteAllOpenCases = async () => {
     try {
-      await fetch('/api/interventions/delete-open', { method: 'POST' });
       storageService.deleteOpenInterventions();
       await fetchData();
     } catch (e) {
@@ -1361,9 +1406,15 @@ export default function App() {
     setIsNewAlertModalOpen(true);
   };
 
-  // Se nenhum usuário estiver logado, exibe a tela de Login como página inicial
-  if (!currentUser) {
-    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+  // Se nenhum usuário estiver logado ou a conta Google não estiver verificada, exibe a tela de Login como página inicial
+  if (!currentUser || !isFirebaseVerified) {
+    return (
+      <LoginScreen
+        onLoginSuccess={handleLoginSuccess}
+        firebaseUser={firebaseUser}
+        authReady={authReady}
+      />
+    );
   }
 
   // Calculate high-level summary metrics
@@ -1372,25 +1423,29 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
-      {/* Top Application Header with SigaEscola brand & clean action bar */}
+      {/* Unified Primary Header with EduScope 360 brand, enabled school modules, and history-based Back button */}
       <Header
         schoolName={currentSchool.name}
         currentUser={currentUser}
         currentSchool={currentSchool}
         activeModule={activeModule}
+        subTabDiario={subTabDiario}
+        onNavigate={handleNavigateFromHome}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
         onOpenSchoolSelector={() => setIsSchoolSelectorOpen(true)}
-        onOpenMasterPanel={() => setActiveModule('system_manager')}
+        onOpenMasterPanel={() => navigateTo({ activeModule: 'system_manager' })}
         onLogout={handleLogout}
         onOpenSeducReport={() => setIsSeducReportModalOpen(true)}
         onExportOfflineBackup={handleExportOfflineBackup}
         onOpenRestoreBackup={handleOpenRestoreBackupModal}
+        onOpenUserManual={() => setIsUserManualModalOpen(true)}
         onSyncData={handleSyncData}
         isSyncing={isSyncing}
         syncMessage={syncMessage}
         onGoBack={handleGoBack}
         onGoHome={handleGoHome}
-        canGoBack={true}
+        canGoBack={navHistory.length > 0}
+        previousSectionLabel={previousSectionLabel}
         breadcrumb={getBreadcrumbText()}
       />
 
@@ -1479,8 +1534,8 @@ export default function App() {
             {subTabDiario === 'hub' && (
               <div className="space-y-4">
                 <div className="mb-2">
-                  <h2 className="text-lg font-black text-slate-900">
-                    Diário & Portaria • Sub-menus
+                  <h2 className="text-lg font-bold text-slate-900">
+                    Diário &amp; Portaria
                   </h2>
                   <p className="text-xs text-slate-500 font-medium">
                     Selecione uma das opções abaixo para realizar seus lançamentos
@@ -1490,7 +1545,7 @@ export default function App() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {currentUser.role !== 'professor' && (
                     <div
-                      onClick={() => setSubTabDiario('chamada')}
+                      onClick={() => navigateTo({ activeModule: 'diario', subTabDiario: 'chamada' })}
                       className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
                     >
                       <div>
@@ -1513,7 +1568,7 @@ export default function App() {
 
                   {currentUser.role !== 'professor' && (
                     <div
-                      onClick={() => setSubTabDiario('portaria')}
+                      onClick={() => navigateTo({ activeModule: 'diario', subTabDiario: 'portaria' })}
                       className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-blue-400 transition-all cursor-pointer flex flex-col justify-between"
                     >
                       <div>
@@ -1535,7 +1590,7 @@ export default function App() {
                   )}
 
                   <div
-                    onClick={() => setSubTabDiario('ausencias')}
+                    onClick={() => navigateTo({ activeModule: 'diario', subTabDiario: 'ausencias' })}
                     className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
                   >
                     <div>
@@ -1556,7 +1611,7 @@ export default function App() {
                   </div>
 
                   <div
-                    onClick={() => setSubTabDiario('turmas')}
+                    onClick={() => navigateTo({ activeModule: 'diario', subTabDiario: 'turmas' })}
                     className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-slate-400 transition-all cursor-pointer flex flex-col justify-between"
                   >
                     <div>
@@ -1591,8 +1646,7 @@ export default function App() {
                 onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
                 onManualAlert={handleOpenAlertForStudent}
                 onGoToAlerts={() => {
-                  setActiveModule('busca_ativa');
-                  setSubTabBuscaAtiva('alertas');
+                  navigateTo({ activeModule: 'busca_ativa', subTabBuscaAtiva: 'alertas' });
                 }}
               />
             )}
@@ -1602,6 +1656,7 @@ export default function App() {
                 students={activeStudents}
                 classes={classes}
                 operatorName={currentUser.name}
+                onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
               />
             )}
 
@@ -1622,7 +1677,7 @@ export default function App() {
                 onRefresh={fetchData}
                 onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
                 onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
-                onOpenCalendarModule={() => setActiveModule('grade_calendario')}
+                onOpenCalendarModule={() => navigateTo({ activeModule: 'grade_calendario' })}
                 onOpenResetAllModal={() => {
                   setWipeConfirmText('');
                   setIsWipeAllConfirmOpen(true);
@@ -1641,8 +1696,8 @@ export default function App() {
             {subTabBuscaAtiva === 'hub' && (
               <div className="space-y-4">
                 <div className="mb-2">
-                  <h2 className="text-lg font-black text-slate-900">
-                    Busca Ativa Escolar • Sub-menus
+                  <h2 className="text-lg font-bold text-slate-900">
+                    Busca Ativa Escolar
                   </h2>
                   <p className="text-xs text-slate-500 font-medium">
                     Selecione uma das opções abaixo para gerenciar ausências, comunicados aos responsáveis e casos de Busca Ativa
@@ -1651,7 +1706,7 @@ export default function App() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div
-                    onClick={() => setSubTabBuscaAtiva('alertas')}
+                    onClick={() => navigateTo({ activeModule: 'busca_ativa', subTabBuscaAtiva: 'alertas' })}
                     className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
                   >
                     <div>
@@ -1672,7 +1727,7 @@ export default function App() {
                   </div>
 
                   <div
-                    onClick={() => setSubTabBuscaAtiva('casos')}
+                    onClick={() => navigateTo({ activeModule: 'busca_ativa', subTabBuscaAtiva: 'casos' })}
                     className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-rose-400 transition-all cursor-pointer flex flex-col justify-between"
                   >
                     <div>
@@ -1742,8 +1797,8 @@ export default function App() {
             {currentUser.role === 'professor' && ocorrenciasSubTab === 'hub' ? (
               <div className="space-y-4">
                 <div className="mb-2">
-                  <h2 className="text-lg font-black text-slate-900">
-                    Ocorrências Escolares • Sub-menus
+                  <h2 className="text-lg font-bold text-slate-900">
+                    Ocorrências Escolares
                   </h2>
                   <p className="text-xs text-slate-500 font-medium">
                     Selecione uma das opções abaixo para registrar ou consultar ocorrências
@@ -1752,7 +1807,7 @@ export default function App() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div
-                    onClick={() => setOcorrenciasSubTab('registrar')}
+                    onClick={() => navigateTo({ activeModule: 'ocorrencias', ocorrenciasSubTab: 'registrar' })}
                     className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-amber-400 transition-all cursor-pointer flex flex-col justify-between"
                   >
                     <div>
@@ -1773,7 +1828,7 @@ export default function App() {
                   </div>
 
                   <div
-                    onClick={() => setOcorrenciasSubTab('meus_registros')}
+                    onClick={() => navigateTo({ activeModule: 'ocorrencias', ocorrenciasSubTab: 'meus_registros' })}
                     className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-indigo-400 transition-all cursor-pointer flex flex-col justify-between"
                   >
                     <div>
@@ -1794,7 +1849,7 @@ export default function App() {
                   </div>
 
                   <div
-                    onClick={() => setOcorrenciasSubTab('devolutivas')}
+                    onClick={() => navigateTo({ activeModule: 'ocorrencias', ocorrenciasSubTab: 'devolutivas' })}
                     className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-emerald-400 transition-all cursor-pointer flex flex-col justify-between"
                   >
                     <div>
@@ -1815,7 +1870,7 @@ export default function App() {
                   </div>
 
                   <div
-                    onClick={() => setOcorrenciasSubTab('tutorados')}
+                    onClick={() => navigateTo({ activeModule: 'ocorrencias', ocorrenciasSubTab: 'tutorados' })}
                     className="group bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md hover:border-purple-400 transition-all cursor-pointer flex flex-col justify-between"
                   >
                     <div>
@@ -1882,6 +1937,7 @@ export default function App() {
             onSelectMonth={monthIndex => setSelectedMonthIndex(monthIndex)}
             selectedMonthIndex={selectedMonthIndex}
             onRefreshData={fetchData}
+            onOpenStudentDetail={id => setSelectedStudentDetailId(id)}
           />
         )}
 
@@ -1899,7 +1955,6 @@ export default function App() {
             onRefresh={fetchData}
             onOpenStudentRegistration={() => setIsRegistrationModalOpen(true)}
             onOpenWhatsAppIntegration={() => setIsWhatsAppModalOpen(true)}
-            onOpenGoogleSheets={() => setIsGoogleSheetsModalOpen(true)}
             onOpenResetAllModal={() => {
               setWipeConfirmText('');
               setIsWipeAllConfirmOpen(true);
@@ -1969,20 +2024,11 @@ export default function App() {
         alerts={automatedAlertsTriggered}
         onClose={() => setAutomatedAlertsTriggered([])}
         onGoToAlerts={() => {
-          setActiveModule('busca_ativa');
-          setSubTabBuscaAtiva('alertas');
+          navigateTo({ activeModule: 'busca_ativa', subTabBuscaAtiva: 'alertas' });
         }}
         onGoToInterventions={() => {
-          setActiveModule('busca_ativa');
-          setSubTabBuscaAtiva('casos');
+          navigateTo({ activeModule: 'busca_ativa', subTabBuscaAtiva: 'casos' });
         }}
-      />
-
-      {/* Google Sheets Database Integration Modal */}
-      <GoogleSheetsModal
-        isOpen={isGoogleSheetsModalOpen}
-        onClose={() => setIsGoogleSheetsModalOpen(false)}
-        onDataRefreshed={fetchData}
       />
 
       {/* Modal de Confirmação para Restaurar Base Padrão */}
@@ -1996,7 +2042,7 @@ export default function App() {
               Restaurar Base de Dados Padrão
             </h3>
             <p className="text-xs text-slate-600 text-center mt-2 leading-relaxed">
-              Deseja restaurar a base de dados da <strong>EE Professor Arlindo Silvestre</strong> para os dados padrão iniciais da escola?
+              Deseja restaurar a base de dados da unidade <strong>{currentSchool?.name || 'Unidade Escolar'}</strong> para os dados padrão iniciais?
             </p>
             <div className="mt-6 flex items-center gap-3">
               <button
@@ -2155,7 +2201,7 @@ export default function App() {
                   Opção 1 — Selecionar arquivo(s) .json do computador
                 </p>
                 <p className="text-[11px] text-slate-600 mb-3">
-                  Aceita o backup combinado (<code className="bg-white px-1 rounded">resgate_sigaescola.json</code> ou <code className="bg-white px-1 rounded">backup-sigaescola-*.json</code>) ou arquivos individuais de Ocorrências e Equipamentos/Tablets.
+                  Aceita o backup combinado (<code className="bg-white px-1 rounded">backup-eduscope360-*.json</code> ou arquivos anteriores <code className="bg-white px-1 rounded">backup-sigaescola-*.json</code> / <code className="bg-white px-1 rounded">resgate_sigaescola.json</code>) ou arquivos individuais de Ocorrências e Equipamentos/Tablets.
                 </p>
                 <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer transition-colors shadow-xs">
                   <Upload className="w-3.5 h-3.5" />
@@ -2329,8 +2375,16 @@ export default function App() {
         canManageSchools={currentUser.role === 'super_admin' || currentUser.isUniversal === true || currentUser.role === 'admin' || currentUser.role === 'admin_escola'}
         onOpenSystemManager={() => {
           setIsSchoolSelectorOpen(false);
-          setActiveModule('system_manager');
+          navigateTo({ activeModule: 'system_manager' });
         }}
+      />
+
+      {/* Modal do Manual do Usuário Oficial (Todos os Perfis + Exportação em PDF A4) */}
+      <UserManualModal
+        isOpen={isUserManualModalOpen}
+        onClose={() => setIsUserManualModalOpen(false)}
+        currentUser={currentUser}
+        currentSchool={currentSchool}
       />
 
       {/* Institutional Footer */}
@@ -2338,11 +2392,11 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="font-bold text-slate-700">{currentSchool.name}</span>
-            <span>•</span>
-            <span className="font-semibold text-slate-600">Busca Ativa Escolar & Diário Oficial</span>
+            <span>·</span>
+            <span className="font-semibold text-slate-600">EduScope 360 - Portal Integrado de Gestão Escolar</span>
             {currentSchool.city && (
               <>
-                <span>•</span>
+                <span>·</span>
                 <span className="text-slate-500">{currentSchool.city}</span>
               </>
             )}

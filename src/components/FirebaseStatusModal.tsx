@@ -231,11 +231,10 @@ export const FirebaseStatusModal: React.FC<FirebaseStatusModalProps> = ({
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1">
                 <div className="flex items-center gap-1.5 font-bold text-slate-800">
                   <Globe className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Regras sem Restrição de IP</span>
+                  <span>Sincronização Multi-Computador</span>
                 </div>
                 <p className="text-slate-600">
-                  As regras de segurança do Firestore (<code className="font-mono text-[11px] bg-slate-200 px-1 rounded">allow read, write: if true;</code>)
-                  estão ativas e implantadas no Google Cloud, permitindo leitura e escrita direta de qualquer rede.
+                  As regras de segurança do Firestore estão ativas e implantadas no Google Cloud, permitindo sincronização em tempo real em qualquer computador autenticado com conta Google verificada.
                 </p>
               </div>
 

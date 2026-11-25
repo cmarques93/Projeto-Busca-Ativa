@@ -101,28 +101,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         console.warn('Erro ao carregar usuários da nuvem no modal:', err);
       }
 
-      // 3. Fallback: API proxy ou fallback seguro
-      try {
-        const res = await fetch(`/api/users/public?schoolId=${encodeURIComponent(targetSchoolId)}`);
-        const contentType = res.headers.get('content-type');
-        if (res.ok && contentType && contentType.includes('application/json')) {
-          const list: PublicUserItem[] = await res.json();
-          const activeList = filterSchoolOperators(list, targetSchoolId);
-          if (activeList.length > 0) {
-            setUsers(activeList);
-            const matching = activeList.find(
-              u => u.username === currentUser.username || u.name === currentUser.name
-            );
-            setSelectedUserId(matching ? matching.id : activeList[0].id);
-            setLoadingUsers(false);
-            return;
-          }
-        }
-      } catch (e) {
-        console.warn('Backend API indisponível no modal:', e);
-      } finally {
-        setLoadingUsers(false);
-      }
+      setLoadingUsers(false);
     };
 
     fetchUsers();
@@ -152,47 +131,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
     }
 
     setAuthenticating(true);
-    try {
-      const res = await fetch('/api/auth/login-pin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: targetUserId,
-          pin: pin.trim(),
-        }),
-      });
-
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        const data = await res.json();
-        storageService.recordUserLogin(targetUserId);
-        const currentActiveSchool = storageService.getActiveSchool(currentUser.schoolId);
-        onLoginSuccess({
-          ...data.user,
-          ...(isMasterMode ? { id: 'usr-master', role: 'super_admin' as UserRole, roleLabel: 'Painel Master Global', isUniversal: true } : {}),
-          schoolId: currentUser.schoolId || currentActiveSchool.id,
-          schoolName: currentUser.schoolName || currentActiveSchool.name
-        });
-        if (onSelectRole && !isMasterMode) {
-          onSelectRole(data.user.role, data.user.name);
-        }
-        onClose();
-        setAuthenticating(false);
-        return;
-      }
-
-      if (contentType && contentType.includes('application/json')) {
-        const data = await res.json();
-        if (data.error) {
-          setErrorMessage(data.error);
-          setAuthenticating(false);
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn('API indisponível, validando credencial localmente:', err);
-    }
-
     let verification = storageService.verifyPin(targetUserId, pin.trim());
     if (!verification.success) {
       try {
@@ -236,7 +174,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold flex items-center gap-1.5">
-                <span className="text-indigo-400">SigaEscola</span>
+                <span className="text-indigo-400">EduScope 360</span>
                 <span>•</span>
                 <span>{isMasterMode ? 'Painel Master Global' : 'Alternar Usuário'}</span>
               </h2>

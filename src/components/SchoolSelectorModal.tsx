@@ -66,7 +66,7 @@ export const SchoolSelectorModal: React.FC<SchoolSelectorModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-black tracking-wider uppercase px-2 py-0.5 rounded bg-indigo-500/30 text-indigo-300 border border-indigo-400/30">
-                  SigaEscola SaaS
+                  EduScope 360 SaaS
                 </span>
                 <span className="text-xs text-slate-400">• Multi-Unidades</span>
               </div>

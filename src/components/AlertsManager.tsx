@@ -149,12 +149,6 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
     const alertId = alertToDelete.id;
     setIsDeletingAlert(true);
 
-    try {
-      await fetch(`/api/alerts/${alertId}`, { method: 'DELETE' });
-    } catch (err) {
-      console.warn('Backend indisponível, deletando alerta localmente:', err);
-    }
-
     // Deleta do storage e sincroniza com Firestore
     storageService.deleteAlert(alertId);
     setLocalAlerts(prev => prev.filter(a => a.id !== alertId));

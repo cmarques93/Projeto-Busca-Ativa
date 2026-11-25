@@ -241,19 +241,11 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     if (!studentToTransfer) return;
 
     try {
-      const updated = storageService.transferStudent(studentToTransfer.id, {
+      storageService.transferStudent(studentToTransfer.id, {
         transferredAt: transferDate || getLocalTodayStr(),
         transferDestination,
         transferReason,
       });
-
-      if (updated) {
-        fetch(`/api/students/${encodeURIComponent(studentToTransfer.id)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updated),
-        }).catch(() => null);
-      }
 
       showToast(`${studentToTransfer.name} movido(a) para Estudantes Transferidos. Todo o histórico foi preservado.`);
       setStudentToTransfer(null);
@@ -279,13 +271,6 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
 
     try {
       const updated = storageService.reactivateStudent(studentToReactivate.id, reactivateClassId);
-      if (updated) {
-        fetch(`/api/students/${encodeURIComponent(studentToReactivate.id)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updated),
-        }).catch(() => null);
-      }
 
       showToast(`${studentToReactivate.name} reativado(a) com sucesso na turma ${updated?.className || ''}!`);
       setStudentToReactivate(null);
@@ -299,10 +284,6 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   const handleConfirmDeleteStudent = async () => {
     if (!studentToDelete) return;
     try {
-      fetch(`/api/students/${encodeURIComponent(studentToDelete.id)}`, {
-        method: 'DELETE',
-      }).catch(() => null);
-
       // Local storage deletion (preserves historical attendance/alerts/cases for archive) + automatic Firestore sync
       storageService.deleteStudent(studentToDelete.id);
 
@@ -318,10 +299,6 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
   const handleConfirmDeleteClass = async () => {
     if (!classToDelete) return;
     try {
-      fetch(`/api/classes/${encodeURIComponent(classToDelete.id)}`, {
-        method: 'DELETE',
-      }).catch(() => null);
-
       // Local storage deletion (preserves historical records) + automatic Firestore sync
       storageService.deleteClass(classToDelete.id);
 
@@ -349,12 +326,6 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
             }
           : {}),
       };
-
-      fetch(`/api/students/${encodeURIComponent(payload.id)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      }).catch(() => null);
 
       // Update in storageService + automatic Firestore sync
       storageService.updateStudent(payload.id, payload);
@@ -393,12 +364,6 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     };
 
     try {
-      fetch('/api/classes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newCls),
-      }).catch(() => null);
-
       storageService.createClass(newCls);
 
       showToast(`Turma ${newCls.name} criada com sucesso!`);
@@ -417,12 +382,6 @@ export const ClassesManager: React.FC<ClassesManagerProps> = ({
     if (!editingClass) return;
 
     try {
-      fetch(`/api/classes/${encodeURIComponent(editingClass.id)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editingClass),
-      }).catch(() => null);
-
       storageService.updateClass(editingClass.id, editingClass);
 
       showToast(`Turma ${editingClass.name} atualizada com sucesso.`);

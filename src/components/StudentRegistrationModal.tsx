@@ -136,29 +136,7 @@ export const StudentRegistrationModal: React.FC<StudentRegistrationModalProps> =
       notes: 'Cadastrado no sistema escolar.',
     };
 
-    let createdStudent: Student | null = null;
-    try {
-      const res = await fetch('/api/students', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newStudentData),
-      });
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        createdStudent = await res.json();
-      } else if (contentType && contentType.includes('application/json')) {
-        const errJson = await res.json().catch(() => ({}));
-        if (errJson.error) {
-          setErrorMessage(errJson.error);
-          setIsSubmitting(false);
-          return;
-        }
-      }
-    } catch (err: any) {
-      console.warn('API backend indisponível, salvando estudante localmente:', err);
-    }
-
-    storageService.createStudent(createdStudent || newStudentData);
+    storageService.createStudent(newStudentData);
     await onStudentRegistered();
     setSuccessMessage(`Estudante "${cleanName}" cadastrado(a) com sucesso no banco de dados!`);
     setName('');
@@ -274,20 +252,6 @@ Juliana Cristina Vieira;2024-7755;19 95432-1098`;
       attendanceRate: 100,
     }));
 
-    try {
-      const res = await fetch('/api/students/batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ students: payload }),
-      });
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        // Backend updated
-      }
-    } catch (err: any) {
-      console.warn('API backend indisponível, importando lote localmente:', err);
-    }
-
     const insertedCount = storageService.batchCreateStudents(payload);
     await onStudentRegistered();
     setSuccessMessage(`${insertedCount} estudantes importados com sucesso!`);
@@ -321,28 +285,6 @@ Juliana Cristina Vieira;2024-7755;19 95432-1098`;
       studentsAtRiskCount: 0,
     };
 
-    let serverSuccess = false;
-    try {
-      const res = await fetch('/api/classes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(classData),
-      });
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        serverSuccess = true;
-      } else if (contentType && contentType.includes('application/json')) {
-        const errJson = await res.json().catch(() => ({}));
-        if (errJson.error) {
-          setErrorMessage(errJson.error);
-          setIsSubmitting(false);
-          return;
-        }
-      }
-    } catch (err: any) {
-      console.warn('API backend indisponível, criando turma localmente:', err);
-    }
-
     storageService.createClass(classData);
     setClassList(prev => [...prev.filter(c => c.id.toLowerCase() !== cleanId.toLowerCase()), classData]);
     await onStudentRegistered();
@@ -364,14 +306,6 @@ Juliana Cristina Vieira;2024-7755;19 95432-1098`;
     setIsDeletingClass(true);
     setErrorMessage(null);
     setSuccessMessage(null);
-
-    try {
-      await fetch(`/api/classes/${encodeURIComponent(clsId)}`, {
-        method: 'DELETE',
-      });
-    } catch (err: any) {
-      console.warn('API backend indisponível, excluindo turma localmente:', err);
-    }
 
     storageService.deleteClass(clsId);
     setClassList(prev => prev.filter(c => c.id.toLowerCase() !== clsId.toLowerCase()));

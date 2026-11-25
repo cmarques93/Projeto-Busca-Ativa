@@ -22,9 +22,10 @@ import {
   Trash2,
   ArrowRightLeft,
   RotateCcw,
-  Archive
+  Archive,
+  DoorOpen
 } from 'lucide-react';
-import { Student, AttendanceRecord, ParentAlert, InterventionCase } from '../types';
+import { Student, AttendanceRecord, ParentAlert, InterventionCase, GateRecord } from '../types';
 import { storageService } from '../data/storageService';
 import { firestoreService } from '../lib/firestoreService';
 import { getStudentPhones, cleanPhoneForWhatsApp } from '../utils/phoneUtils';
@@ -79,6 +80,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     intervention?: InterventionCase;
     ocorrencias?: OcorrenciaItem[];
     tratativas?: TratativaItem[];
+    gateRecords?: GateRecord[];
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -93,11 +95,6 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     try {
       const updated = storageService.transferStudent(data.student.id);
       if (updated) {
-        fetch(`/api/students/${encodeURIComponent(data.student.id)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updated),
-        }).catch(() => null);
         setData(prev => (prev ? { ...prev, student: updated } : prev));
       }
       setConfirmingTransfer(false);
@@ -115,11 +112,6 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     try {
       const updated = storageService.reactivateStudent(data.student.id);
       if (updated) {
-        fetch(`/api/students/${encodeURIComponent(data.student.id)}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updated),
-        }).catch(() => null);
         setData(prev => (prev ? { ...prev, student: updated } : prev));
       }
       if (onStudentDeleted) onStudentDeleted();
@@ -134,9 +126,6 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     if (!data?.student) return;
     setDeletingStudent(true);
     try {
-      await fetch(`/api/students/${encodeURIComponent(data.student.id)}`, {
-        method: 'DELETE',
-      }).catch(() => null);
       storageService.deleteStudent(data.student.id);
       await firestoreService.deleteStudent(data.student.id);
       setConfirmingDelete(false);
@@ -204,16 +193,33 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
 
     const loadStudentData = async () => {
       const sId = storageService.getActiveSchoolId();
+      const filterGateForStudent = (allGate: GateRecord[], stId: string, stName?: string) => {
+        const normName = (stName || '').trim().toLowerCase();
+        return (allGate || [])
+          .filter(
+            g =>
+              g.studentId === stId ||
+              (normName && (g.studentName || '').trim().toLowerCase() === normName)
+          )
+          .sort((a, b) => {
+            const cmp = (b.date || '').localeCompare(a.date || '');
+            return cmp !== 0 ? cmp : (b.time || '').localeCompare(a.time || '');
+          });
+      };
+
+      const localGateAll = storageService.getGateRecords(undefined, undefined, sId);
 
       // 1. Fonte de verdade da escola ativa (storageService já sincronizado com Firestore)
       const localData = storageService.getStudentDetails(studentId, sId);
       if (localData && localData.student) {
         const extras = await carregarOcorrenciasETratativas(localData.student.name);
+        const studentGate = filterGateForStudent(localGateAll, localData.student.id, localData.student.name);
         if (isMounted) {
           setData({
             ...localData,
             ocorrencias: extras.ocorrencias,
             tratativas: extras.tratativas,
+            gateRecords: studentGate,
           });
           setLoading(false);
         }
@@ -222,15 +228,17 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
 
       // 2. Fallback: consultar catálogo de estudantes no Firestore caso ainda não esteja em cache
       try {
-        const [cloudStudents, cloudAtt, cloudAlerts, cloudInterv] = await Promise.all([
+        const [cloudStudents, cloudAtt, cloudAlerts, cloudInterv, cloudGate] = await Promise.all([
           firestoreService.getStudents(sId),
           firestoreService.getAttendanceRecords(undefined, sId),
           firestoreService.getAlerts(sId),
           firestoreService.getInterventions(sId),
+          firestoreService.getGateRecords(undefined, sId),
         ]);
         const foundSt = cloudStudents.find(s => s.id === studentId);
         if (foundSt) {
           const extras = await carregarOcorrenciasETratativas(foundSt.name);
+          const studentGate = filterGateForStudent(cloudGate, foundSt.id, foundSt.name);
           if (isMounted) {
             setData({
               student: foundSt,
@@ -243,6 +251,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               intervention: cloudInterv.find(i => i.studentId === studentId),
               ocorrencias: extras.ocorrencias,
               tratativas: extras.tratativas,
+              gateRecords: studentGate,
             });
             setLoading(false);
           }
@@ -255,14 +264,15 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
       // Fallback 3: Buscar pelo ID direto no catálogo de estudantes
       const studentObj = storageService.getStudentById(studentId, sId);
       if (studentObj) {
-        const history = storageService.getAttendanceRecords()
+        const history = storageService.getAttendanceRecords(undefined, undefined, sId)
           .filter(r => r.studentId === studentId)
           .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-        const studentAlerts = storageService.getAlerts()
+        const studentAlerts = storageService.getAlerts(sId)
           .filter(a => a.studentId === studentId)
           .sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
-        const studentIntervention = storageService.getInterventions().find(i => i.studentId === studentId);
+        const studentIntervention = storageService.getInterventions(sId).find(i => i.studentId === studentId);
         const extras = await carregarOcorrenciasETratativas(studentObj.name);
+        const studentGate = filterGateForStudent(localGateAll, studentObj.id, studentObj.name);
 
         if (isMounted) {
           setData({
@@ -272,6 +282,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
             intervention: studentIntervention,
             ocorrencias: extras.ocorrencias,
             tratativas: extras.tratativas,
+            gateRecords: studentGate,
           });
           setLoading(false);
         }
@@ -286,22 +297,26 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
         .filter(a => a.studentId === studentId)
         .sort((a, b) => (b.sentAt || '').localeCompare(a.sentAt || ''));
       const studentIntervention = storageService.getInterventions(sId).find(i => i.studentId === studentId);
+      const studentGate = filterGateForStudent(localGateAll, studentId);
 
-      if (history.length > 0 || studentAlerts.length > 0 || studentIntervention) {
+      if (history.length > 0 || studentAlerts.length > 0 || studentIntervention || studentGate.length > 0) {
         const inferredName =
           studentIntervention?.studentName ||
           studentAlerts[0]?.studentName ||
           history[0]?.studentName ||
+          studentGate[0]?.studentName ||
           'Estudante (Registro Histórico)';
         const inferredClassId =
           studentIntervention?.classId ||
           studentAlerts[0]?.classId ||
           history[0]?.classId ||
+          studentGate[0]?.classId ||
           '';
         const inferredClassName =
           studentIntervention?.className ||
           studentAlerts[0]?.className ||
           history[0]?.className ||
+          studentGate[0]?.className ||
           'Turma anterior';
 
         const archivedStudent: Student = {
@@ -310,8 +325,8 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
           ra: 'Arquivo / Transferido',
           classId: inferredClassId,
           className: inferredClassName,
-          guardianName: studentIntervention?.guardianName || studentAlerts[0]?.guardianName || 'Responsável',
-          guardianPhone: studentIntervention?.guardianPhone || studentAlerts[0]?.guardianPhone || '',
+          guardianName: studentIntervention?.guardianName || studentAlerts[0]?.guardianName || studentGate[0]?.guardianOrAuthorizedPerson || 'Responsável',
+          guardianPhone: studentIntervention?.guardianPhone || studentAlerts[0]?.guardianPhone || studentGate[0]?.guardianPhone || '',
           guardianRelationship: 'Responsável',
           address: '',
           neighborhood: '',
@@ -338,6 +353,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
             intervention: studentIntervention,
             ocorrencias: extras.ocorrencias,
             tratativas: extras.tratativas,
+            gateRecords: studentGate,
           });
           setLoading(false);
         }
@@ -907,6 +923,76 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+
+              {/* Histórico de Portaria (Entradas Tardias & Saídas Antecipadas) */}
+              <div>
+                <div className="font-bold text-slate-900 text-sm mb-2 flex items-center justify-between flex-wrap gap-2">
+                  <span className="flex items-center gap-1.5">
+                    <DoorOpen className="w-4 h-4 text-sky-600" />
+                    <span>Histórico de Portaria — Atrasos &amp; Saídas ({data.gateRecords?.length || 0})</span>
+                  </span>
+                  {data.gateRecords && data.gateRecords.length > 0 && (
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold">
+                      <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200">
+                        {data.gateRecords.filter(g => g.type === 'entrada_tardia').length} Atraso(s)
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-purple-50 text-purple-800 border border-purple-200">
+                        {data.gateRecords.filter(g => g.type === 'saida_antecipada').length} Saída(s) Antecipada(s)
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {!data.gateRecords || data.gateRecords.length === 0 ? (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500 italic">
+                    Nenhuma entrada em atraso ou saída antecipada registrada na portaria para este estudante.
+                  </div>
+                ) : (
+                  <div className="border border-slate-200 rounded-lg overflow-hidden text-xs max-h-56 overflow-y-auto">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-100 text-slate-600 font-semibold sticky top-0">
+                        <tr>
+                          <th className="p-2.5">Data / Hora</th>
+                          <th className="p-2.5">Tipo</th>
+                          <th className="p-2.5">Aula / Motivo</th>
+                          <th className="p-2.5">Responsável / Autorização</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {data.gateRecords.slice(0, 15).map(gr => (
+                          <tr key={gr.id}>
+                            <td className="p-2.5 font-medium text-slate-800 whitespace-nowrap">
+                              {formatarDataBR(gr.date)} • {gr.time}
+                            </td>
+                            <td className="p-2.5 whitespace-nowrap">
+                              <span
+                                className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase ${
+                                  gr.type === 'entrada_tardia'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-purple-100 text-purple-800'
+                                }`}
+                              >
+                                {gr.type === 'entrada_tardia' ? 'Entrada Tardia' : 'Saída Antecipada'}
+                              </span>
+                            </td>
+                            <td className="p-2.5 text-slate-700">
+                              {gr.classPeriodName && (
+                                <span className="font-semibold text-blue-800 block text-[11px]">
+                                  {gr.classPeriodName}
+                                </span>
+                              )}
+                              <span>{gr.reason || '—'}</span>
+                            </td>
+                            <td className="p-2.5 text-slate-600">
+                              {gr.guardianOrAuthorizedPerson || gr.recordedBy || '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 )}
               </div>

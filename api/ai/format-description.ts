@@ -1,65 +1,59 @@
 import { GoogleGenAI } from '@google/genai';
 
+const CANDIDATE_MODELS = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'] as const;
+
 function limparTextoFormatado(texto: string): string {
   if (!texto) return '';
   let limpo = texto.trim();
-  // Remove markdown bold headers e títulos comuns
   limpo = limpo.replace(/^#+\s+.*?\n+/i, '');
   limpo = limpo.replace(/^\*\*.*?\*\*\s*:?\s*/i, '');
-  limpo = limpo.replace(/^(comunicado|notificação|aviso|informe|relato|registro|parecer|mensagem|termo)\s+(aos\s+responsáveis|aos\s+pais|à\s+família|escolar|pedagógico|disciplinar)\s*:?\s*/gi, '');
+  limpo = limpo.replace(
+    /^(comunicado|notificação|aviso|informe|relato|registro|parecer|mensagem|termo)\s+(aos\s+responsáveis|aos\s+pais|à\s+família|escolar|pedagógico|disciplinar)\s*:?\s*/gi,
+    ''
+  );
   limpo = limpo.replace(/^(prezados|senhores|caros)\s+(pais|responsáveis|familiares)\s*:?,?\s*/gi, '');
   limpo = limpo.replace(/^["'«»“”]/g, '').replace(/["'«»“”]$/g, '');
   return limpo.trim();
 }
 
 export default async function handler(req: any, res: any) {
-  // Configura CORS
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
-  );
-
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Método não permitido' });
+    return res.status(405).json({ error: 'Método não permitido.' });
   }
 
-  const { texto = '', descricao = '' } = req.body || {};
-  const rawTrim = (texto || descricao || '').trim();
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const rawInput = typeof body.texto === 'string' ? body.texto : typeof body.descricao === 'string' ? body.descricao : '';
+  const rawTrim = rawInput.trim();
 
   if (!rawTrim) {
-    return res.status(400).json({ error: 'Texto não fornecido para formatação' });
+    return res.status(400).json({ error: 'Texto não fornecido para formatação.' });
   }
 
-  const fallbackText = () => {
-    let f = rawTrim.charAt(0).toUpperCase() + rawTrim.slice(1);
-    if (!/[.!?]$/.test(f)) f += '.';
-    return limparTextoFormatado(f);
-  };
+  if (rawTrim.length > 8000) {
+    return res.status(400).json({ error: 'Texto excede o limite máximo de caracteres permitido.' });
+  }
 
-  const apiKey =
-    req.body?.apiKey ||
-    process.env.GEMINI_API_KEY ||
-    process.env.API_KEY ||
-    process.env.VITE_GEMINI_API_KEY ||
-    '';
-
+  const apiKey = process.env.GEMINI_API_KEY || '';
   if (!apiKey) {
-    return res.json({
-      descricaoFormatada: fallbackText(),
-      source: 'fallback_sem_chave'
+    return res.status(503).json({
+      error: 'Serviço de IA não configurado no servidor. Verifique a variável GEMINI_API_KEY nas configurações do ambiente.',
     });
   }
 
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-    const prompt = `Atue como um assistente pedagógico. Sua tarefa é reescrever, revisar e formatar esse texto, pois uma cópia será entregue aos responsáveis do estudante.
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
+
+  const prompt = `Atue como um assistente pedagógico. Sua tarefa é reescrever, revisar e formatar esse texto, pois uma cópia será entregue aos responsáveis do estudante.
 Siga estas diretrizes:
 Correção Gramatical: Aplique a norma-padrão da língua portuguesa, corrigindo erros de digitação, pontuação e concordância.
 Linguagem Simples e Acessível: Reescreva o texto de forma que qualquer responsável compreenda o contexto sem dificuldade. Evite jargões técnicos da área da educação.
@@ -75,39 +69,32 @@ REGRA CRÍTICA E ABSOLUTA:
 - NÃO adicione introduções ("Aqui está o texto:"), sem aspas adicionais, sem preâmbulos e sem explicações.
 - Retorne APENAS o parágrafo descritivo do fato ocorrido.`;
 
-    // Modelos exclusivamente gratuitos (Flash / Flash-Lite) sem cota zero
-    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
-    let formatted = '';
-
-    for (const model of candidateModels) {
-      try {
-        const response = await ai.models.generateContent({
+  let lastError: any = null;
+  for (const model of CANDIDATE_MODELS) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+      });
+      const text = response.text?.trim();
+      if (text) {
+        return res.status(200).json({
+          descricaoFormatada: limparTextoFormatado(text),
+          source: 'gemini_ai',
           model,
-          contents: prompt,
-          config: {
-            temperature: 0.1,
-            topP: 0.95
-          }
         });
-        if (response.text) {
-          formatted = limparTextoFormatado(response.text.trim());
-          break;
-        }
-      } catch (e: any) {
-        console.warn(`Vercel function model ${model} failed:`, e?.message || e);
       }
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`Vercel format-description model ${model} failed:`, err?.message || err);
     }
-
-    return res.json({
-      descricaoFormatada: formatted || fallbackText(),
-      source: 'gemini_ai_vercel'
-    });
-  } catch (err: any) {
-    console.error('Vercel serverless Gemini error:', err);
-    return res.json({
-      descricaoFormatada: fallbackText(),
-      source: 'motor_pedagogico_fallback',
-      error: err?.message
-    });
   }
+
+  const status = lastError?.status && lastError.status >= 400 && lastError.status < 600 ? lastError.status : 502;
+  return res.status(status).json({
+    error:
+      status === 429
+        ? 'Limite temporário de requisições da IA atingido. Aguarde alguns segundos e tente novamente.'
+        : lastError?.message || 'Não foi possível formatar o texto com a IA no momento.',
+  });
 }

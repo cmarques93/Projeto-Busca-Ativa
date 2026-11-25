@@ -31,8 +31,31 @@ export function isModuleEnabled(
   return school.modules[moduleKey] !== false;
 }
 
+export function normalizeEmail(email: string | null | undefined): string {
+  return String(email || '').trim().toLowerCase();
+}
+
+export function isValidEmailFormat(email: string): boolean {
+  const clean = normalizeEmail(email);
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(clean) && clean.length <= 200;
+}
+
+export function normalizeEmailList(emails?: (string | null | undefined)[]): string[] {
+  if (!Array.isArray(emails)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of emails) {
+    const clean = normalizeEmail(raw);
+    if (clean && isValidEmailFormat(clean) && !seen.has(clean)) {
+      seen.add(clean);
+      result.push(clean);
+    }
+  }
+  return result;
+}
+
 export interface School {
-  id: string; // Identificador único da escola (ex: 'ee-arlindo-silvestre', 'emeb-cecilia-meireles')
+  id: string; // Identificador único da escola
   name: string; // Nome oficial da Unidade Escolar
   codeCie?: string; // Código CIE / INEP
   network?: string; // Rede de Ensino (ex: 'Rede Estadual SP', 'Municipal', 'Particular')
@@ -43,6 +66,7 @@ export interface School {
   logoUrl?: string; // URL ou ícone da escola
   active: boolean;
   modules?: SchoolModulesConfig; // Sistemas/módulos liberados para esta escola
+  authorizedEmails?: string[]; // Lista de e-mails Google autorizados (institucional e/ou pessoal)
   createdAt?: string;
   notes?: string;
 }

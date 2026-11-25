@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { School, KeyRound, User, Lock, Eye, EyeOff, AlertCircle, Shield, ArrowRight, Building2, Search, X, ArrowLeft, Settings, CheckCircle2 } from 'lucide-react';
+import { School, KeyRound, User, Lock, Eye, EyeOff, AlertCircle, Shield, ArrowRight, Building2, Search, X, ArrowLeft, Settings, CheckCircle2, LogOut, ShieldCheck } from 'lucide-react';
+import type { User as FirebaseUser } from 'firebase/auth';
 import { UserRole, UserSession, School as SchoolType } from '../types';
 import { storageService, validateMasterPassword } from '../data/storageService';
 import { firestoreService } from '../lib/firestoreService';
+import { signInWithGoogle, signOutFirebase, isMasterAdminEmail } from '../lib/firebase';
 import { DEFAULT_SCHOOL_ID } from '../data/fallbackData';
 
 interface PublicUserItem {
@@ -18,9 +20,15 @@ interface PublicUserItem {
 
 interface LoginScreenProps {
   onLoginSuccess: (session: UserSession) => void;
+  firebaseUser?: FirebaseUser | null;
+  authReady?: boolean;
 }
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({
+  onLoginSuccess,
+  firebaseUser = null,
+  authReady = true,
+}) => {
   const [schools, setSchools] = useState<SchoolType[]>(() => storageService.getSchools());
   const [selectedSchoolId, setSelectedSchoolId] = useState<string>(() => storageService.getActiveSchoolId());
   const [schoolSearchQuery, setSchoolSearchQuery] = useState<string>('');
@@ -30,8 +38,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const [showPin, setShowPin] = useState<boolean>(false);
   const [loadingUsers, setLoadingUsers] = useState<boolean>(true);
   const [authenticating, setAuthenticating] = useState<boolean>(false);
+  const [googleSigningIn, setGoogleSigningIn] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const isFirebaseVerified = Boolean(firebaseUser && firebaseUser.emailVerified);
+  const isOwnerGoogleAccount = isMasterAdminEmail(firebaseUser?.email);
 
   // Modo separado para o Painel Master Global (não vinculado como operador de uma escola)
   const [isMasterMode, setIsMasterMode] = useState<boolean>(false);
@@ -43,15 +55,62 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   const masterValidation = useMemo(() => validateMasterPassword(pin), [pin]);
   const newMasterValidation = useMemo(() => validateMasterPassword(newMasterPwd), [newMasterPwd]);
 
-  // Carrega escolas atualizadas do Firestore
+  // Carrega escolas cadastradas no Firestore assim que a conta Google estiver autenticada
   useEffect(() => {
-    firestoreService.getSchools().then(cloudSchools => {
-      if (cloudSchools && cloudSchools.length > 0) {
-        setSchools(cloudSchools);
-        storageService.setSchools(cloudSchools);
+    if (!isFirebaseVerified) return;
+
+    const loadSchoolsFromCloud = async () => {
+      try {
+        const cloudSchools = await firestoreService.getSchools();
+        if (cloudSchools && cloudSchools.length > 0) {
+          setSchools(cloudSchools);
+          storageService.setSchools(cloudSchools);
+          if (!cloudSchools.some(s => s.id === selectedSchoolId)) {
+            setSelectedSchoolId(cloudSchools[0].id);
+            storageService.setActiveSchoolId(cloudSchools[0].id);
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar escolas da nuvem no login:', err);
       }
-    }).catch(err => console.warn('Erro ao carregar escolas no login:', err));
-  }, []);
+    };
+
+    loadSchoolsFromCloud();
+  }, [isFirebaseVerified]);
+
+  const handleGoogleSignIn = async () => {
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    setGoogleSigningIn(true);
+    try {
+      await signInWithGoogle();
+    } catch (err: any) {
+      const code = String(err?.code || '');
+      if (code === 'auth/popup-blocked') {
+        setErrorMessage('O navegador bloqueou a janela de login do Google. Permita pop-ups para este site e tente novamente.');
+      } else if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        setErrorMessage('Login com Google cancelado. Clique novamente para conectar sua conta.');
+      } else {
+        setErrorMessage(err?.message || 'Não foi possível concluir a autenticação com o Google.');
+      }
+    } finally {
+      setGoogleSigningIn(false);
+    }
+  };
+
+  const handleGoogleSignOut = async () => {
+    try {
+      await signOutFirebase();
+      firestoreService.clearReadCache();
+      setUsers([]);
+      setSelectedUserId('');
+      setPin('');
+      setErrorMessage(null);
+      setSuccessMessage(null);
+    } catch (err) {
+      console.warn('Erro ao desconectar conta Google:', err);
+    }
+  };
 
   // Filtra as escolas em tempo real com base no texto digitado (nome, município ou CIE)
   const filteredSchools = useMemo(() => {
@@ -85,11 +144,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
   };
 
   useEffect(() => {
+    if (!isFirebaseVerified) {
+      setLoadingUsers(false);
+      return;
+    }
+
     const fetchUsers = async () => {
       setLoadingUsers(true);
       setErrorMessage(null);
 
-      // 1. Imediatamente exibe o cache local / base garantida da escola selecionada
+      // 1. Exibe cache local imediato da unidade escolar selecionada
       try {
         const rawUsers = storageService.getUsers(selectedSchoolId);
         const localList = Array.isArray(rawUsers) ? filterSchoolOperators(rawUsers, selectedSchoolId) : [];
@@ -105,7 +169,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         console.warn('Cache local de usuários vazio:', e);
       }
 
-      // 2. Busca do Firestore filtrando por escola (mesclando com os operadores já cadastrados)
+      // 2. Busca isolada no Firestore autenticado apenas para a escola selecionada
       try {
         const cloudUsers = await firestoreService.getUsers(selectedSchoolId);
         if (cloudUsers && cloudUsers.length > 0) {
@@ -124,34 +188,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         }
       } catch (err) {
         console.warn('Erro ao carregar usuários da nuvem Firestore:', err);
-      }
-
-      // 3. Fallback: API proxy com schoolId
-      try {
-        const res = await fetch(`/api/users/public?schoolId=${encodeURIComponent(selectedSchoolId)}`);
-        const contentType = res.headers.get('content-type');
-        if (res.ok && contentType && contentType.includes('application/json')) {
-          const list: PublicUserItem[] = await res.json();
-          const activeList = filterSchoolOperators(list, selectedSchoolId);
-          if (activeList.length > 0) {
-            setUsers(activeList);
-            setSelectedUserId(prev => {
-              const stillExists = activeList.some(u => u.id === prev);
-              return stillExists ? prev : activeList[0].id;
-            });
-            setLoadingUsers(false);
-            return;
-          }
-        }
-      } catch (err) {
-        console.warn('API backend /api/users/public indisponível:', err);
       } finally {
         setLoadingUsers(false);
       }
     };
 
     fetchUsers();
-  }, [selectedSchoolId]);
+  }, [selectedSchoolId, isFirebaseVerified]);
 
   const activeSchool = schools.find(s => s.id === selectedSchoolId) || schools[0];
 
@@ -160,6 +203,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     e.preventDefault();
     setErrorMessage(null);
     setSuccessMessage(null);
+
+    if (!isFirebaseVerified) {
+      setErrorMessage('Conecte-se primeiro com uma conta Google verificada.');
+      return;
+    }
 
     if (!selectedUserId) {
       setErrorMessage('Por favor, selecione seu nome na lista.');
@@ -172,34 +220,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     }
 
     setAuthenticating(true);
-    try {
-      const res = await fetch('/api/auth/login-pin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: selectedUserId,
-          pin: pin.trim(),
-        }),
-      });
-
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        const data = await res.json();
-        storageService.recordUserLogin(selectedUserId);
-        storageService.setActiveSchoolId(selectedSchoolId);
-        onLoginSuccess({
-          ...data.user,
-          schoolId: selectedSchoolId,
-          schoolName: activeSchool?.name || 'Unidade Escolar'
-        });
-        setAuthenticating(false);
-        return;
-      }
-    } catch (err) {
-      console.warn('Falha na requisição de login à API, validando credencial localmente:', err);
-    }
-
-    // Validação local via storageService (com consulta direta ao Firestore se necessário)
+    // Validação via storageService com consulta direta ao Firestore se necessário
     let verification = storageService.verifyPin(selectedUserId, pin.trim());
     if (!verification.success) {
       try {
@@ -241,42 +262,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     setAuthenticating(true);
     const masterUserId = 'usr-master';
 
-    try {
-      const res = await fetch('/api/auth/login-pin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: masterUserId,
-          pin: pin.trim(),
-        }),
-      });
-
-      const contentType = res.headers.get('content-type');
-      if (res.ok && contentType && contentType.includes('application/json')) {
-        const data = await res.json();
-        storageService.recordUserLogin(masterUserId);
-        onLoginSuccess({
-          ...data.user,
-          id: 'usr-master',
-          role: 'super_admin',
-          roleLabel: 'Painel Master Global',
-          isUniversal: true,
-          schoolId: selectedSchoolId || DEFAULT_SCHOOL_ID,
-          schoolName: activeSchool?.name || 'EE Professor Arlindo Silvestre'
-        });
-        setAuthenticating(false);
-        return;
-      }
-    } catch (err) {
-      console.warn('Validando credencial Master localmente:', err);
-    }
-
     let verification = storageService.verifyPin(masterUserId, pin.trim());
     if (!verification.success) {
       try {
-        const allCloudUsers = await firestoreService.getUsers();
-        if (allCloudUsers && allCloudUsers.length > 0) {
-          storageService.setUsers(allCloudUsers);
+        const masterDoc = await firestoreService.getMasterUserDoc();
+        if (masterDoc) {
+          storageService.setUsers([masterDoc]);
           verification = storageService.verifyPin(masterUserId, pin.trim());
         }
       } catch (e) {
@@ -293,12 +284,28 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         roleLabel: 'Painel Master Global',
         isUniversal: true,
         schoolId: selectedSchoolId || DEFAULT_SCHOOL_ID,
-        schoolName: activeSchool?.name || 'EE Professor Arlindo Silvestre'
+        schoolName: activeSchool?.name || 'Unidade Escolar'
       });
     } else {
       setErrorMessage(verification.error || 'Senha Master incorreta.');
     }
     setAuthenticating(false);
+  };
+
+  const handleDirectOwnerMasterLogin = () => {
+    if (!isOwnerGoogleAccount) return;
+    const masterAcc = storageService.getMasterUser();
+    storageService.recordUserLogin('usr-master');
+    onLoginSuccess({
+      id: 'usr-master',
+      name: firebaseUser?.displayName || masterAcc.name || 'Proprietário (Painel Master Global)',
+      username: firebaseUser?.email || masterAcc.username || 'proprietario.master',
+      role: 'super_admin',
+      roleLabel: 'Painel Master Global',
+      isUniversal: true,
+      schoolId: selectedSchoolId || DEFAULT_SCHOOL_ID,
+      schoolName: activeSchool?.name || 'Unidade Escolar',
+    });
   };
 
   // Cadastro / Atualização de Senha Forte do Perfil Master
@@ -348,11 +355,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
         pin: cleanNew,
       };
       await firestoreService.saveUser(updatedMaster);
-      await fetch('/api/users/usr-master', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: cleanNew }),
-      }).catch(() => null);
 
       setPin(cleanNew);
       setCurrentMasterPwd('');
@@ -378,11 +380,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm sm:text-base font-black text-indigo-400">
-                SigaEscola
+                EduScope 360
               </span>
               <span className="text-slate-500 hidden sm:inline">•</span>
               <h1 className="text-xs sm:text-sm font-bold text-white leading-tight">
-                {isMasterMode ? 'Painel Master • Gestão de Módulos & Cadastros' : (activeSchool?.name || 'Sistema de Gestão & Busca Ativa')}
+                {isMasterMode ? 'Painel Master • Gestão de Módulos & Cadastros' : (activeSchool?.name || 'Portal Integrado de Gestão Escolar')}
               </h1>
             </div>
             <p className="text-[11px] text-slate-400">
@@ -393,40 +395,107 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
           </div>
         </div>
 
-        {/* Botão de alternância para o Painel Master Global (separado das escolas) */}
-        <button
-          type="button"
-          onClick={() => {
-            setIsMasterMode(!isMasterMode);
-            setIsRegisteringMasterPwd(false);
-            setPin('');
-            setErrorMessage(null);
-            setSuccessMessage(null);
-          }}
-          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-bold border transition-all cursor-pointer ${
-            isMasterMode
-              ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
-              : 'bg-slate-900 hover:bg-indigo-950/80 text-indigo-300 border-slate-800 hover:border-indigo-500/40'
-          }`}
-          title={isMasterMode ? 'Voltar ao acesso das unidades escolares' : 'Acesso exclusivo ao Painel Master Global'}
-        >
-          {isMasterMode ? (
-            <>
-              <ArrowLeft className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Acesso das Escolas</span>
-            </>
-          ) : (
-            <>
-              <Shield className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Painel Master</span>
-            </>
-          )}
-        </button>
+        {/* Botão de alternância para o Painel Master Global */}
+        {isFirebaseVerified && (
+          <button
+            type="button"
+            onClick={() => {
+              setIsMasterMode(!isMasterMode);
+              setIsRegisteringMasterPwd(false);
+              setPin('');
+              setErrorMessage(null);
+              setSuccessMessage(null);
+            }}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-bold border transition-all cursor-pointer ${
+              isMasterMode
+                ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                : 'bg-slate-900 hover:bg-indigo-950/80 text-indigo-300 border-slate-800 hover:border-indigo-500/40'
+            }`}
+            title={isMasterMode ? 'Voltar ao acesso das unidades escolares' : 'Acesso exclusivo ao Painel Master Global'}
+          >
+            {isMasterMode ? (
+              <>
+                <ArrowLeft className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Acesso das Escolas</span>
+              </>
+            ) : (
+              <>
+                <Shield className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Painel Master</span>
+              </>
+            )}
+          </button>
+        )}
       </header>
 
       {/* Center Card */}
       <main className="flex-1 flex items-center justify-center p-4 sm:p-6">
-        {!isMasterMode ? (
+        {!authReady ? (
+          <div className="w-full max-w-md bg-white text-slate-900 rounded-3xl shadow-2xl border border-slate-200/80 p-8 text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white mx-auto flex items-center justify-center shadow-md animate-pulse">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <h2 className="text-base font-black text-slate-900">EduScope 360</h2>
+            <p className="text-xs text-slate-500">
+              Verificando sessão autenticada com o Firebase...
+            </p>
+          </div>
+        ) : !isFirebaseVerified ? (
+          /* =================================================================== */
+          /* ETAPA 0: AUTENTICAÇÃO GOOGLE (SINCRONIZAÇÃO EM NUVEM FIREBASE)      */
+          /* =================================================================== */
+          <div className="w-full max-w-md bg-white text-slate-900 rounded-3xl shadow-2xl border border-slate-200/80 overflow-hidden animate-in fade-in duration-200">
+            <div className="bg-slate-900 px-6 sm:px-8 pt-7 pb-6 text-white text-center relative overflow-hidden">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white mx-auto flex items-center justify-center mb-3 shadow-md">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <h2 className="text-lg sm:text-xl font-black tracking-tight">
+                EduScope 360
+              </h2>
+              <p className="text-xs text-slate-300 mt-1">
+                Portal Integrado de Gestão Escolar • Sincronização em Nuvem
+              </p>
+            </div>
+
+            <div className="p-6 sm:p-8 space-y-5">
+              {errorMessage && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-3 flex items-start gap-2.5 text-xs">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <p className="font-bold">{errorMessage}</p>
+                </div>
+              )}
+
+              <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-2xl p-4 space-y-2 text-xs text-slate-700">
+                <p className="font-extrabold text-indigo-950 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                  <span>Conexão Segura com a Nuvem Escolar</span>
+                </p>
+                <p className="leading-relaxed text-slate-600">
+                  Conecte-se com uma conta Google verificada para habilitar a sincronização dos dados da unidade escolar em tempo real neste computador antes de selecionar seu perfil de operador.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleGoogleSignIn}
+                disabled={googleSigningIn}
+                className="w-full py-3.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white font-bold text-sm shadow-md flex items-center justify-center gap-3 transition-all cursor-pointer"
+              >
+                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="#4285F4" d="M23.745 12.27c0-.79-.07-1.54-.19-2.27h-11.3v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/>
+                  <path fill="#34A853" d="M12.255 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96h-3.98v3.09C3.515 21.3 7.565 24 12.255 24z"/>
+                  <path fill="#FBBC05" d="M5.525 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62h-3.98a11.86 11.86 0 000 10.76l3.98-3.09z"/>
+                  <path fill="#EA4335" d="M12.255 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C18.205 1.19 15.495 0 12.255 0c-4.69 0-8.74 2.7-10.71 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"/>
+                </svg>
+                <span>{googleSigningIn ? 'Conectando ao Google...' : 'Entrar com Conta Google'}</span>
+              </button>
+            </div>
+
+            <div className="bg-slate-50 px-6 py-3.5 border-t border-slate-100 text-center text-[11px] text-slate-500">
+              Conexão criptografada via Firebase Authentication • Multi-Escola
+            </div>
+          </div>
+        ) : !isMasterMode ? (
           /* =================================================================== */
           /* MODO PADRÃO: ACESSO DA UNIDADE ESCOLAR (PROFESSORES, AOE, GESTÃO)   */
           /* =================================================================== */
@@ -440,13 +509,30 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 <KeyRound className="w-6 h-6" />
               </div>
               <h2 className="text-lg sm:text-xl font-black tracking-tight flex items-center justify-center gap-2">
-                <span>SigaEscola</span>
+                <span>EduScope 360</span>
                 <span className="text-slate-400 font-normal">|</span>
                 <span className="text-sm text-slate-200 font-semibold">Identificação</span>
               </h2>
               <p className="text-xs text-slate-300 mt-1">
-                Portal Integrado de Busca Ativa & Gestão Escolar
+                Portal Integrado de Gestão Escolar
               </p>
+            </div>
+
+            {/* Sessão Google Verificada */}
+            <div className="bg-emerald-50/80 border-b border-emerald-200/70 px-6 py-2.5 flex items-center justify-between gap-2 text-[11px]">
+              <div className="flex items-center gap-1.5 text-emerald-900 font-semibold truncate">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span className="truncate">{firebaseUser?.email}</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleGoogleSignOut}
+                className="text-slate-600 hover:text-rose-700 font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                title="Desconectar conta Google deste navegador"
+              >
+                <LogOut className="w-3 h-3" />
+                <span>Trocar conta</span>
+              </button>
             </div>
 
             {/* Form */}
@@ -652,7 +738,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                 <span>Liberação de Módulos & Auxílio de Cadastros</span>
               </div>
               <h2 className="text-lg sm:text-xl font-black tracking-tight text-white">
-                SigaEscola • Painel Master
+                EduScope 360 • Painel Master
               </h2>
               <p className="text-xs text-slate-300 mt-1">
                 Acesso exclusivo para liberar sistemas e ajustar cadastros como auxílio às escolas
@@ -722,6 +808,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
                     O perfil Master é destinado exclusivamente para cadastrar escolas, liberar/bloquear módulos contratados e realizar ajustes de cadastros como auxílio técnico, sem interferir na operação diária da escola.
                   </p>
                 </div>
+
+                {isOwnerGoogleAccount && (
+                  <button
+                    type="button"
+                    onClick={handleDirectOwnerMasterLogin}
+                    className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Acesso Direto Proprietário ({firebaseUser?.email})</span>
+                  </button>
+                )}
 
                 <div>
                   <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block mb-1.5 flex items-center justify-between">
@@ -927,7 +1024,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
 
       {/* Institutional Footer */}
       <footer className="border-t border-slate-800/60 bg-slate-950/40 py-4 px-4 text-center text-[11px] text-slate-500">
-        {activeSchool?.name || 'SigaEscola'} • Em conformidade com a Lei de Diretrizes e Bases da Educação Nacional (LDB 9.394/96) e Diretrizes Educacionais
+        {activeSchool?.name || 'EduScope 360'} · EduScope 360 - Portal Integrado de Gestão Escolar · Em conformidade com a LDB (9.394/96) e Diretrizes Educacionais
       </footer>
     </div>
   );

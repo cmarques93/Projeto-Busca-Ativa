@@ -263,16 +263,7 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
       // 1. Apaga do storageService e atualiza Firebase Firestore
       await storageService.deleteAttendanceByDate(selectedDate, classId);
 
-      // 2. Apaga da API backend para manter base local e servidor em perfeita sincronia
-      try {
-        await fetch(`/api/attendance?date=${selectedDate}${classId ? `&classId=${encodeURIComponent(classId)}` : ''}`, {
-          method: 'DELETE',
-        });
-      } catch (errApi) {
-        console.warn('Erro na chamada DELETE API backend:', errApi);
-      }
-
-      // 3. Recarrega registros da tela
+      // 2. Recarrega registros da tela
       await loadDailyRecords(selectedDate);
 
       const formattedDate = new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR');
@@ -560,13 +551,6 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
       const sId = storageService.getActiveSchoolId();
       await firestoreService.deleteAttendanceByDate(selectedDate, activeModalClass.id, sId);
       await storageService.deleteAttendanceByDate(selectedDate, activeModalClass.id);
-      try {
-        await fetch(`/api/attendance?date=${selectedDate}&classId=${encodeURIComponent(activeModalClass.id)}`, {
-          method: 'DELETE',
-        });
-      } catch (errDel) {
-        console.warn('DELETE prévio backend:', errDel);
-      }
 
       const classStudents = students.filter(s => isStudentInClass(s, activeModalClass));
       const items = classStudents.map(s => {

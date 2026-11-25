@@ -1,1 +1,38 @@
 @import "tailwindcss";
+
+@media print {
+  body.printing-user-manual {
+    background: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body.printing-user-manual #root > div > *:not(#sigaescola-user-manual-print-root) {
+    display: none !important;
+  }
+
+  body.printing-user-manual #sigaescola-user-manual-print-root {
+    position: static !important;
+    display: block !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  body.printing-user-manual .manual-page-break {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  body.printing-user-manual .manual-avoid-break {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+}
+
