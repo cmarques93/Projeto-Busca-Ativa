@@ -90,6 +90,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         setErrorMessage('O navegador bloqueou a janela de login do Google. Permita pop-ups para este site e tente novamente.');
       } else if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
         setErrorMessage('Login com Google cancelado. Clique novamente para conectar sua conta.');
+      } else if (code === 'auth/unauthorized-domain') {
+        const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'este domínio';
+        setErrorMessage(
+          `O domínio "${currentHost}" ainda não está autorizado no Firebase Authentication. Adicione-o em Firebase Console → Authentication → Configurações → Domínios autorizados.`
+        );
       } else {
         setErrorMessage(err?.message || 'Não foi possível concluir a autenticação com o Google.');
       }

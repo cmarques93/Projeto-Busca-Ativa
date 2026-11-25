@@ -372,8 +372,8 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="font-semibold text-slate-100 truncate">
                   {schoolName || 'Unidade Escolar'}
                 </span>
-                <span className="text-slate-500" aria-hidden="true">·</span>
-                <span className="capitalize text-slate-400 hidden sm:inline">{dataHojeExtenso}</span>
+                <span className="text-slate-500 hidden 2xl:inline" aria-hidden="true">·</span>
+                <span className="capitalize text-slate-400 hidden 2xl:inline">{dataHojeExtenso}</span>
                 {isUniversalMaster && onOpenSchoolSelector && (
                   <>
                     <span className="text-slate-500" aria-hidden="true">·</span>
@@ -392,8 +392,53 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Direita: Perfil Ativo (sem repetição) + Controles de Sessão */}
-          <div className="flex flex-wrap items-center justify-between lg:justify-end gap-2.5 shrink-0">
+          {/* Direita: Utilitários (Backup, Restaurar, Manual) + Perfil Ativo + Controles de Sessão */}
+          <div className="flex flex-wrap items-center justify-between lg:justify-end gap-2 shrink-0">
+            {/* Botões de Backup, Restaurar e Manual na primeira faixa */}
+            {(((isAdmin || isGestao) && (onExportOfflineBackup || onOpenRestoreBackup)) || onOpenUserManual) && (
+              <>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {(isAdmin || isGestao) && onExportOfflineBackup && (
+                    <button
+                      type="button"
+                      onClick={onExportOfflineBackup}
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-700/90 text-slate-200 bg-slate-800/80 hover:bg-emerald-950/80 hover:text-emerald-200 hover:border-emerald-600/60 transition-colors cursor-pointer font-semibold text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                      title="Baixar arquivo JSON com backup completo dos dados"
+                    >
+                      <Download className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Backup</span>
+                    </button>
+                  )}
+
+                  {(isAdmin || isGestao) && onOpenRestoreBackup && (
+                    <button
+                      type="button"
+                      onClick={onOpenRestoreBackup}
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-700/90 text-slate-200 bg-slate-800/80 hover:bg-amber-950/80 hover:text-amber-200 hover:border-amber-600/60 transition-colors cursor-pointer font-semibold text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                      title="Restaurar arquivo JSON de backup diretamente para o Firebase Cloud"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Restaurar</span>
+                    </button>
+                  )}
+
+                  {onOpenUserManual && (
+                    <button
+                      type="button"
+                      onClick={onOpenUserManual}
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-700/90 text-slate-200 bg-slate-800/80 hover:bg-indigo-950/80 hover:text-indigo-200 hover:border-indigo-500/60 transition-colors cursor-pointer font-semibold text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                      title="Abrir Manual do Usuário detalhado por perfil com exportação em PDF"
+                    >
+                      <BookOpen className="w-3.5 h-3.5 text-indigo-300" />
+                      <span>Manual</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="hidden sm:block h-6 w-px bg-slate-700/80 shrink-0" aria-hidden="true" />
+              </>
+            )}
+
             {isUniversalMaster && onOpenMasterPanel && (
               <button
                 type="button"
@@ -406,12 +451,12 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            <div className="flex items-center gap-3 bg-slate-800/80 border border-slate-700/80 px-3.5 py-1.5 rounded-xl">
+            <div className="flex items-center gap-3 bg-slate-800/80 border border-slate-700/80 px-3 py-1.5 rounded-xl">
               <div className="min-w-0">
-                <p className="text-[11px] font-semibold text-white leading-tight truncate max-w-[180px] sm:max-w-[220px]">
+                <p className="text-[11px] font-semibold text-white leading-tight truncate max-w-[150px] xl:max-w-[190px]">
                   {currentUser.name}
                 </p>
-                <p className="text-[11px] text-indigo-300/90 leading-tight truncate max-w-[180px] sm:max-w-[220px]">
+                <p className="text-[11px] text-indigo-300/90 leading-tight truncate max-w-[150px] xl:max-w-[190px]">
                   {currentUser.roleLabel}
                 </p>
               </div>
@@ -421,7 +466,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 type="button"
                 onClick={onOpenLoginModal}
-                className="flex items-center gap-1.5 text-xs bg-slate-800/90 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-lg font-semibold cursor-pointer transition-colors border border-slate-700/90 whitespace-nowrap shrink-0"
+                className="flex items-center gap-1.5 text-xs bg-slate-800/90 hover:bg-slate-700 text-slate-200 px-2.5 py-2 rounded-lg font-semibold cursor-pointer transition-colors border border-slate-700/90 whitespace-nowrap shrink-0"
                 title="Selecionar outro usuário e digitar senha PIN"
               >
                 <KeyRound className="w-3.5 h-3.5 text-indigo-300" />
@@ -432,7 +477,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   type="button"
                   onClick={onLogout}
-                  className="flex items-center gap-1.5 text-xs bg-rose-950/60 hover:bg-rose-900 text-rose-200 px-3 py-2 rounded-lg font-semibold cursor-pointer transition-colors border border-rose-800/70 whitespace-nowrap shrink-0"
+                  className="flex items-center gap-1.5 text-xs bg-rose-950/60 hover:bg-rose-900 text-rose-200 px-2.5 py-2 rounded-lg font-semibold cursor-pointer transition-colors border border-rose-800/70 whitespace-nowrap shrink-0"
                   title="Sair da sessão atual"
                 >
                   <LogOut className="w-3.5 h-3.5" />
@@ -444,21 +489,21 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* 2. Barra Superior de Funcionalidades Liberadas para a Escola + Utilitários */}
+      {/* 2. Barra Superior de Funcionalidades Liberadas para a Escola + Ações Operacionais */}
       <div className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col xl:flex-row xl:items-center justify-between gap-2">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col lg:flex-row lg:items-center justify-between gap-2">
           {/* Menu de Módulos Liberados */}
           {navItems.length > 0 && (
             <nav
               aria-label="Funcionalidades liberadas"
-              className="flex items-center gap-1 overflow-x-auto py-1.5 -mx-1 px-1"
+              className="flex items-center gap-1 overflow-x-auto py-1.5 -mx-1 px-1 min-w-0 flex-1"
             >
               {navItems.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={item.onClick}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                     item.isActive
                       ? 'bg-indigo-50 text-indigo-700'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
@@ -473,8 +518,8 @@ export const Header: React.FC<HeaderProps> = ({
             </nav>
           )}
 
-          {/* Ações Rápidas Institucionais (Relatório, Backup, Restaurar, Manual, Sincronizar) */}
-          <div className="flex items-center gap-1.5 overflow-x-auto py-1.5 border-t border-slate-100 xl:border-t-0 shrink-0">
+          {/* Ações Rápidas Institucionais (Relatório Oficial e Sincronizar) */}
+          <div className="flex items-center gap-1.5 overflow-x-auto py-1.5 border-t border-slate-100 lg:border-t-0 shrink-0">
             {!isUniversalMaster && (isGestao || isAdmin) && onOpenSeducReport && hasRelatorios && (
               <button
                 type="button"
@@ -484,42 +529,6 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <FileSpreadsheet className="w-3.5 h-3.5" />
                 <span>Relatório Oficial</span>
-              </button>
-            )}
-
-            {(isAdmin || isGestao) && onExportOfflineBackup && (
-              <button
-                type="button"
-                onClick={onExportOfflineBackup}
-                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 bg-white hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-300 transition-colors cursor-pointer font-semibold text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                title="Baixar arquivo JSON com backup completo dos dados"
-              >
-                <Download className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Backup</span>
-              </button>
-            )}
-
-            {(isAdmin || isGestao) && onOpenRestoreBackup && (
-              <button
-                type="button"
-                onClick={onOpenRestoreBackup}
-                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 bg-white hover:bg-amber-50 hover:text-amber-800 hover:border-amber-300 transition-colors cursor-pointer font-semibold text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                title="Restaurar arquivo JSON de backup diretamente para o Firebase Cloud"
-              >
-                <Upload className="w-3.5 h-3.5 text-amber-600" />
-                <span>Restaurar</span>
-              </button>
-            )}
-
-            {onOpenUserManual && (
-              <button
-                type="button"
-                onClick={onOpenUserManual}
-                className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-700 bg-white hover:bg-slate-100 transition-colors cursor-pointer font-semibold text-xs flex items-center gap-1.5 whitespace-nowrap shrink-0"
-                title="Abrir Manual do Usuário detalhado por perfil com exportação em PDF"
-              >
-                <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Manual</span>
               </button>
             )}
 
