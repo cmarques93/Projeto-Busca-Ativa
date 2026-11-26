@@ -48,7 +48,7 @@ import {
   TeacherScheduleSlot
 } from '../types';
 import { storageService } from '../data/storageService';
-import { firestoreService, normalizeDateStr } from '../lib/firestoreService';
+import { firestoreService, normalizeDateStr, deduplicateAttendanceRecords } from '../lib/firestoreService';
 import { carregarOcorrenciasSeguro, carregarTabletsSeguro } from '../lib/sheetsSyncService';
 import { DateRangeCalendar } from './DateRangeCalendar';
 import {
@@ -203,7 +203,7 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
         tabletsRes,
         cloudSchedules
       ] = await Promise.all([
-        firestoreService.getAttendanceRecords(undefined, sId).catch(() => []),
+        firestoreService.getAttendanceRecords(undefined, sId, true).catch(() => null),
         firestoreService.getClasses(sId).catch(() => []),
         firestoreService.getStudents(sId).catch(() => []),
         firestoreService.getAlerts(sId).catch(() => []),
@@ -231,15 +231,12 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
         storageService.setInterventions(cloudInterventions, sId);
       }
 
-      if (cloudRecords && cloudRecords.length > 0) {
-        const local = storageService.getAttendanceRecords(undefined, undefined, sId);
-        const cloudIds = new Set(cloudRecords.map(r => r.id));
-        const localOnly = local.filter(r => !cloudIds.has(r.id));
-        const merged = [...cloudRecords, ...localOnly];
-        setAttendanceRecords(merged);
-        storageService.setAttendanceRecords(merged, sId);
+      if (Array.isArray(cloudRecords) && (cloudRecords.length > 0 || !firestoreService.isQuotaCurrentlyExceeded())) {
+        const deduped = deduplicateAttendanceRecords(cloudRecords);
+        setAttendanceRecords(deduped);
+        storageService.setAttendanceRecords(deduped, sId);
       } else {
-        setAttendanceRecords(storageService.getAttendanceRecords(undefined, undefined, sId));
+        setAttendanceRecords(deduplicateAttendanceRecords(storageService.getAttendanceRecords(undefined, undefined, sId)));
       }
 
       if (cloudGate && cloudGate.length > 0) {
@@ -299,6 +296,17 @@ export const MonthlyReport: React.FC<MonthlyReportProps> = ({
 
   useEffect(() => {
     loadAllData();
+  }, []);
+
+  useEffect(() => {
+    const handleLiveSync = () => {
+      const sId = storageService.getActiveSchoolId();
+      setAttendanceRecords(
+        deduplicateAttendanceRecords(storageService.getAttendanceRecords(undefined, undefined, sId))
+      );
+    };
+    window.addEventListener('sigaescola-data-synced', handleLiveSync);
+    return () => window.removeEventListener('sigaescola-data-synced', handleLiveSync);
   }, []);
 
   const effectiveClasses = useMemo(() => {

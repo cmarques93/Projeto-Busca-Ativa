@@ -47,7 +47,7 @@ import {
 } from 'lucide-react';
 import type { User as FirebaseUser } from 'firebase/auth';
 import { storageService } from './data/storageService';
-import { firestoreService } from './lib/firestoreService';
+import { firestoreService, deduplicateAttendanceRecords } from './lib/firestoreService';
 import { subscribeToAuthChanges, validateFirestoreStartupConnection } from './lib/firebase';
 import {
   salvarCacheOcorrencias,
@@ -222,11 +222,8 @@ export default function App() {
         } else {
           setAlerts(storageService.getAlerts(sId));
         }
-        if (res.attendance && res.attendance.length > 0) {
-          const localAttendance = storageService.getAttendanceRecords(undefined, undefined, sId);
-          const cloudIds = new Set(res.attendance.map(a => a.id));
-          const localOnly = localAttendance.filter(a => !cloudIds.has(a.id));
-          storageService.setAttendanceRecords([...res.attendance, ...localOnly], sId);
+        if (Array.isArray(res.attendance)) {
+          storageService.setAttendanceRecords(deduplicateAttendanceRecords(res.attendance), sId);
         }
         if (res.interventions && res.interventions.length > 0) {
           setInterventions(res.interventions);
@@ -826,6 +823,26 @@ export default function App() {
     };
   }, [isFirebaseVerified, loadAllFromFirebaseDirectly]);
 
+  // Escuta em tempo real (onSnapshot) dos lançamentos de frequência da escola ativa
+  // Garante que qualquer chamada lançada pela secretaria/AOE apareça imediatamente em todos os computadores
+  useEffect(() => {
+    if (!isFirebaseVerified || !currentUser || currentUser.isUniversal || currentUser.role === 'super_admin') {
+      return;
+    }
+    const targetSchoolId = currentSchool?.id || storageService.getActiveSchoolId();
+    if (!targetSchoolId) return;
+
+    const unsubscribe = firestoreService.subscribeAttendanceRecords(targetSchoolId, (cloudRecords) => {
+      storageService.setAttendanceRecords(cloudRecords, targetSchoolId);
+      setSyncVersion(v => v + 1);
+      window.dispatchEvent(new CustomEvent('sigaescola-data-synced'));
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isFirebaseVerified, currentUser?.id, currentUser?.isUniversal, currentUser?.role, currentSchool?.id]);
+
   // Recalcula o relatório mensal localmente quando o mês selecionado muda
   useEffect(() => {
     setMonthlyReport(storageService.getMonthlyReport(selectedMonthIndex));
@@ -1102,7 +1119,12 @@ export default function App() {
     }
 
     await fetchData();
-    return { newAlerts };
+    window.dispatchEvent(new CustomEvent('sigaescola-data-synced'));
+    return {
+      newAlerts,
+      cloudSynced: localRes?.cloudSynced !== false,
+      cloudError: localRes?.cloudError,
+    };
   };
 
   // Send Manual Alert

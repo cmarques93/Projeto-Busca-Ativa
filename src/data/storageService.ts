@@ -27,7 +27,7 @@ import {
   DEFAULT_INTERVENTIONS,
   DEFAULT_REPORT
 } from './fallbackData';
-import { firestoreService, isSameDay, normalizeDateStr } from '../lib/firestoreService';
+import { firestoreService, isSameDay, normalizeDateStr, sanitizeDocId, deduplicateAttendanceRecords } from '../lib/firestoreService';
 import { generateAtestadoRecordsSequence, generateJustifiedAbsenceSequence } from '../utils/atestadoUtils';
 import { createDefaultSchoolCalendar, getCalendarMetricsSummary, calculateCalendarAttendanceRate } from '../utils/calendarUtils';
 
@@ -446,7 +446,7 @@ export const storageService = {
     setStoredSchool('students', students, schoolId);
   },
   setAttendanceRecords: (records: AttendanceRecord[], schoolId?: string): void => {
-    setStoredSchool('attendance', records, schoolId);
+    setStoredSchool('attendance', deduplicateAttendanceRecords(records), schoolId);
   },
   setAlerts: (alerts: ParentAlert[], schoolId?: string): void => {
     setStoredSchool('alerts', alerts, schoolId);
@@ -1112,18 +1112,20 @@ export const storageService = {
     recordedBy: string,
     date?: string
   ): Promise<any> => {
-    const records = storageService.getAttendanceRecords();
-    const recordDate = date || getLocalTodayIso();
-    const allStudents = storageService.getStudents();
-    const allClasses = storageService.getClasses();
+    const sId = storageService.getActiveSchoolId();
+    const records = storageService.getAttendanceRecords(undefined, undefined, sId);
+    const recordDate = normalizeDateStr(date) || date || getLocalTodayIso();
+    const allStudents = storageService.getStudents(undefined, sId);
+    const allClasses = storageService.getClasses(sId);
     const targetClass = allClasses.find(c => c.id === classId || c.name === classId);
+    const nowIso = new Date().toISOString();
 
     let newRecords: AttendanceRecord[] = [];
 
     if (items.length === 0 && classId) {
       // Marcador de turma lançada caso a turma não tenha estudantes ainda
       newRecords = [{
-        id: `att-cls-${classId}-${recordDate}`,
+        id: sanitizeDocId(`att-cls-${sId}-${classId}-${recordDate}`),
         studentId: `cls-marker-${classId}`,
         studentName: `Turma ${targetClass?.name || classId} (Chamada Concluída)`,
         classId,
@@ -1133,49 +1135,52 @@ export const storageService = {
         durationDays: 1,
         isCountedAsAbsence: false,
         recordedBy,
-        recordedAt: new Date().toISOString(),
+        recordedAt: nowIso,
         justification: 'Frequência da turma registrada',
+        schoolId: sId,
       }];
     } else {
       items.forEach(item => {
         const student = allStudents.find(s => s.id === item.studentId);
         const duration = item.medicalDays || (item.durationDays && item.durationDays > 1 ? item.durationDays : 1);
+        const resolvedClassId = classId || student?.classId || targetClass?.id || 'turma';
+        const resolvedClassName = item.className || student?.className || targetClass?.name || '';
 
         if (item.status === 'atestado_medico') {
           const atestadoSeq = generateAtestadoRecordsSequence({
             studentId: item.studentId,
             studentName: item.studentName || student?.name || 'Estudante',
-            classId: classId || student?.classId || '',
-            className: item.className || student?.className || targetClass?.name || '',
+            classId: resolvedClassId,
+            className: resolvedClassName,
             startDate: item.medicalStartDate || recordDate,
             recordDate: recordDate,
             totalDays: duration,
             justification: item.justification,
             medicalCertificateNote: item.medicalCertificate,
             recordedBy,
-          });
+          }).map(rec => ({ ...rec, schoolId: sId, recordedAt: nowIso }));
           newRecords.push(...atestadoSeq);
         } else if (item.status === 'falta_justificada' && duration > 1) {
           const justifiedSeq = generateJustifiedAbsenceSequence({
             studentId: item.studentId,
             studentName: item.studentName || student?.name || 'Estudante',
-            classId: classId || student?.classId || '',
-            className: item.className || student?.className || targetClass?.name || '',
+            classId: resolvedClassId,
+            className: resolvedClassName,
             startDate: item.justificationStartDate || recordDate,
             recordDate: recordDate,
             totalDays: duration,
             justification: item.justification,
             recordedBy,
-          });
+          }).map(rec => ({ ...rec, schoolId: sId, recordedAt: nowIso }));
           newRecords.push(...justifiedSeq);
         } else {
           const isCountedAsAbsence = item.status === 'falta_injustificada' || item.status === 'falta_justificada';
           newRecords.push({
-            id: `att-${Date.now()}-${item.studentId}-${recordDate}`,
+            id: sanitizeDocId(`att-${sId}-${item.studentId}-${recordDate}`),
             studentId: item.studentId,
             studentName: item.studentName || student?.name || 'Estudante',
-            classId: classId || student?.classId || '',
-            className: item.className || student?.className || targetClass?.name || '',
+            classId: resolvedClassId,
+            className: resolvedClassName,
             date: recordDate,
             status: item.status,
             durationDays: duration,
@@ -1187,23 +1192,23 @@ export const storageService = {
             medicalDays: item.medicalDays,
             isCountedAsAbsence,
             recordedBy,
-            recordedAt: new Date().toISOString(),
+            recordedAt: nowIso,
+            schoolId: sId,
           });
         }
       });
     }
 
     // Replace existing records for same student & dates of newRecords
-    const sId = storageService.getActiveSchoolId();
-    const datesAndStudents = new Set(newRecords.map(nr => `${nr.studentId}__${nr.date}`));
+    const datesAndStudents = new Set(newRecords.map(nr => `${nr.studentId}__${normalizeDateStr(nr.date) || nr.date}`));
     const filteredRecords = records.filter(r => {
-      const key = `${r.studentId}__${r.date}`;
+      const key = `${r.studentId}__${normalizeDateStr(r.date) || r.date}`;
       if (datesAndStudents.has(key)) return false;
       if (isSameDay(r.date, recordDate) && (r.classId === classId && r.studentId.startsWith('cls-marker-'))) return false;
       return true;
     });
     filteredRecords.push(...newRecords);
-    setStoredSchool('attendance', filteredRecords, sId);
+    setStoredSchool('attendance', deduplicateAttendanceRecords(filteredRecords), sId);
 
     // Update students absence counts based on real filteredRecords
     const updatedStudents: Student[] = [];
@@ -1266,16 +1271,21 @@ export const storageService = {
     }
 
     // Sincroniza em nuvem no Firestore de forma garantida e aguardada
+    let cloudSynced = false;
+    let cloudError: string | undefined;
     try {
       await firestoreService.batchSaveAttendance(newRecords, sId);
+      cloudSynced = true;
       if (updatedStudents.length > 0) {
         await firestoreService.batchSaveStudents(updatedStudents, sId);
       }
-    } catch (err) {
-      console.warn('Erro ao sincronizar chamadas no Firestore:', err);
+    } catch (err: any) {
+      cloudSynced = false;
+      cloudError = err?.message || 'Erro ao enviar frequência para o Firebase.';
+      console.error('Erro ao sincronizar chamadas no Firestore:', err);
     }
 
-    return { success: true, count: newRecords.length, newRecords };
+    return { success: true, cloudSynced, cloudError, count: newRecords.length, newRecords };
   },
 
   getAttendanceRecords: (classId?: string, date?: string, schoolId?: string): AttendanceRecord[] => {

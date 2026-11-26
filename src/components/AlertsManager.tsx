@@ -40,7 +40,7 @@ import {
 } from '../types';
 import { BulkWhatsAppModal } from './BulkWhatsAppModal';
 import { storageService } from '../data/storageService';
-import { firestoreService, isSameDay } from '../lib/firestoreService';
+import { firestoreService, isSameDay, deduplicateAttendanceRecords } from '../lib/firestoreService';
 import { findActiveAbsenceForDate } from '../utils/atestadoUtils';
 import { getLocalTodayStr } from '../utils/reportCalculator';
 
@@ -175,17 +175,14 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
 
     try {
       const [allCloudAtt, cloudGate] = await Promise.all([
-        firestoreService.getAttendanceRecords(undefined, sId).catch(() => []),
+        firestoreService.getAttendanceRecords(undefined, sId, true).catch(() => null),
         firestoreService.getGateRecords(date, sId).catch(() => []),
       ]);
 
-      if (allCloudAtt && allCloudAtt.length > 0) {
-        const attMap = new Map<string, AttendanceRecord>();
-        allCloudAtt.filter(r => isSameDay(r.date, date)).forEach(r => attMap.set(r.studentId, r));
-        localAtt.forEach(r => {
-          if (!attMap.has(r.studentId)) attMap.set(r.studentId, r);
-        });
-        fetchedAttendance = Array.from(attMap.values());
+      if (Array.isArray(allCloudAtt) && (allCloudAtt.length > 0 || !firestoreService.isQuotaCurrentlyExceeded())) {
+        const dedupedCloud = deduplicateAttendanceRecords(allCloudAtt);
+        storageService.setAttendanceRecords(dedupedCloud, sId);
+        fetchedAttendance = dedupedCloud.filter(r => isSameDay(r.date, date));
       }
 
       if (cloudGate && cloudGate.length > 0) {
@@ -207,6 +204,18 @@ export const AlertsManager: React.FC<AlertsManagerProps> = ({
 
   useEffect(() => {
     loadDailyAbsences(selectedDate);
+  }, [selectedDate]);
+
+  // Atualiza ausências do dia em tempo real quando a secretaria lançar frequência
+  useEffect(() => {
+    const handleLiveSync = () => {
+      const sId = storageService.getActiveSchoolId();
+      setDailyRecords(
+        deduplicateAttendanceRecords(storageService.getAttendanceRecords(undefined, selectedDate, sId))
+      );
+    };
+    window.addEventListener('sigaescola-data-synced', handleLiveSync);
+    return () => window.removeEventListener('sigaescola-data-synced', handleLiveSync);
   }, [selectedDate]);
 
   // Combine attendance records and gate entries to build list of absent students

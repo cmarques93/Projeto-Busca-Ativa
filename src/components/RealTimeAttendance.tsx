@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { Student, SchoolClass, AttendanceStatus, ParentAlert, AttendanceRecord } from '../types';
 import { storageService } from '../data/storageService';
-import { firestoreService, isSameDay, normalizeDateStr } from '../lib/firestoreService';
+import { firestoreService, isSameDay, normalizeDateStr, deduplicateAttendanceRecords } from '../lib/firestoreService';
 import { getCalendarDayStatus, getCalendarMetricsSummary, calculateCalendarAttendanceRate } from '../utils/calendarUtils';
 import {
   generateAtestadoRecordsSequence,
@@ -157,7 +157,7 @@ interface RealTimeAttendanceProps {
     classId: string,
     teacherName: string,
     date?: string
-  ) => Promise<{ newAlerts: ParentAlert[] } | void>;
+  ) => Promise<{ newAlerts: ParentAlert[]; cloudSynced?: boolean; cloudError?: string } | void>;
   onOpenStudentDetail: (studentId: string) => void;
   onManualAlert: (student: Student) => void;
   onGoToAlerts?: () => void;
@@ -285,12 +285,14 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
     }
   };
 
-  // Fetch daily attendance records when date changes (instant local read + school-scoped cloud sync)
-  const loadDailyRecords = async (date: string) => {
+  // Fetch daily attendance records when date changes (instant local read + fresh authoritative cloud sync)
+  const loadDailyRecords = async (date: string, forceRefresh = true) => {
     const sId = storageService.getActiveSchoolId();
 
     // 1. Leitura instantânea do cache local da escola ativa para zero latência ao trocar datas
-    const localInitial = storageService.getAttendanceRecords(undefined, date, sId);
+    const localInitial = deduplicateAttendanceRecords(
+      storageService.getAttendanceRecords(undefined, date, sId)
+    );
     if (localInitial.length > 0) {
       setDailyRecords(localInitial);
     } else {
@@ -299,23 +301,16 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
 
     let records: AttendanceRecord[] = localInitial;
 
-    // 2. Sincronização em nuvem filtrada pela unidade escolar ativa (preservando registros locais pendentes)
+    // 2. Sincronização em nuvem filtrada pela unidade escolar ativa (fonte autoritativa do Firebase)
     try {
-      const firestoreRecords = await firestoreService.getAttendanceRecords(undefined, sId);
-      if (firestoreRecords && firestoreRecords.length > 0) {
-        const localAll = storageService.getAttendanceRecords(undefined, undefined, sId);
-        const cloudIds = new Set(firestoreRecords.map(r => r.id));
-        const mergedAll = [...firestoreRecords, ...localAll.filter(r => !cloudIds.has(r.id))];
-        storageService.setAttendanceRecords(mergedAll, sId);
-
-        const dateMerged = mergedAll.filter(r => isSameDay(r.date, date));
-        const recordMap = new Map<string, AttendanceRecord>();
-        dateMerged.forEach(r => {
-          if (!recordMap.has(r.studentId)) {
-            recordMap.set(r.studentId, r);
-          }
-        });
-        records = Array.from(recordMap.values());
+      const firestoreRecords = await firestoreService.getAttendanceRecords(undefined, sId, forceRefresh);
+      if (Array.isArray(firestoreRecords)) {
+        const dedupedCloud = deduplicateAttendanceRecords(firestoreRecords);
+        // Quando o Firebase retorna dados (ou quando não está em cooldown de cota), ele é a fonte de verdade
+        if (dedupedCloud.length > 0 || !firestoreService.isQuotaCurrentlyExceeded()) {
+          storageService.setAttendanceRecords(dedupedCloud, sId);
+          records = dedupedCloud.filter(r => isSameDay(r.date, date));
+        }
       }
     } catch (err) {
       console.warn('Falha ao obter frequências do Firestore:', err);
@@ -327,7 +322,20 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
   };
 
   useEffect(() => {
-    loadDailyRecords(selectedDate);
+    loadDailyRecords(selectedDate, true);
+  }, [selectedDate]);
+
+  // Atualiza automaticamente a tela quando outra máquina (ex.: secretaria/AOE) salva frequência em tempo real
+  useEffect(() => {
+    const handleLiveSync = () => {
+      const sId = storageService.getActiveSchoolId();
+      const updatedForDate = deduplicateAttendanceRecords(
+        storageService.getAttendanceRecords(undefined, selectedDate, sId)
+      );
+      setDailyRecords(updatedForDate);
+    };
+    window.addEventListener('sigaescola-data-synced', handleLiveSync);
+    return () => window.removeEventListener('sigaescola-data-synced', handleLiveSync);
   }, [selectedDate]);
 
   // Open Pop-up modal for a specific class
@@ -547,9 +555,7 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
     setIsEditConfirmOpen(false);
 
     try {
-      // 1. Apaga prévia e explicitamente os registros antigos desta turma nesta data (isolado por schoolId)
-      const sId = storageService.getActiveSchoolId();
-      await firestoreService.deleteAttendanceByDate(selectedDate, activeModalClass.id, sId);
+      // 1. Apaga prévia e explicitamente os registros antigos desta turma nesta data (local + Firestore isolado por schoolId)
       await storageService.deleteAttendanceByDate(selectedDate, activeModalClass.id);
 
       const classStudents = students.filter(s => isStudentInClass(s, activeModalClass));
@@ -628,13 +634,20 @@ export const RealTimeAttendance: React.FC<RealTimeAttendanceProps> = ({
         return [...filtered, ...optimisticRecords];
       });
 
-      await onSaveAttendance(items, activeModalClass.id, teacherName, selectedDate);
+      const saveRes = await onSaveAttendance(items, activeModalClass.id, teacherName, selectedDate);
       // Reload daily records directly from Firestore
-      await loadDailyRecords(selectedDate);
+      await loadDailyRecords(selectedDate, true);
 
       const formattedDate = new Date(selectedDate + 'T12:00:00').toLocaleDateString('pt-BR');
-      setSaveSuccessMsg(`Registro anterior apagado e nova frequência da turma "${activeModalClass.name}" (${formattedDate}) gravada com sucesso no Firebase!`);
-      setTimeout(() => setSaveSuccessMsg(null), 6000);
+      if (saveRes && saveRes.cloudSynced === false) {
+        setSaveErrorMsg(
+          `Frequência da turma "${activeModalClass.name}" (${formattedDate}) salva apenas localmente, mas falhou ao enviar para o Firebase. Verifique sua conexão e clique em Sincronizar.`
+        );
+        setTimeout(() => setSaveErrorMsg(null), 9000);
+      } else {
+        setSaveSuccessMsg(`Frequência da turma "${activeModalClass.name}" (${formattedDate}) gravada e sincronizada com sucesso no Firebase!`);
+        setTimeout(() => setSaveSuccessMsg(null), 6000);
+      }
 
       // Closes modal and returns to grid
       setActiveModalClass(null);

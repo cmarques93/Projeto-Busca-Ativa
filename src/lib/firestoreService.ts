@@ -9,6 +9,8 @@ import {
   getDocFromServer,
   query,
   where,
+  onSnapshot,
+  Unsubscribe,
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -89,6 +91,49 @@ export function normalizeDateStr(d?: string): string {
 export function isSameDay(d1?: string, d2?: string): boolean {
   if (!d1 || !d2) return false;
   return normalizeDateStr(d1) === normalizeDateStr(d2);
+}
+
+/**
+ * Deduplica registros de frequência por (studentId, date), preservando SEMPRE
+ * o lançamento mais recente (recordedAt / createdAt) e priorizando registros
+ * individuais sobre marcadores genéricos de turma.
+ */
+export function deduplicateAttendanceRecords(records: AttendanceRecord[]): AttendanceRecord[] {
+  if (!Array.isArray(records) || records.length === 0) return [];
+  const byKey = new Map<string, AttendanceRecord>();
+
+  const getRecTimestamp = (r: AttendanceRecord): number => {
+    const raw = r.recordedAt || r.createdAt || '';
+    if (raw) {
+      const parsed = Date.parse(raw);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+    const idMatch = typeof r.id === 'string' ? r.id.match(/att-(\d{12,14})-/) : null;
+    if (idMatch) {
+      const n = Number(idMatch[1]);
+      if (!Number.isNaN(n)) return n;
+    }
+    return 0;
+  };
+
+  for (const r of records) {
+    if (!r || !r.studentId) continue;
+    const normDate = normalizeDateStr(r.date) || r.date || '';
+    const normalizedRec: AttendanceRecord = normDate && r.date !== normDate ? { ...r, date: normDate } : r;
+    const key = `${normalizedRec.studentId}__${normDate}`;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, normalizedRec);
+      continue;
+    }
+    const newTs = getRecTimestamp(normalizedRec);
+    const oldTs = getRecTimestamp(existing);
+    if (newTs >= oldTs) {
+      byKey.set(key, normalizedRec);
+    }
+  }
+
+  return Array.from(byKey.values());
 }
 
 export interface FirestoreErrorInfo {
@@ -232,7 +277,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
   throw new Error(JSON.stringify(errInfo));
 }
 
-const LEGACY_SCHOOLID_BACKFILL_VERSION = 'v2';
+const LEGACY_SCHOOLID_BACKFILL_VERSION = 'v3';
 const backfilledCollectionsInSession = new Set<string>();
 
 function isLegacySchoolIdBackfillDone(colName: string): boolean {
@@ -659,17 +704,33 @@ export const firestoreService = {
       const chunkSize = 450;
       for (let i = 0; i < students.length; i += chunkSize) {
         const chunk = students.slice(i, i + chunkSize);
-        const batch = writeBatch(db);
-        for (const s of chunk) {
+        const prepared = chunk.map(s => {
           const cleanId = sanitizeDocId(s.id);
           const cleanData = sanitizeForFirestore({
             ...s,
             id: cleanId,
-            schoolId: s.schoolId || schoolId || DEFAULT_SCHOOL_ID
+            name: String(s.name || 'Estudante').trim().slice(0, 200) || 'Estudante',
+            schoolId: String(s.schoolId || schoolId || DEFAULT_SCHOOL_ID).slice(0, 100)
           });
-          batch.set(doc(db, 'students', cleanId), cleanData, { merge: true });
+          return { cleanId, cleanData };
+        });
+        try {
+          const batch = writeBatch(db);
+          for (const item of prepared) {
+            batch.set(doc(db, 'students', item.cleanId), item.cleanData, { merge: true });
+          }
+          await batch.commit();
+        } catch (batchErr) {
+          // Fallback individual para impedir que um registro isolado bloqueie o lote
+          for (const item of prepared) {
+            try {
+              await setDoc(doc(db, 'students', item.cleanId), item.cleanData, { merge: true });
+            } catch (singleErr) {
+              console.warn(`Erro ao salvar estudante ${item.cleanId} no Firestore:`, singleErr);
+            }
+          }
+          markQuotaExceededIfApplicable(batchErr);
         }
-        await batch.commit();
       }
       invalidateCollectionCache('students');
     } catch (e) {
@@ -678,8 +739,11 @@ export const firestoreService = {
     }
   },
 
-  // === ATTENDANCE RECORDS (Isolamento Multi-Tenant Server-Side) ===
-  async getAttendanceRecords(date?: string, schoolId?: string): Promise<AttendanceRecord[]> {
+  // === ATTENDANCE RECORDS (Isolamento Multi-Tenant + Tempo Real) ===
+  async getAttendanceRecords(date?: string, schoolId?: string, forceRefresh = false): Promise<AttendanceRecord[]> {
+    if (forceRefresh) {
+      invalidateCollectionCache('attendance_records');
+    }
     const list = await querySchoolScopedCollection<AttendanceRecord>(
       'attendance_records',
       schoolId,
@@ -689,35 +753,125 @@ export const firestoreService = {
         date: normalizeDateStr(raw?.date) || raw?.date,
       })
     );
+    const deduped = deduplicateAttendanceRecords(list);
     if (date) {
-      return list.filter(r => isSameDay(r.date, date));
+      return deduped.filter(r => isSameDay(r.date, date));
     }
-    return list;
+    return deduped;
+  },
+
+  subscribeAttendanceRecords(
+    schoolId: string,
+    onUpdate: (records: AttendanceRecord[]) => void
+  ): Unsubscribe {
+    if (!auth.currentUser || !auth.currentUser.emailVerified) {
+      return () => {};
+    }
+    const targetSchoolId = schoolId || DEFAULT_SCHOOL_ID;
+    const colRef = collection(db, 'attendance_records');
+    const q = query(colRef, where('schoolId', '==', targetSchoolId));
+    const cacheKey = `attendance_records:${targetSchoolId}`;
+
+    // Para a escola legada padrão, garante uma varredura retroativa única para carimbar registros antigos sem schoolId
+    if (targetSchoolId === DEFAULT_SCHOOL_ID && !isLegacySchoolIdBackfillDone('attendance_records')) {
+      querySchoolScopedCollection<AttendanceRecord>('attendance_records', targetSchoolId, (id, raw) => ({
+        id,
+        ...(raw as AttendanceRecord),
+        date: normalizeDateStr(raw?.date) || raw?.date,
+      })).catch(() => {});
+    }
+
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const list: AttendanceRecord[] = [];
+        snapshot.forEach((d) => {
+          const raw = d.data() as any;
+          list.push({
+            id: d.id,
+            ...(raw as AttendanceRecord),
+            date: normalizeDateStr(raw?.date) || raw?.date,
+            schoolId: raw?.schoolId || targetSchoolId,
+          });
+        });
+        const deduped = deduplicateAttendanceRecords(list);
+        if (deduped.length > 0) {
+          setCachedCollection(cacheKey, deduped);
+        } else {
+          invalidateCollectionCache('attendance_records');
+        }
+        onUpdate(deduped);
+      },
+      (err) => {
+        markQuotaExceededIfApplicable(err);
+        console.warn('Erro no listener em tempo real de attendance_records:', err);
+      }
+    );
   },
 
   async batchSaveAttendance(records: AttendanceRecord[], schoolId?: string): Promise<void> {
     if (!records || records.length === 0) return;
+    const targetSchoolId = String(schoolId || DEFAULT_SCHOOL_ID).trim().slice(0, 100) || DEFAULT_SCHOOL_ID;
+    const fallbackDate = new Date().toISOString().split('T')[0];
+
     try {
       const chunkSize = 450;
+      let failedCount = 0;
+      let lastErr: unknown = null;
+
       for (let i = 0; i < records.length; i += chunkSize) {
         const chunk = records.slice(i, i + chunkSize);
-        const batch = writeBatch(db);
-        for (const r of chunk) {
+        const prepared = chunk.map(r => {
           const cleanId = sanitizeDocId(r.id);
+          const cleanDate = (normalizeDateStr(r.date) || r.date || fallbackDate).slice(0, 40);
+          const cleanStudentId = String(r.studentId || cleanId).trim().slice(0, 128) || cleanId;
+          const cleanClassId = String(r.classId || r.className || 'turma').trim().slice(0, 128) || 'turma';
+          const cleanStatus = String(r.status || 'presente').trim().slice(0, 40) || 'presente';
+          const cleanSchoolId = String(r.schoolId || targetSchoolId).trim().slice(0, 100) || targetSchoolId;
+
           const cleanRecord = sanitizeForFirestore({
             ...r,
             id: cleanId,
-            date: normalizeDateStr(r.date) || r.date,
-            schoolId: r.schoolId || schoolId || DEFAULT_SCHOOL_ID
+            studentId: cleanStudentId,
+            classId: cleanClassId,
+            date: cleanDate,
+            status: cleanStatus,
+            schoolId: cleanSchoolId,
+            recordedAt: r.recordedAt || new Date().toISOString(),
           });
-          batch.set(doc(db, 'attendance_records', cleanId), cleanRecord, { merge: true });
+          return { cleanId, cleanRecord };
+        });
+
+        try {
+          const batch = writeBatch(db);
+          for (const item of prepared) {
+            batch.set(doc(db, 'attendance_records', item.cleanId), item.cleanRecord, { merge: true });
+          }
+          await batch.commit();
+        } catch (batchErr) {
+          lastErr = batchErr;
+          markQuotaExceededIfApplicable(batchErr);
+          // Fallback individual para garantir gravação máxima caso um único doc rejeite
+          for (const item of prepared) {
+            try {
+              await setDoc(doc(db, 'attendance_records', item.cleanId), item.cleanRecord, { merge: true });
+            } catch (singleErr) {
+              failedCount++;
+              lastErr = singleErr;
+              console.error(`Erro ao gravar frequência ${item.cleanId} no Firestore:`, singleErr);
+            }
+          }
         }
-        await batch.commit();
       }
+
       invalidateCollectionCache('attendance_records');
+      if (failedCount > 0 && failedCount === records.length) {
+        throw lastErr || new Error('Não foi possível gravar os registros de frequência no Firestore.');
+      }
     } catch (e) {
       markQuotaExceededIfApplicable(e);
       console.error('Erro ao salvar registros de chamada no Firestore:', e);
+      throw e;
     }
   },
 
@@ -725,7 +879,11 @@ export const firestoreService = {
     if (!dateStr) return 0;
     try {
       const colRef = collection(db, 'attendance_records');
-      const q = schoolId ? query(colRef, where('schoolId', '==', schoolId)) : colRef;
+      const targetSchoolId = schoolId || DEFAULT_SCHOOL_ID;
+      // Para a escola padrão, consulta sem filtro apenas se ainda houver risco de docs legados sem schoolId
+      const q = targetSchoolId === DEFAULT_SCHOOL_ID
+        ? colRef
+        : query(colRef, where('schoolId', '==', targetSchoolId));
       const snap = await getDocs(q);
       const toDelete: string[] = [];
       const cleanDate = normalizeDateStr(dateStr);
@@ -733,7 +891,8 @@ export const firestoreService = {
 
       snap.forEach(d => {
         const data = d.data() as AttendanceRecord;
-        if (schoolId && (data.schoolId || DEFAULT_SCHOOL_ID) !== schoolId) {
+        const docSchoolId = typeof data.schoolId === 'string' && data.schoolId.trim() ? data.schoolId.trim() : DEFAULT_SCHOOL_ID;
+        if (docSchoolId !== targetSchoolId) {
           return;
         }
         const recordDate = normalizeDateStr(data.date) || data.date;

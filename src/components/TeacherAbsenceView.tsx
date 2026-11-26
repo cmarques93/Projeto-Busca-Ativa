@@ -15,7 +15,7 @@ import {
 import { SchoolClass, Student, AttendanceRecord, UserSession, TeacherScheduleSlot, GateRecord } from '../types';
 import { InfoTooltip } from './InfoTooltip';
 import { isStudentInClass, isRecordInClass } from './RealTimeAttendance';
-import { firestoreService, isSameDay } from '../lib/firestoreService';
+import { firestoreService, isSameDay, deduplicateAttendanceRecords } from '../lib/firestoreService';
 import { storageService } from '../data/storageService';
 import { evaluateTeacherAbsenceVisibility, getSchoolSchedulePeriods } from '../utils/scheduleUtils';
 import { getLocalTodayStr } from '../utils/reportCalculator';
@@ -81,11 +81,13 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
       }
     }).catch(() => {});
 
-    // 1. Consulta em nuvem no Firestore (isolada por escola)
+    // 1. Consulta em nuvem no Firestore (isolada por escola e atualizada)
     try {
-      const allCloud = await firestoreService.getAttendanceRecords(undefined, sId);
-      if (allCloud && allCloud.length > 0) {
-        classRecs = allCloud.filter(r => {
+      const allCloud = await firestoreService.getAttendanceRecords(undefined, sId, true);
+      if (Array.isArray(allCloud) && (allCloud.length > 0 || !firestoreService.isQuotaCurrentlyExceeded())) {
+        const dedupedCloud = deduplicateAttendanceRecords(allCloud);
+        storageService.setAttendanceRecords(dedupedCloud, sId);
+        classRecs = dedupedCloud.filter(r => {
           const matchClass = !currentClass || isRecordInClass(r, currentClass);
           if (!matchClass) return false;
           if (viewAllDates) return true;
@@ -96,9 +98,11 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
       console.warn('Erro ao buscar do Firestore em TeacherAbsenceView:', e);
     }
 
-    // 2. Fallback storageService local da escola ativa (sem consultar banco em memória desconectado)
-    if (classRecs.length === 0) {
-      const localRecs = storageService.getAttendanceRecords(undefined, viewAllDates ? undefined : selectedDate, sId);
+    // 2. Fallback storageService local da escola ativa caso offline
+    if (classRecs.length === 0 && firestoreService.isQuotaCurrentlyExceeded()) {
+      const localRecs = deduplicateAttendanceRecords(
+        storageService.getAttendanceRecords(undefined, viewAllDates ? undefined : selectedDate, sId)
+      );
       classRecs = currentClass ? localRecs.filter(r => isRecordInClass(r, currentClass)) : localRecs;
     }
 
@@ -109,6 +113,20 @@ export const TeacherAbsenceView: React.FC<TeacherAbsenceViewProps> = ({
   useEffect(() => {
     fetchRecords();
   }, [selectedClassId, selectedDate, viewAllDates]);
+
+  // Atualiza automaticamente quando a secretaria/AOE lançar novas frequências em outro computador
+  useEffect(() => {
+    const handleLiveSync = () => {
+      const sId = storageService.getActiveSchoolId();
+      const synced = deduplicateAttendanceRecords(
+        storageService.getAttendanceRecords(undefined, viewAllDates ? undefined : selectedDate, sId)
+      );
+      const filtered = currentClass ? synced.filter(r => isRecordInClass(r, currentClass)) : synced;
+      setRecords(filtered);
+    };
+    window.addEventListener('sigaescola-data-synced', handleLiveSync);
+    return () => window.removeEventListener('sigaescola-data-synced', handleLiveSync);
+  }, [selectedClassId, selectedDate, viewAllDates, classes]);
 
   const classStudents = currentClass ? students.filter(s => isStudentInClass(s, currentClass)) : students;
 
